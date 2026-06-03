@@ -1,0 +1,279 @@
+// Wally data model. Decisions baked in:
+//  - org_id on every tenant-scoped table (multi-retailer from day one)
+//  - rubrics are append-only versioned rows; verdicts FK a specific version
+//  - ScoreJob table is the durable queue (claimed with SKIP LOCKED)
+//  - verdicts stamped with model + rubric + prompt version (reproducible)
+//  - magic-link tokens stored sha256-hashed, single-use
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Prisma 7 no longer accepts `url = env(...)` here. The connection URL lives
+  // in prisma.config.ts (CLI) and PrismaService's PrismaPg adapter (runtime).
+}
+
+// ─────────────────────────────────────────── identity / tenancy
+
+model Org {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  users      User[]
+  stores     Store[]
+  campaigns  Campaign[]
+  rubrics    Rubric[]
+  submissions Submission[]
+}
+
+enum Role {
+  ADMIN
+  REVIEWER
+  STORE_MANAGER
+}
+
+model User {
+  id        String   @id @default(cuid())
+  orgId     String
+  email     String   @unique
+  name      String?
+  role      Role     @default(REVIEWER)
+  googleId  String?  @unique
+  createdAt DateTime @default(now())
+
+  org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  sessions Session[]
+  reviews  Review[]
+
+  @@index([orgId])
+}
+
+model Session {
+  id        String   @id // hex(randomBytes(32))
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Single-use, short-TTL. Token is only stored as a sha256 hash.
+model MagicLinkToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  email     String
+  orgId     String
+  storeId   String?
+  role      Role     @default(STORE_MANAGER)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
+// ─────────────────────────────────────────── retail structure
+
+model Store {
+  id          String   @id @default(cuid())
+  orgId       String
+  name        String
+  brand       String   // "House", "Robins Kitchen", "The Custom Chef"
+  externalRef String?  // ReStore / Globe id
+  createdAt   DateTime @default(now())
+
+  org           Org            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  submissions   Submission[]
+  storeFixtures StoreFixture[]
+
+  @@index([orgId])
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+}
+
+model Campaign {
+  id        String         @id @default(cuid())
+  orgId     String
+  key       String // "MSP2-2026"
+  name      String
+  status    CampaignStatus @default(DRAFT)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdAt DateTime       @default(now())
+
+  org         Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  rubrics     Rubric[]
+  submissions Submission[]
+
+  @@unique([orgId, key])
+  @@index([orgId])
+}
+
+// Append-only. Editing publishes a new (campaignId, fixtureKey, version) row.
+model Rubric {
+  id             String   @id @default(cuid())
+  orgId          String
+  campaignId     String
+  fixtureKey     String   // "storefront" | "vm_table" | "doorbuster"
+  version        Int
+  criteria       Json     // [{ id, kind, critical, text }]
+  rollupRule     Json     @default("{\"not_good_if_any_critical_fails\":true,\"good_if_only_noncritical_fails\":true}")
+  referenceKey   String?  // storage key of the reference/standard image
+  createdAt      DateTime @default(now())
+
+  org      Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  verdicts Verdict[]
+
+  @@unique([campaignId, fixtureKey, version])
+  @@index([orgId])
+}
+
+// Per-store applicability ("we don't have VM table 3"). order drives the checklist.
+model StoreFixture {
+  id         String  @id @default(cuid())
+  storeId    String
+  campaignId String
+  fixtureKey String
+  label      String  // "Storefront", "VM Table 1 · Le Connoisseur"
+  applicable Boolean @default(true)
+  order      Int     @default(0)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, campaignId, fixtureKey])
+  @@index([storeId, campaignId])
+}
+
+// ─────────────────────────────────────────── submissions / scoring
+
+enum SubmissionStatus {
+  PENDING
+  PARTIAL
+  SUBMITTED
+}
+
+model Submission {
+  id          String           @id @default(cuid())
+  orgId       String
+  storeId     String
+  campaignId  String
+  status      SubmissionStatus @default(PENDING)
+  submittedAt DateTime?
+  createdAt   DateTime         @default(now())
+
+  org      Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  photos   Photo[]
+
+  @@unique([storeId, campaignId])
+  @@index([orgId])
+}
+
+enum PhotoStatus {
+  UPLOADED
+  SCORING
+  SCORED
+  FAILED
+}
+
+model Photo {
+  id           String      @id @default(cuid())
+  submissionId String
+  fixtureKey   String
+  storageKey   String      // key in StorageService
+  status       PhotoStatus @default(UPLOADED)
+  width        Int?
+  height       Int?
+  createdAt    DateTime    @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  job        ScoreJob?
+  verdict    Verdict?
+
+  @@index([submissionId])
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+// The durable queue. Worker claims with SELECT ... FOR UPDATE SKIP LOCKED.
+model ScoreJob {
+  id        String    @id @default(cuid())
+  photoId   String    @unique
+  status    JobStatus @default(PENDING)
+  attempts  Int       @default(0)
+  lastError String?
+  lockedAt  DateTime?
+  runAfter  DateTime  @default(now()) // backoff schedule
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  photo Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter])
+}
+
+enum Overall {
+  PERFECT
+  GOOD
+  NOT_GOOD
+  NEEDS_REVIEW
+}
+
+model Verdict {
+  id            String   @id @default(cuid())
+  photoId       String   @unique
+  rubricId      String
+  overall       Overall
+  needsReview   Boolean
+  confidence    Float
+  modelId       String
+  promptVersion String
+  results       Json     // [{ id, verdict, confidence, evidence }]
+  createdAt     DateTime @default(now())
+
+  photo   Photo    @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  rubric  Rubric   @relation(fields: [rubricId], references: [id])
+  reviews Review[]
+
+  @@index([rubricId])
+}
+
+enum ReviewAction {
+  CONFIRM
+  OVERRIDE
+  ESCALATE
+}
+
+model Review {
+  id          String       @id @default(cuid())
+  verdictId   String
+  criterionId String? // null = whole-fixture action
+  action      ReviewAction
+  fromVerdict String?
+  toVerdict   String?
+  reason      String?
+  reviewerId  String
+  createdAt   DateTime     @default(now())
+
+  verdict  Verdict @relation(fields: [verdictId], references: [id], onDelete: Cascade)
+  reviewer User    @relation(fields: [reviewerId], references: [id])
+
+  @@index([verdictId])
+}

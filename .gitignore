@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# env + secrets — never commit
+.env
+.env.local
+apps/*/.env
+!.env.example
+
+# store photos may contain people — never commit
+data/uploads/
+apps/api/storage/
+*.local
+
+# misc
+.DS_Store
+coverage/
+.vite/

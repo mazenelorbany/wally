@@ -1,0 +1,154 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =============================================================================
+ * Wally — TCC brand base layer.
+ *
+ * The component design system lives in @wally/ui; its tokens are mirrored here
+ * as CSS custom properties so the web shell is fully styled on its own (the
+ * demo must never render unstyled while packages are mid-build). When @wally/ui
+ * ships its own styles.css the values are identical, so importing it on top is
+ * a no-op rather than a conflict.
+ *
+ * Palette — warm monochrome + ONE signal red:
+ *   paper #FBFBF9  surface #F3F2EE  ink #0E0E0D  graphite #3C3B36
+ *   steel #7E7D77  mist #BEBDB6     signal red #B23A2E
+ *   pass green #3E7C5A   warn amber #C9892F
+ *
+ * COLOUR-BLIND SAFE: every verdict pairs hue with an icon + text label. The GRB
+ * CEO is colour blind and sees red — red is never the only signal.
+ * ========================================================================== */
+
+@layer base {
+  :root {
+    --paper: 251 251 249;        /* #FBFBF9 */
+    --surface: 243 242 238;      /* #F3F2EE */
+    --ink: 14 14 13;             /* #0E0E0D */
+    --graphite: 60 59 54;        /* #3C3B36 */
+    --steel: 126 125 119;        /* #7E7D77 */
+    --mist: 190 189 182;         /* #BEBDB6 */
+
+    --signal: 178 58 46;         /* #B23A2E */
+    --pass: 62 124 90;           /* #3E7C5A */
+    --warn: 201 137 47;          /* #C9892F */
+
+    --hairline: 14 14 13;        /* used at low alpha for borders */
+    --radius: 0.75rem;
+
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-snap: cubic-bezier(0.34, 1.2, 0.64, 1);
+  }
+
+  * {
+    border-color: rgb(var(--ink) / 0.1);
+  }
+
+  html {
+    color-scheme: light;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    margin: 0;
+    background-color: rgb(var(--paper));
+    color: rgb(var(--ink));
+    font-family: 'Questrial', 'Century Gothic', 'Futura', system-ui, -apple-system,
+      'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: 'Century Gothic', 'Questrial', 'Futura', system-ui, sans-serif;
+    letter-spacing: -0.01em;
+    font-weight: 600;
+  }
+
+  /* Form fields — quiet focus ring in signal red, never hue-only (also a glow). */
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+  }
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    border-color: rgb(var(--signal) / 0.6);
+    box-shadow: 0 0 0 3px rgb(var(--signal) / 0.14);
+  }
+
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--mist));
+    border-radius: 999px;
+    border: 3px solid rgb(var(--paper));
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--steel)); }
+}
+
+@layer components {
+  /* Eyebrow / system label — used above section titles. */
+  .eyebrow {
+    font-size: 0.6875rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgb(var(--steel));
+    font-weight: 500;
+  }
+
+  /* Hairline divider, lighter than the default border. */
+  .hairline { border-color: rgb(var(--ink) / 0.07); }
+
+  /* Press affordance — every clickable surface feels like it's listening. */
+  .tap {
+    transition: transform 140ms var(--ease-snap), background-color 160ms var(--ease-out),
+      border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+    cursor: pointer;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .tap:active:not(:disabled) { transform: scale(0.975); }
+  }
+  .tap:disabled { cursor: not-allowed; opacity: 0.5; }
+
+  /* Field — composable input shell. */
+  .field {
+    width: 100%;
+    border: 1px solid rgb(var(--ink) / 0.14);
+    background: rgb(var(--paper));
+    border-radius: calc(var(--radius) - 0.25rem);
+    padding: 0.625rem 0.8rem;
+    font-size: 0.95rem;
+    color: rgb(var(--ink));
+    transition: border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+  }
+  .field::placeholder { color: rgb(var(--steel) / 0.8); }
+  .field:hover:not(:focus-visible) { border-color: rgb(var(--ink) / 0.24); }
+
+  /* Stagger list — gentle cascade on mount. */
+  .stagger > * { animation: wally-stagger 280ms var(--ease-out) both; }
+  .stagger > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger > *:nth-child(2) { animation-delay: 28ms; }
+  .stagger > *:nth-child(3) { animation-delay: 56ms; }
+  .stagger > *:nth-child(4) { animation-delay: 84ms; }
+  .stagger > *:nth-child(5) { animation-delay: 112ms; }
+  .stagger > *:nth-child(6) { animation-delay: 140ms; }
+  .stagger > *:nth-child(n + 7) { animation-delay: 168ms; }
+}
+
+@keyframes wally-stagger {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 60ms !important;
+  }
+}

@@ -1,0 +1,131 @@
+import { z } from 'zod';
+
+// =============================================================================
+// Single source of truth for runtime environment variables.
+// Parsed once at module load — fail fast on missing/invalid values.
+//
+// Shape mirrors the project root .env.example (copied to apps/api/.env for
+// local dev). Wally is the TRIMMED stack: no Redis, no Qdrant, no Sentry.
+// =============================================================================
+
+const optionalNonEmpty = z
+  .string()
+  .optional()
+  .or(z.literal(''))
+  .transform((v) => (v && v.length > 0 ? v : undefined));
+
+// Plain z.coerce.boolean() treats every non-empty string as true, so "false"
+// would become true. This helper parses booleans the way humans expect.
+const bool = (defaultValue: boolean) =>
+  z
+    .string()
+    .optional()
+    .transform((v) => {
+      if (v === undefined || v === '') return defaultValue;
+      const lower = v.toLowerCase();
+      if (lower === 'true' || lower === '1' || lower === 'yes') return true;
+      if (lower === 'false' || lower === '0' || lower === 'no') return false;
+      return defaultValue;
+    });
+
+const EnvSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  PORT: z.coerce.number().default(3001),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+
+  // Database — Postgres on high port 5434 (see infra/docker-compose.yml).
+  DATABASE_URL: z.string().url(),
+
+  // Auth.
+  JWT_SECRET: z.string().min(32),
+  SESSION_COOKIE_NAME: z.string().default('wally_session'),
+  SESSION_COOKIE_SECURE: bool(false),
+  MAGIC_LINK_TTL_MIN: z.coerce.number().int().positive().default(20),
+
+  // SPA origin. Used for CORS allow-list and magic-link redirect base.
+  APP_URL: z.string().url().default('http://localhost:5173'),
+
+  // Google OAuth (reviewers). Leave blank in dev to fall back to dev-login.
+  GOOGLE_CLIENT_ID: optionalNonEmpty,
+  GOOGLE_CLIENT_SECRET: optionalNonEmpty,
+
+  // Vision model (scoring core). anthropic is the only wired provider today.
+  WALLY_VISION_PROVIDER: z.enum(['anthropic']).default('anthropic'),
+  ANTHROPIC_API_KEY: optionalNonEmpty,
+  WALLY_VISION_MODEL: z.string().default('claude-sonnet-4-6'),
+  // Verdicts below this confidence are forced to needs_review (no silent pass).
+  WALLY_CONFIDENCE_FLOOR: z.coerce.number().min(0).max(1).default(0.7),
+
+  // Mail (magic links) — Mailhog in dev (SMTP :1025, web UI :8025).
+  SMTP_HOST: z.string().default('localhost'),
+  SMTP_PORT: z.coerce.number().default(1025),
+  SMTP_USER: optionalNonEmpty,
+  SMTP_PASSWORD: optionalNonEmpty,
+  MAIL_FROM: z.string().default('wally@thecookwarecompany.com'),
+
+  // Photo storage. local = disk (apps/api/storage); railway = Volume mount.
+  WALLY_STORAGE_DRIVER: z.enum(['local', 'railway']).default('local'),
+  WALLY_STORAGE_DIR: z.string().default('./storage'),
+});
+
+export type EnvType = z.infer<typeof EnvSchema>;
+
+// =============================================================================
+// Placeholder values that must NEVER ship to a real environment.
+//
+// These are the literal strings from .env.example. If a deployer copies the
+// example into a real .env and forgets to fill JWT_SECRET, the API would sign
+// session tokens with a predictable secret — an attacker forging tokens is one
+// search away. The boot guard refuses to start in `production` when any match,
+// naming the offending var so a sleepy ops engineer knows the line to fix.
+// =============================================================================
+const PLACEHOLDER_VALUES: Record<string, string[]> = {
+  JWT_SECRET: ['dev_change_me_please'],
+};
+
+function bootGuard(env: EnvType): void {
+  if (env.NODE_ENV !== 'production') return;
+
+  const violations: { name: string; hint: string }[] = [];
+  for (const [name, placeholders] of Object.entries(PLACEHOLDER_VALUES)) {
+    const value = (env as Record<string, unknown>)[name];
+    if (typeof value === 'string' && placeholders.includes(value)) {
+      violations.push({
+        name,
+        hint: 'Generate a strong random secret (>=32 chars) and set it in your production .env.',
+      });
+    }
+  }
+
+  // Vision scoring is the product. A production deploy without an API key would
+  // boot, then fail every score job — surface it loudly at boot instead.
+  if (env.WALLY_VISION_PROVIDER === 'anthropic' && !env.ANTHROPIC_API_KEY) {
+    violations.push({
+      name: 'ANTHROPIC_API_KEY',
+      hint: 'Required when WALLY_VISION_PROVIDER=anthropic — scoring cannot run without it.',
+    });
+  }
+
+  if (violations.length === 0) return;
+
+  // intentional — boot log; the process exits, never reached via HTTP.
+  console.error('Refusing to start: production .env contains placeholder or missing values.');
+  for (const v of violations) console.error(`  - ${v.name}: ${v.hint}`);
+  throw new Error('Environment boot guard failed — see logs above');
+}
+
+function parseEnv(): EnvType {
+  const result = EnvSchema.safeParse(process.env);
+  if (!result.success) {
+    // intentional — boot log; the process exits, never reached via HTTP.
+    console.error('Environment validation failed:');
+    for (const issue of result.error.issues) {
+      console.error(`  - ${issue.path.join('.')}: ${issue.message}`);
+    }
+    throw new Error('Environment validation failed — see logs above');
+  }
+  bootGuard(result.data);
+  return result.data;
+}
+
+export const Env: EnvType = parseEnv();

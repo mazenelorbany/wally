@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "compilerOptions": {
+    "_comment": "deleteOutDir false so a dev pre-build of dist/ survives `nest start --watch`'s race — otherwise the watcher nukes dist/ before tsc re-emits and node fails MODULE_NOT_FOUND.",
+    "deleteOutDir": false,
+    "tsConfigPath": "tsconfig.build.json"
+  }
+}

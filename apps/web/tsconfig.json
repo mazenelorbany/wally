@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "useDefineForClassFields": true,
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"],
+    "baseUrl": "./",
+    "noEmit": true,
+    "paths": {
+      "@/*": ["src/*"],
+      "@wally/types": ["../../packages/types/src/index.ts"],
+      "@wally/sdk": ["../../packages/sdk/src/index.ts"],
+      "@wally/ui": ["../../packages/ui/src/index.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts", "vitest.setup.ts"]
+}

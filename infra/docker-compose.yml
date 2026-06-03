@@ -1,0 +1,32 @@
+# Local dev infra for Wally. Trimmed vs Nockta Flow: Postgres + Mailhog only.
+# No Redis / Qdrant / Grafana — Wally doesn't need them (see ARCHITECTURE).
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wally-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wally
+      POSTGRES_PASSWORD: wally_dev_pw
+      POSTGRES_DB: wally
+    ports:
+      - "5434:5432" # high port to avoid clashing with other local Postgres
+    volumes:
+      - wally_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wally"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Catches magic-link emails in dev — open http://localhost:8025
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: wally-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # web UI
+
+volumes:
+  wally_pg:

@@ -1,0 +1,78 @@
+/* =============================================================================
+ * @wally/ui — design tokens as CSS custom properties.
+ *
+ * Import ONCE at the app root (before Tailwind's utilities, or alongside them):
+ *   import '@wally/ui/styles.css';
+ *
+ * These variables back the named colours / fonts / easings declared in
+ * tailwind-preset.cjs, so changing a value here re-themes every utility class
+ * (bg-paper, text-signal, ease-spring, font-display, …) at once.
+ *
+ * TCC brand: warm monochrome paper→ink + ONE signal red. Pass green / warn
+ * amber exist only as reinforcement behind an icon + label (colour-blind safe).
+ * Type: Century Gothic → Questrial (loaded) → Futura, geometric.
+ * ========================================================================== */
+
+/* Questrial — the loaded geometric fallback for Century Gothic (which is not a
+ * web font). Latin only; swap to keep text visible during load. */
+@import url("https://fonts.googleapis.com/css2?family=Questrial&display=swap");
+
+:root {
+  /* --- Warm monochrome scale ------------------------------------------- */
+  --wally-paper: #fbfbf9;     /* page */
+  --wally-surface: #f3f2ee;   /* cards, rails */
+  --wally-ink: #0e0e0d;       /* primary text */
+  --wally-graphite: #3c3b36;  /* strong body / secondary heads */
+  --wally-steel: #7e7d77;     /* labels, captions, metadata */
+  --wally-mist: #bebdb6;      /* hairlines, dividers, disabled */
+
+  /* --- The one accent -------------------------------------------------- */
+  --wally-signal: #b23a2e;    /* stop / critical / brand emphasis */
+
+  /* --- Reinforcement hues (never hue-alone) ---------------------------- */
+  --wally-pass: #3e7c5a;      /* pass / perfect */
+  --wally-warn: #c9892f;      /* needs-review / unsure */
+
+  /* --- Type ------------------------------------------------------------ */
+  --wally-font-display: "Century Gothic";
+  --wally-font-sans: "Questrial";
+
+  /* --- Radius ---------------------------------------------------------- */
+  --wally-radius-sm: 0.25rem;
+  --wally-radius-md: 0.5rem;
+  --wally-radius-lg: 0.75rem;
+
+  /* --- Motion ---------------------------------------------------------- */
+  --wally-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --wally-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --wally-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --wally-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --wally-duration-fast: 120ms;
+  --wally-duration-base: 180ms;
+  --wally-duration-slow: 280ms;
+}
+
+/* Sensible document defaults so the brand reads correctly even on bare HTML.
+ * Scoped lightly — apps can override. */
+:where([data-wally-root]),
+:where(body.wally) {
+  background-color: var(--wally-paper);
+  color: var(--wally-ink);
+  font-family:
+    var(--wally-font-sans), "Century Gothic", "Futura", system-ui,
+    -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Respect reduced-motion everywhere our components animate. */
+@media (prefers-reduced-motion: reduce) {
+  :where([data-wally-root]) *,
+  :where([data-wally-root]) *::before,
+  :where([data-wally-root]) *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

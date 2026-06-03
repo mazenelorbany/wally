@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "lib": ["ES2022"],
+    "target": "ES2022",
+    "sourceMap": true,
+    "declaration": false,
+    "skipLibCheck": true,
+    "paths": {}
+  },
+  "_comment": "rootDir pinned to ./src so dist/ is flat (dist/main.js, dist/app.module.js). NestJS is CommonJS. @wally/types resolves from its BUILT package in node_modules (pnpm workspace symlink) — no src path map, so types source is not pulled under rootDir. vitest.config aliases it to src for tests.",
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
