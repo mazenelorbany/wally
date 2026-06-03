@@ -39,7 +39,9 @@ import {
 /** Config this provider reads from the environment. Parsed once at construction
  *  so a missing key fails the first score call loudly, not silently. */
 const AnthropicEnv = z.object({
-  ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required for the anthropic vision provider'),
+  // Optional at boot so the API serves the console without a key; score() throws
+  // a clear error if it's still missing when scoring actually runs.
+  ANTHROPIC_API_KEY: z.string().optional(),
   WALLY_VISION_MODEL: z.string().default('claude-sonnet-4-6'),
   // Plenty of headroom for a handful of criteria; the response is small JSON.
   WALLY_VISION_MAX_TOKENS: z.coerce.number().int().positive().default(1024),
@@ -64,15 +66,31 @@ const RawScoreResponse = z.object({
 @Injectable()
 export class AnthropicVisionProvider implements VisionProvider {
   private readonly logger = new Logger(AnthropicVisionProvider.name);
-  private readonly client: Anthropic;
+  private client?: Anthropic;
+  private readonly apiKey?: string;
   private readonly model: string;
   private readonly maxTokens: number;
 
   constructor() {
     const cfg = AnthropicEnv.parse(process.env);
-    this.client = new Anthropic({ apiKey: cfg.ANTHROPIC_API_KEY });
+    this.apiKey = cfg.ANTHROPIC_API_KEY;
     this.model = cfg.WALLY_VISION_MODEL;
     this.maxTokens = cfg.WALLY_VISION_MAX_TOKENS;
+    if (!this.apiKey) {
+      this.logger.warn(
+        'ANTHROPIC_API_KEY not set — the API will serve, but queued photos stay unscored until a key is provided.',
+      );
+    }
+  }
+
+  /** Lazily build the SDK client; fail loudly only when scoring actually runs. */
+  private getClient(): Anthropic {
+    if (!this.apiKey) {
+      throw new VisionResponseError(
+        'ANTHROPIC_API_KEY is not set — cannot score. Add it to apps/api/.env.',
+      );
+    }
+    return (this.client ??= new Anthropic({ apiKey: this.apiKey }));
   }
 
   get modelId(): string {
@@ -94,7 +112,7 @@ export class AnthropicVisionProvider implements VisionProvider {
 
     let message: Anthropic.Message;
     try {
-      message = await this.client.messages.create({
+      message = await this.getClient().messages.create({
         model: this.model,
         max_tokens: this.maxTokens,
         // Deterministic-ish grading: we want the same photo to score the same.

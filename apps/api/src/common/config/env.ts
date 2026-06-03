@@ -1,4 +1,14 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { z } from 'zod';
+
+// Load apps/api/.env before validating. In production (Railway) the vars are
+// real env vars and no .env exists, so this is a no-op. Mirrors prisma.config.ts.
+const __envPath = join(process.cwd(), '.env');
+if (!process.env.DATABASE_URL && existsSync(__envPath) && typeof process.loadEnvFile === 'function') {
+  process.loadEnvFile(__envPath);
+}
 
 // =============================================================================
 // Single source of truth for runtime environment variables.

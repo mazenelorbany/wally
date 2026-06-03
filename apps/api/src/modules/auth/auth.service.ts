@@ -260,12 +260,11 @@ export class AuthService {
       throw new UnauthorizedException('Dev login is disabled in production');
     }
 
-    // Make sure a demo org exists to hang the user off of.
-    const org = await this.prisma.org.upsert({
-      where: { slug: 'dev' },
-      update: {},
-      create: { name: 'Dev Org', slug: 'dev' },
-    });
+    // Attach the dev user to the seeded org if one exists (so dev-login lands
+    // on the real seeded campaign + stores); otherwise spin up a throwaway one.
+    const org =
+      (await this.prisma.org.findFirst({ orderBy: { createdAt: 'asc' } })) ??
+      (await this.prisma.org.create({ data: { name: 'Dev Org', slug: 'dev' } }));
 
     const email = `${role.toLowerCase()}@dev.local`;
     const user = await this.prisma.user.upsert({

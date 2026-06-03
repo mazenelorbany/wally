@@ -52,6 +52,13 @@ const STORAGE_DIR = resolve(process.env.WALLY_STORAGE_DIR ?? './storage');
 const CAMPAIGN_KEY = 'MSP2-2026';
 const FIXTURES = ['storefront', 'vm_table', 'doorbuster'] as const;
 
+// tsx does not auto-load .env. Load apps/api/.env ourselves (mirrors
+// prisma.config.ts), unless DATABASE_URL is already exported (CI).
+const __envPath = join(__dirname, '..', '.env');
+if (!process.env.DATABASE_URL && existsSync(__envPath) && typeof process.loadEnvFile === 'function') {
+  process.loadEnvFile(__envPath);
+}
+
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: requireEnv('DATABASE_URL') }),
 });

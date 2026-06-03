@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { PassportModule } from '@nestjs/passport';
 
@@ -30,6 +30,9 @@ import { GoogleStrategy } from './strategies/google.strategy';
  * only registered when both credentials are present (googleOAuthConfigured),
  * so the API boots fine with SSO unconfigured — magic-link auth still works.
  */
+// Global so the resource modules' @UseGuards(SessionGuard|RolesGuard) and any
+// AuthService injection resolve without each importing AuthModule.
+@Global()
 @Module({
   imports: [PassportModule],
   controllers: [AuthController],

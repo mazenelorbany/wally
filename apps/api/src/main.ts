@@ -1,6 +1,5 @@
 import 'reflect-metadata';
 
-import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
@@ -32,16 +31,8 @@ async function bootstrap(): Promise<void> {
     credentials: true,
   });
 
-  // Validate + strip every DTO. forbidNonWhitelisted rejects unknown keys so a
-  // typo'd field fails loudly instead of being silently dropped.
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: true },
-    }),
-  );
+  // Validation is zod-based per route (ZodValidationPipe), so no global
+  // class-validator ValidationPipe — Wally doesn't depend on class-validator.
 
   // Health + signed-photo blob routes stay at the root; everything else is
   // namespaced under /api.
