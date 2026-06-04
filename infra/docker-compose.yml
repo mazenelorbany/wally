@@ -19,14 +19,15 @@ services:
       timeout: 3s
       retries: 10
 
-  # Catches magic-link emails in dev — open http://localhost:8025
+  # Catches magic-link emails in dev — open http://localhost:8026
+  # High host ports so we don't clash with Nockta Flow's mailhog (1025/8025).
   mailhog:
     image: mailhog/mailhog:latest
     container_name: wally-mailhog
     restart: unless-stopped
     ports:
-      - "1025:1025" # SMTP
-      - "8025:8025" # web UI
+      - "1026:1025" # SMTP
+      - "8026:8025" # web UI
 
 volumes:
   wally_pg:
