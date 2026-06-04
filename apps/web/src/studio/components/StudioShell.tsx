@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Outlet } from 'react-router-dom';
 import { TooltipProvider } from '@wally/ui';
 
-import { IconRail } from './IconRail';
+import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
   StudioTopBarProvider,
@@ -15,7 +15,7 @@ export function StudioShell() {
     <TooltipProvider delayDuration={200}>
       <StudioTopBarProvider>
         <div className="flex h-dvh overflow-hidden bg-paper text-ink">
-          <IconRail />
+          <Sidebar />
           <div className="flex min-w-0 flex-1 flex-col">
             <TopBarBridge />
             <main className="min-h-0 flex-1 overflow-y-auto">

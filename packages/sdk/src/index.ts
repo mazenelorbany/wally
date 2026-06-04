@@ -14,6 +14,7 @@ import type {
   FloorPlan,
   GuideFixtureDetail,
   ProductDto,
+  GalleryItem,
 } from "@wally/types";
 
 /* -------------------------------------------------------------------------- */
@@ -172,6 +173,8 @@ export interface WallyClient {
     list(): Promise<CampaignSummary[]>;
     /** The reviewer queue: one rolled-up StoreScore per store, attention-first. */
     queue(campaignId: string): Promise<StoreScore[]>;
+    /** Every execution image across the campaign's stores (the gallery). */
+    gallery(campaignId: string): Promise<GalleryItem[]>;
   };
   stores: {
     storeScore(id: string, campaignId: string): Promise<StoreScore>;
@@ -338,6 +341,10 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         get<{ stores: StoreScore[] }>(
           `campaigns/${encodeURIComponent(campaignId)}/queue`,
         ).then((r) => r.stores),
+      gallery: (campaignId) =>
+        get<GalleryItem[]>(
+          `campaigns/${encodeURIComponent(campaignId)}/gallery`,
+        ),
     },
     stores: {
       storeScore: (id, campaignId) =>

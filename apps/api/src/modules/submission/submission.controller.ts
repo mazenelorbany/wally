@@ -109,6 +109,12 @@ export class CampaignQueueController {
   queue(@CurrentUser() user: SessionUser, @Param('id') campaignId: string) {
     return this.submissions.campaignQueue(user.orgId, campaignId);
   }
+
+  /** Every execution image across the campaign's stores (the gallery). */
+  @Get(':id/gallery')
+  gallery(@CurrentUser() user: SessionUser, @Param('id') campaignId: string) {
+    return this.submissions.gallery(user.orgId, campaignId);
+  }
 }
 
 // One store's rolled-up score for a campaign (?campaignId=...).
@@ -152,6 +158,9 @@ export class PhotoBlobController {
     const bytes = await this.storage.getBytes(key);
     res.setHeader('Content-Type', contentTypeForKey(key));
     res.setHeader('Content-Length', bytes.length);
+    // Allow the SPA on a different origin (web :5173 -> api :3001) to embed the
+    // image. Helmet's default CORP is 'same-origin', which blocks <img> render.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.end(bytes);
   }
 }

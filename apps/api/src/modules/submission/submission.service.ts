@@ -479,6 +479,32 @@ export class SubmissionService {
     return submission;
   }
 
+  /**
+   * Every execution image across the campaign's stores, newest first — the
+   * gallery surface. Signed URLs only; bytes never logged.
+   */
+  async gallery(orgId: string, campaignId: string) {
+    await this.requireCampaign(orgId, campaignId);
+    const photos = await this.prisma.photo.findMany({
+      where: { submission: { orgId, campaignId } },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+      include: {
+        submission: { select: { storeId: true, store: { select: { name: true } } } },
+        verdict: { select: { overall: true } },
+      },
+    });
+    return photos.map((p) => ({
+      id: p.id,
+      url: this.storage.signedGetUrl(p.storageKey),
+      storeId: p.submission.storeId,
+      storeName: p.submission.store.name,
+      fixtureKey: p.fixtureKey,
+      status: p.status,
+      overall: p.verdict ? dbOverallToCore(p.verdict.overall) : undefined,
+    }));
+  }
+
   /** Photo for transport: a signed URL, never the raw storage key. */
   private presentPhoto(p: Photo) {
     return {

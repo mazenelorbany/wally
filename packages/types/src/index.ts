@@ -179,3 +179,15 @@ export interface GuideFixtureDetail {
   exampleImages: GuideFixtureExampleImage[];
   merchandise: MerchandiseRow[];
 }
+
+/** One execution image in the gallery (every store's submitted photos). */
+export interface GalleryItem {
+  id: string;
+  /** Signed, time-limited URL. */
+  url: string;
+  storeId: string;
+  storeName: string;
+  fixtureKey: string;
+  status: string;
+  overall?: Overall;
+}

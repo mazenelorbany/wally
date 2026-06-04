@@ -80,3 +80,18 @@ export function DashboardView() {
     />
   );
 }
+
+export function InsightsView() {
+  return (
+    <ComingSoon
+      title="Insights"
+      icon={LayoutDashboard}
+      lede="Revenue by store, fixture, and product — one sortable view, toggle the lens."
+      bullets={[
+        'Store / Fixture / Table toggle',
+        'Avg revenue & units per day',
+        'Top and bottom performers, exportable',
+      ]}
+    />
+  );
+}
