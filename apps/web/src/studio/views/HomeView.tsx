@@ -1,17 +1,19 @@
 import * as React from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
   Boxes,
   ClipboardCheck,
   Coins,
   LayoutDashboard,
-  Map,
   Package,
+  Store as StoreIcon,
   type LucideIcon,
 } from 'lucide-react';
-import { cn } from '@wally/ui';
+import { cn, Spinner } from '@wally/ui';
 
+import { api } from '../../lib/api';
 import { useSetStudioTopBar } from '../components/StudioContext';
 
 interface Pillar {
@@ -23,13 +25,9 @@ interface Pillar {
   comingSoon?: boolean;
 }
 
+// Floor Plan is reached via the store picker below (it needs a store), so it is
+// not a self-looping card here. These are the other surfaces.
 const PILLARS: Pillar[] = [
-  {
-    label: 'Floor Plan',
-    desc: 'Lay out fixtures on each store and author the guide visually.',
-    icon: Map,
-    to: '/studio',
-  },
   {
     label: 'Fixtures',
     desc: "Your org's reusable fixture library.",
@@ -65,9 +63,25 @@ const PILLARS: Pillar[] = [
   },
 ];
 
-/** The studio landing — orients the author and routes into each pillar. */
+/** The studio landing — picks a store to open its floor plan, then the rest. */
 export function HomeView() {
   useSetStudioTopBar({ guideName: 'Guide studio', stores: [] });
+
+  // Resolve the active guide + its stores so each links to a real floor plan.
+  const campaignsQ = useQuery({
+    queryKey: ['studio', 'campaigns'],
+    queryFn: () => api.campaigns.list(),
+  });
+  const campaign =
+    campaignsQ.data?.find((c) => c.status === 'ACTIVE') ?? campaignsQ.data?.[0];
+
+  const storesQ = useQuery({
+    queryKey: ['studio', 'queue-stores', campaign?.id],
+    queryFn: () => api.campaigns.queue(campaign!.id),
+    enabled: Boolean(campaign?.id),
+  });
+  const stores = storesQ.data ?? [];
+  const loading = campaignsQ.isLoading || storesQ.isLoading;
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
@@ -80,11 +94,61 @@ export function HomeView() {
         </h1>
         <p className="mt-2 max-w-xl text-sm leading-relaxed text-steel">
           Author what good looks like — fixture by fixture, store by store — then
-          publish it to the field. Everything a store needs to merchandise to
-          brief, in one place.
+          publish it to the field.
         </p>
       </header>
 
+      {/* Floor plans — the real entry point: pick a store to open its plan. */}
+      <section className="mb-10">
+        <div className="mb-3 flex items-baseline justify-between">
+          <h2 className="text-[11px] uppercase tracking-brand text-steel">
+            Floor plans — open a store
+          </h2>
+          {campaign ? (
+            <span className="text-xs text-steel">{campaign.key}</span>
+          ) : null}
+        </div>
+
+        {loading ? (
+          <div className="grid h-28 place-items-center">
+            <Spinner className="text-xl text-steel" />
+          </div>
+        ) : !campaign ? (
+          <p className="text-sm text-steel">No active guide yet.</p>
+        ) : stores.length === 0 ? (
+          <p className="text-sm text-steel">No stores in this guide yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {stores.map((s) => (
+              <Link
+                key={s.storeId}
+                to={`/studio/${campaign.id}/store/${s.storeId}`}
+                className="group flex flex-col rounded-lg border border-mist/70 bg-paper p-5 shadow-card transition-shadow duration-base ease-out hover:shadow-lift"
+              >
+                <div className="flex items-center justify-between">
+                  <span
+                    aria-hidden="true"
+                    className="grid h-10 w-10 place-items-center rounded-md bg-surface text-graphite"
+                  >
+                    <StoreIcon className="h-5 w-5" />
+                  </span>
+                  <ArrowRight className="h-4 w-4 text-mist transition-colors group-hover:text-graphite" />
+                </div>
+                <h3 className="mt-4 font-display text-base font-semibold tracking-tight text-ink">
+                  {s.storeName}
+                </h3>
+                <p className="mt-1 text-sm leading-relaxed text-steel">
+                  Open floor plan
+                </p>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <h2 className="mb-3 text-[11px] uppercase tracking-brand text-steel">
+        More
+      </h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {PILLARS.map((p) => (
           <PillarCard key={p.label} pillar={p} />

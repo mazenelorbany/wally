@@ -618,39 +618,42 @@ async function seedCreateGuide(ctx: {
   }
   console.log(`  products: ${GUIDE_PRODUCTS.length} in catalog`);
 
-  // --- Floor plan for the first GRB store (Marion) -------------------------
-  const planStore = stores[0];
-  if (!planStore) {
+  // --- Floor plan placements for EVERY GRB store ---------------------------
+  // Same layout per store for the demo (stores can drag to reposition); the real
+  // product would import each store's true layout.
+  if (stores.length === 0) {
     console.warn('  ! no stores to place fixtures on — skipping floor plan');
     return;
   }
   const specs = floorPlanFor();
   let placed = 0;
-  let order = 0;
-  for (const s of specs) {
-    const fixtureId = fixtureByName.get(s.fixtureName);
-    if (!fixtureId) {
-      console.warn(`  ! unknown fixture in plan: ${s.fixtureName}`);
-      continue;
+  for (const planStore of stores) {
+    let order = 0;
+    for (const s of specs) {
+      const fixtureId = fixtureByName.get(s.fixtureName);
+      if (!fixtureId) {
+        console.warn(`  ! unknown fixture in plan: ${s.fixtureName}`);
+        continue;
+      }
+      const data = {
+        x: s.x,
+        y: s.y,
+        w: s.w,
+        h: s.h,
+        rotation: s.rotation ?? 0,
+        applicable: s.applicable ?? true,
+        label: s.label,
+        order: order++,
+      };
+      await prisma.placement.upsert({
+        where: { storeId_campaignId_fixtureId: { storeId: planStore.id, campaignId, fixtureId } },
+        update: data,
+        create: { orgId, storeId: planStore.id, campaignId, fixtureId, ...data },
+      });
+      placed++;
     }
-    const data = {
-      x: s.x,
-      y: s.y,
-      w: s.w,
-      h: s.h,
-      rotation: s.rotation ?? 0,
-      applicable: s.applicable ?? true,
-      label: s.label,
-      order: order++,
-    };
-    await prisma.placement.upsert({
-      where: { storeId_campaignId_fixtureId: { storeId: planStore.id, campaignId, fixtureId } },
-      update: data,
-      create: { orgId, storeId: planStore.id, campaignId, fixtureId, ...data },
-    });
-    placed++;
   }
-  console.log(`  placements: ${placed} on ${planStore.name}'s floor plan (1000x640)`);
+  console.log(`  placements: ${placed} across ${stores.length} stores' floor plans (1000x640)`);
 
   // --- Guide sheet for TCC WALL BAY 1 (notes + merchandise + examples) ------
   const wallBay1Id = fixtureByName.get('TCC WALL BAY 1');
