@@ -50,11 +50,15 @@ export function useQueue(
 
 export function useStoreScore(
   storeId: string | undefined,
+  campaignId: string | undefined,
 ): UseQueryResult<StoreScore> {
   return useQuery({
-    queryKey: storeId ? qk.storeScore(storeId) : ['store-score', 'none'],
-    queryFn: () => api.stores.storeScore(storeId as string),
-    enabled: Boolean(storeId),
+    queryKey:
+      storeId && campaignId
+        ? qk.storeScore(storeId, campaignId)
+        : ['store-score', 'none'],
+    queryFn: () => api.stores.storeScore(storeId as string, campaignId as string),
+    enabled: Boolean(storeId && campaignId),
   });
 }
 

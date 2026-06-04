@@ -9,14 +9,16 @@ import {
 import { Button, Card, Verdict } from '@wally/ui';
 
 import type { FixtureOutcome, StoreScore } from '@wally/types';
-import { useStoreScore } from '../lib/hooks';
+import { useCampaigns, useStoreScore } from '../lib/hooks';
 import { api, errorMessage } from '../lib/api';
 import { bandLabel, humanizeKey, storeReasons } from '../lib/format';
 import { ErrorState, Skeleton } from '../components/states';
 
 export function StoreDetailPage() {
   const { id } = useParams();
-  const q = useStoreScore(id);
+  const campaignsQ = useCampaigns();
+  const campaignId = campaignsQ.data?.[0]?.id;
+  const q = useStoreScore(id, campaignId);
 
   if (q.isLoading) return <DetailSkeleton />;
   if (q.isError) {

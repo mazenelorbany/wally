@@ -139,11 +139,11 @@ export interface WallyClient {
   };
   campaigns: {
     list(): Promise<CampaignSummary[]>;
-    /** Enqueue scoring for every pending submission, return current store scores. */
+    /** The reviewer queue: one rolled-up StoreScore per store, attention-first. */
     queue(campaignId: string): Promise<StoreScore[]>;
   };
   stores: {
-    storeScore(id: string): Promise<StoreScore>;
+    storeScore(id: string, campaignId: string): Promise<StoreScore>;
   };
   submissions: {
     get(id: string): Promise<Submission>;
@@ -266,13 +266,15 @@ export function createClient(opts: CreateClientOptions): WallyClient {
     campaigns: {
       list: () => get<CampaignSummary[]>("campaigns"),
       queue: (campaignId) =>
-        post<StoreScore[]>(
+        get<{ stores: StoreScore[] }>(
           `campaigns/${encodeURIComponent(campaignId)}/queue`,
-        ),
+        ).then((r) => r.stores),
     },
     stores: {
-      storeScore: (id) =>
-        get<StoreScore>(`stores/${encodeURIComponent(id)}/score`),
+      storeScore: (id, campaignId) =>
+        get<StoreScore>(
+          `stores/${encodeURIComponent(id)}/store-score?campaignId=${encodeURIComponent(campaignId)}`,
+        ),
     },
     submissions: {
       get: (id) => get<Submission>(`submissions/${encodeURIComponent(id)}`),

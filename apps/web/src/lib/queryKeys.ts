@@ -5,6 +5,7 @@ export const qk = {
   me: ['me'] as const,
   campaigns: ['campaigns'] as const,
   queue: (campaignId: string) => ['queue', campaignId] as const,
-  storeScore: (storeId: string) => ['store-score', storeId] as const,
+  storeScore: (storeId: string, campaignId: string) =>
+    ['store-score', storeId, campaignId] as const,
   submission: (submissionId: string) => ['submission', submissionId] as const,
 };
