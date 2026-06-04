@@ -18,6 +18,10 @@ import { RubricModule } from './modules/rubric/rubric.module';
 import { SubmissionModule } from './modules/submission/submission.module';
 import { ReviewModule } from './modules/review/review.module';
 import { ReportModule } from './modules/report/report.module';
+import { FixtureModule } from './modules/fixture/fixture.module';
+import { FloorplanModule } from './modules/floorplan/floorplan.module';
+import { GuideFixtureModule } from './modules/guide-fixture/guide-fixture.module';
+import { ProductModule } from './modules/product/product.module';
 
 @Module({
   imports: [
@@ -63,6 +67,10 @@ import { ReportModule } from './modules/report/report.module';
     JobsModule,
     ReviewModule,
     ReportModule,
+    FixtureModule,
+    FloorplanModule,
+    GuideFixtureModule,
+    ProductModule,
   ],
   providers: [
     // Apply the rate limiter to every controller route by default.

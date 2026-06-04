@@ -143,11 +143,16 @@ function toCriteria(raw: RawRubric) {
 // StorageService keys are `${prefix}/${day}/${id}${ext}` and resolve to
 // STORAGE_DIR/<key>. We reproduce that exactly so the API serves seeded photos
 // with no extra plumbing.
-async function storeSample(absImagePath: string): Promise<{ key: string; bytes: number }> {
+async function storeSample(
+  absImagePath: string,
+  prefix = 'photos',
+): Promise<{ key: string; bytes: number }> {
   const bytes = readFileSync(absImagePath);
   const day = new Date().toISOString().slice(0, 10);
   const id = randomBytes(16).toString('hex');
-  const key = `photos/${day}/${id}.png`;
+  // Mirror StorageService.put exactly: `${prefix}/${day}/${id}${ext}`.
+  const safePrefix = prefix.replace(/[^a-zA-Z0-9._-]/g, '');
+  const key = `${safePrefix}/${day}/${id}.png`;
   const dest = join(STORAGE_DIR, key);
   await mkdir(dirname(dest), { recursive: true });
   await writeFile(dest, bytes);
@@ -398,12 +403,327 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `\nDone. ${stores.length} stores, ${rubricByFixture.size} rubrics, ${photoCount} photos queued${
+    `\nDone (compliance). ${stores.length} stores, ${rubricByFixture.size} rubrics, ${photoCount} photos queued${
       skipped ? `, ${skipped} samples missing` : ''
     }.`,
   );
   console.log(
     'Start the API (pnpm dev) and the JobsModule worker will score the queued photos.',
+  );
+
+  // --- CREATE GUIDE pillar (reuses the GRB org + MSP2-2026 campaign above) ---
+  await seedCreateGuide({ orgId: org.id, campaignId: campaign.id, stores });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CREATE GUIDE pillar — Flagship's "build the planogram" half of VM.
+// ───────────────────────────────────────────────────────────────────────────
+// Reuses the GRB org + MSP2-2026 campaign seeded above and lays out:
+//   - the real TCC fixture library (Fixture rows)
+//   - a real TCC knife/cookware product catalog (Product rows)
+//   - a floor plan for the first GRB store (Placement rows on a 1000x640 canvas)
+//   - the TCC WALL BAY 1 instruction sheet (GuideFixture) with the REAL
+//     knife-wall directives, ~10 knives merchandised across 2 rows, and 1–2
+//     "what good looks like" example images copied into StorageService.
+// Idempotent: every row upserts on its natural key, so re-running is a no-op
+// beyond timestamps. SECURITY: example image bytes are referenced by key only.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// The real TCC fixture library for the org. kind ∈ bay|table|stand|window|dais|trolley.
+const GUIDE_FIXTURES: { name: string; kind: string }[] = [
+  { name: 'TCC WALL BAY 1', kind: 'bay' },
+  { name: 'TCC WALL BAY 2', kind: 'bay' },
+  { name: 'TCC WALL BAY 3', kind: 'bay' },
+  { name: 'TCC WALL BAY 4', kind: 'bay' },
+  { name: 'TCC WALL BAY 5', kind: 'bay' },
+  { name: 'TCC WALL BAY 6', kind: 'bay' },
+  { name: 'TCC WALL BAY 7', kind: 'bay' },
+  { name: 'COOKSET BULKSTACK', kind: 'stand' },
+  { name: 'COOKWEAR SET BULK STACK', kind: 'stand' },
+  { name: 'KNIFE BLOCK BULK STACK', kind: 'stand' },
+  { name: 'ELECTRICAL STAND 1', kind: 'stand' },
+  { name: 'ELECTRICAL STAND 2', kind: 'stand' },
+  { name: 'FREE STANDER 1 (FRONT)', kind: 'stand' },
+  { name: 'FREE STANDER 1 (BACK)', kind: 'stand' },
+  { name: 'FREE STANDER 2 (FRONT)', kind: 'stand' },
+  { name: 'FREE STANDER 2 (BACK)', kind: 'stand' },
+  { name: 'FREE STANDER 3 (FRONT)', kind: 'stand' },
+  { name: 'FREE STANDER 3 (BACK)', kind: 'stand' },
+  { name: 'QUAD STAND 1', kind: 'stand' },
+  { name: 'KA STAND 1', kind: 'stand' },
+  { name: 'KA STAND 2', kind: 'stand' },
+  { name: 'MINI DAIS 1', kind: 'dais' },
+  { name: 'MINI DAIS 10', kind: 'dais' },
+  { name: 'TROLLEY 1', kind: 'trolley' },
+  { name: 'TROLLEY 2', kind: 'trolley' },
+  { name: 'TROLLEY 3', kind: 'trolley' },
+  { name: 'WINDOW DISPLAY', kind: 'window' },
+  { name: 'FRY WALL BAY 01', kind: 'bay' },
+];
+
+// Real TCC catalog — Baccarat & Andre Verdier knives (category 'Knives').
+// sku codes follow the TCC web style (epoch-ish base + dash suffix). imageUrl
+// left null on purpose (the catalog feed wires real imagery later).
+const GUIDE_PRODUCTS: {
+  sku: string;
+  name: string;
+  brand: string;
+  category: string;
+  color?: string;
+}[] = [
+  { sku: '1749771144-75', name: 'Baccarat Damashiro EMPEROR Makoto 7 Piece Knife Block', brand: 'Baccarat', category: 'Knives', color: 'Black' },
+  { sku: '1749771144-61', name: 'Baccarat Damashiro EMPEROR Nanashi Knife Block 6 Piece', brand: 'Baccarat', category: 'Knives', color: 'Black' },
+  { sku: '1749771144-20', name: 'Baccarat Damashiro EMPEROR Bread Knife 20cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
+  { sku: '1749771144-15', name: 'Baccarat Damashiro EMPEROR Chefs Knife 15cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
+  { sku: '1749771144-21', name: 'Baccarat Damashiro EMPEROR Chefs Knife 20cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
+  { sku: '1749771144-17', name: 'Baccarat Damashiro EMPEROR Cleaver 17cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
+  { sku: '1749771144-14', name: 'Baccarat Damashiro EMPEROR All Purpose Try Me Knife 14.5cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
+  { sku: '1749771201-14', name: 'Baccarat iconiX Fullen 14 Piece Knife Block', brand: 'Baccarat', category: 'Knives', color: 'Black' },
+  { sku: '1749771201-07', name: 'Baccarat iconiX Straub Knife Block 7 Piece', brand: 'Baccarat', category: 'Knives', color: 'Black' },
+  { sku: '1749771201-06', name: 'Baccarat iconiX Holz Knife Block 6 Piece', brand: 'Baccarat', category: 'Knives', color: 'Wood' },
+  { sku: '1749771201-31', name: 'Baccarat iconiX Carving Knife Set', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
+  { sku: '1749771201-20', name: 'Baccarat iconiX Sharpening Steel 20cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
+  { sku: '1749771201-17', name: 'Baccarat iconiX Carving Fork 17cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
+  { sku: '1749772050-06', name: 'Andre Verdier Debutant Set of 6 Serrated Knives Olive Wood', brand: 'Andre Verdier', category: 'Knives', color: 'Olive Wood' },
+  { sku: '1749771144-10', name: 'Baccarat Damashiro Bodo 10 Piece Japanese Steel Knife Block with Chopping Board', brand: 'Baccarat', category: 'Knives', color: 'Wood' },
+];
+
+// The REAL TCC knife-wall directives (verbatim from the MSP2 guide).
+const WALL_BAY_1_NOTES = [
+  '1. Always display A7 sharps warning in acrylic in 2nd cabinet only on far-left side.',
+  '2. All stores to use the 4 magnets displayed as shown across the top of each knife cabinet. Knives to face loose knife cabinets.',
+  '3. All knife blocks on display to have white RRP A7 ticket displayed in an acrylic in front of knife block.',
+  '4. When a knife block is on sale, place the sale price ticket in front of RRP ticket slipped into acrylic stand. EG Below yellow or red.',
+].join('\n');
+
+// Floor-plan layout on a ~1000x640 canvas. Wall bays = wide boxes along the top
+// edge; stands/standers/trolleys/dais = mid boxes; window = tall box on the
+// right; bulkstacks near the entrance (bottom-left). x,y are top-left; w,h px.
+type PlacementSpec = {
+  fixtureName: string;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotation?: number;
+  applicable?: boolean;
+};
+
+function floorPlanFor(): PlacementSpec[] {
+  const specs: PlacementSpec[] = [];
+  const push = (s: PlacementSpec) => specs.push(s);
+
+  // Row of 7 wall bays along the top edge (~110x40, 10px gutter).
+  const bayW = 110;
+  const bayH = 40;
+  const bayGap = 10;
+  const bayY = 12;
+  let bayX = 16;
+  for (let i = 1; i <= 7; i++) {
+    push({ fixtureName: `TCC WALL BAY ${i}`, label: `TCC Wall Bay ${i}`, x: bayX, y: bayY, w: bayW, h: bayH });
+    bayX += bayW + bayGap;
+  }
+  // Fry wall bay caps the top-right run.
+  push({ fixtureName: 'FRY WALL BAY 01', label: 'Fry Wall Bay 01', x: bayX, y: bayY, w: bayW, h: bayH });
+
+  // Tall window display on the right edge.
+  push({ fixtureName: 'WINDOW DISPLAY', label: 'Window Display', x: 880, y: 80, w: 100, h: 470 });
+
+  // Mid-floor fixtures (~90x120) on a loose grid.
+  const midW = 90;
+  const midH = 120;
+  const mid: { name: string; label: string; col: number; rowIdx: number }[] = [
+    { name: 'FREE STANDER 1 (FRONT)', label: 'Free Stander 1 (Front)', col: 0, rowIdx: 0 },
+    { name: 'FREE STANDER 1 (BACK)', label: 'Free Stander 1 (Back)', col: 0, rowIdx: 1 },
+    { name: 'FREE STANDER 2 (FRONT)', label: 'Free Stander 2 (Front)', col: 1, rowIdx: 0 },
+    { name: 'FREE STANDER 2 (BACK)', label: 'Free Stander 2 (Back)', col: 1, rowIdx: 1 },
+    { name: 'FREE STANDER 3 (FRONT)', label: 'Free Stander 3 (Front)', col: 2, rowIdx: 0 },
+    { name: 'FREE STANDER 3 (BACK)', label: 'Free Stander 3 (Back)', col: 2, rowIdx: 1 },
+    { name: 'QUAD STAND 1', label: 'Quad Stand 1', col: 3, rowIdx: 0 },
+    { name: 'KA STAND 1', label: 'KA Stand 1', col: 3, rowIdx: 1 },
+    { name: 'KA STAND 2', label: 'KA Stand 2', col: 4, rowIdx: 0 },
+    { name: 'ELECTRICAL STAND 1', label: 'Electrical Stand 1', col: 4, rowIdx: 1 },
+    { name: 'ELECTRICAL STAND 2', label: 'Electrical Stand 2', col: 5, rowIdx: 0 },
+    { name: 'MINI DAIS 1', label: 'Mini Dais 1', col: 5, rowIdx: 1 },
+  ];
+  const midX0 = 40;
+  const midY0 = 110;
+  const midColGap = 50;
+  const midRowGap = 60;
+  for (const m of mid) {
+    push({
+      fixtureName: m.name,
+      label: m.label,
+      x: midX0 + m.col * (midW + midColGap),
+      y: midY0 + m.rowIdx * (midH + midRowGap),
+      w: midW,
+      h: midH,
+    });
+  }
+
+  // Trolleys + the second mini dais on a lower band.
+  const lowY = 400;
+  push({ fixtureName: 'TROLLEY 1', label: 'Trolley 1', x: 320, y: lowY, w: 80, h: 80 });
+  push({ fixtureName: 'TROLLEY 2', label: 'Trolley 2', x: 420, y: lowY, w: 80, h: 80 });
+  push({ fixtureName: 'TROLLEY 3', label: 'Trolley 3', x: 520, y: lowY, w: 80, h: 80 });
+  push({ fixtureName: 'MINI DAIS 10', label: 'Mini Dais 10', x: 640, y: lowY, w: 90, h: 90 });
+
+  // Bulkstacks near the entrance (bottom-left), where shoppers enter.
+  push({ fixtureName: 'COOKSET BULKSTACK', label: 'Cookset Bulkstack', x: 40, y: 510, w: 110, h: 100 });
+  push({ fixtureName: 'COOKWEAR SET BULK STACK', label: 'Cookwear Set Bulk Stack', x: 170, y: 510, w: 110, h: 100 });
+  push({ fixtureName: 'KNIFE BLOCK BULK STACK', label: 'Knife Block Bulk Stack', x: 300, y: 510, w: 110, h: 100 });
+
+  // Default rotation 0 / applicable true; the caller stamps `order` by index.
+  return specs.map((s) => ({ rotation: 0, applicable: true, ...s }));
+}
+
+async function seedCreateGuide(ctx: {
+  orgId: string;
+  campaignId: string;
+  stores: { id: string; name: string }[];
+}): Promise<void> {
+  const { orgId, campaignId, stores } = ctx;
+  console.log('\nSeeding CREATE GUIDE (fixtures · catalog · floor plan · guide)…');
+
+  // --- Fixture library -----------------------------------------------------
+  const fixtureByName = new Map<string, string>();
+  for (const f of GUIDE_FIXTURES) {
+    const fixture = await prisma.fixture.upsert({
+      where: { orgId_name: { orgId, name: f.name } },
+      update: { kind: f.kind },
+      create: { orgId, name: f.name, kind: f.kind },
+    });
+    fixtureByName.set(f.name, fixture.id);
+  }
+  console.log(`  fixtures: ${GUIDE_FIXTURES.length} in library`);
+
+  // --- Product catalog -----------------------------------------------------
+  const productBySku = new Map<string, string>();
+  for (const p of GUIDE_PRODUCTS) {
+    const product = await prisma.product.upsert({
+      where: { orgId_sku: { orgId, sku: p.sku } },
+      update: { name: p.name, brand: p.brand, category: p.category, color: p.color ?? null },
+      create: {
+        orgId,
+        sku: p.sku,
+        name: p.name,
+        brand: p.brand,
+        category: p.category,
+        color: p.color ?? null,
+        imageUrl: null,
+      },
+    });
+    productBySku.set(p.sku, product.id);
+  }
+  console.log(`  products: ${GUIDE_PRODUCTS.length} in catalog`);
+
+  // --- Floor plan for the first GRB store (Marion) -------------------------
+  const planStore = stores[0];
+  if (!planStore) {
+    console.warn('  ! no stores to place fixtures on — skipping floor plan');
+    return;
+  }
+  const specs = floorPlanFor();
+  let placed = 0;
+  let order = 0;
+  for (const s of specs) {
+    const fixtureId = fixtureByName.get(s.fixtureName);
+    if (!fixtureId) {
+      console.warn(`  ! unknown fixture in plan: ${s.fixtureName}`);
+      continue;
+    }
+    const data = {
+      x: s.x,
+      y: s.y,
+      w: s.w,
+      h: s.h,
+      rotation: s.rotation ?? 0,
+      applicable: s.applicable ?? true,
+      label: s.label,
+      order: order++,
+    };
+    await prisma.placement.upsert({
+      where: { storeId_campaignId_fixtureId: { storeId: planStore.id, campaignId, fixtureId } },
+      update: data,
+      create: { orgId, storeId: planStore.id, campaignId, fixtureId, ...data },
+    });
+    placed++;
+  }
+  console.log(`  placements: ${placed} on ${planStore.name}'s floor plan (1000x640)`);
+
+  // --- Guide sheet for TCC WALL BAY 1 (notes + merchandise + examples) ------
+  const wallBay1Id = fixtureByName.get('TCC WALL BAY 1');
+  if (!wallBay1Id) {
+    console.warn('  ! TCC WALL BAY 1 missing — skipping guide-fixture sheet');
+    return;
+  }
+  const guideFixture = await prisma.guideFixture.upsert({
+    where: { campaignId_fixtureId: { campaignId, fixtureId: wallBay1Id } },
+    update: { notes: WALL_BAY_1_NOTES, order: 0 },
+    create: { orgId, campaignId, fixtureId: wallBay1Id, notes: WALL_BAY_1_NOTES, order: 0 },
+  });
+
+  // Merchandise ~10 knives across 2 rows. Re-seeding: clear prior rows for this
+  // guide-fixture so we don't pile up duplicates (no natural key on Merchandise).
+  await prisma.merchandise.deleteMany({ where: { guideFixtureId: guideFixture.id } });
+  const merchPlan: { row: string; skus: string[] }[] = [
+    {
+      row: 'Top rack',
+      skus: ['1749771144-75', '1749771144-61', '1749771201-14', '1749771201-07', '1749771201-06', '1749771144-10'],
+    },
+    {
+      row: 'New row',
+      skus: ['1749771144-20', '1749771144-15', '1749771144-21', '1749771144-17', '1749771201-31', '1749772050-06'],
+    },
+  ];
+  let merchCount = 0;
+  for (const block of merchPlan) {
+    let order = 0;
+    for (const sku of block.skus) {
+      const productId = productBySku.get(sku);
+      if (!productId) {
+        console.warn(`  ! merchandise sku not in catalog: ${sku}`);
+        continue;
+      }
+      await prisma.merchandise.create({
+        data: { orgId, guideFixtureId: guideFixture.id, productId, row: block.row, order: order++ },
+      });
+      merchCount++;
+    }
+  }
+
+  // Example "what good looks like" images. Copy sample bytes into StorageService
+  // under an examples/ prefix (mirrors StorageService.put). Idempotent: clear
+  // prior seeded example rows first. SECURITY: reference by key only.
+  await prisma.exampleImage.deleteMany({ where: { guideFixtureId: guideFixture.id } });
+  const examplePlan: { image: string; caption: string; bestInClass: boolean }[] = [
+    { image: 'directive-01.png', caption: 'Knife wall — magnets across the top, blocks fronted with RRP A7 tickets.', bestInClass: true },
+    { image: 'directive-02.png', caption: 'Sale ticket slipped in front of the RRP ticket in the acrylic stand.', bestInClass: false },
+  ];
+  let exampleCount = 0;
+  for (const ex of examplePlan) {
+    const abs = sample(ex.image);
+    if (!abs) {
+      console.warn(`  ! example sample missing, skipping: ${ex.image}`);
+      continue;
+    }
+    const { key, bytes } = await storeSample(abs, 'examples');
+    await prisma.exampleImage.create({
+      data: {
+        orgId,
+        guideFixtureId: guideFixture.id,
+        storageKey: key,
+        caption: ex.caption,
+        bestInClass: ex.bestInClass,
+      },
+    });
+    exampleCount++;
+    console.log(`  example: TCC WALL BAY 1 -> ${key} (${bytes} B)`);
+  }
+
+  console.log(
+    `\nDone (create guide). ${GUIDE_FIXTURES.length} fixtures, ${GUIDE_PRODUCTS.length} products, ${placed} placements, 1 guide sheet (${merchCount} merchandised, ${exampleCount} examples).`,
   );
 }
 

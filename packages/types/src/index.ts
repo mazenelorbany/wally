@@ -93,3 +93,89 @@ export interface SessionUser {
   /** Set for STORE_MANAGER users — the store whose checklist they capture. */
   storeId?: string | null;
 }
+
+/* -------------------------------------------------------------------------- */
+/* CREATE GUIDE — VM guide authoring (floor plans, guide fixtures, catalog)    */
+/* -------------------------------------------------------------------------- */
+
+/** The physical kinds of fixture a store can carry. */
+export type FixtureKind =
+  | "bay"
+  | "table"
+  | "stand"
+  | "window"
+  | "dais"
+  | "trolley";
+
+/** A fixture in the org's library (the reusable catalog of fixture types). */
+export interface Fixture {
+  id: string;
+  name: string;
+  kind: FixtureKind;
+}
+
+/**
+ * A fixture positioned on a store's floor plan for one campaign's guide.
+ * Geometry (`x`,`y`,`w`,`h`) is in floor-plan units; `rotation` in degrees.
+ */
+export interface PlacedFixture {
+  id: string;
+  fixtureId: string;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotation: number;
+  /** Whether this fixture applies to the store for this campaign. */
+  applicable: boolean;
+  kind: FixtureKind;
+}
+
+/** A store's floor plan for one campaign: the placed fixtures laid out. */
+export interface FloorPlan {
+  storeId: string;
+  storeName: string;
+  campaignId: string;
+  campaignKey: string;
+  placements: PlacedFixture[];
+}
+
+/** A product from the org's merchandising catalog. */
+export interface ProductDto {
+  id: string;
+  sku: string;
+  name: string;
+  brand?: string;
+  category?: string;
+  color?: string;
+  imageUrl?: string;
+}
+
+/** One row of merchandise on a guide-fixture's planogram. */
+export interface MerchandiseRow {
+  row: string;
+  products: ProductDto[];
+}
+
+/** A "what good looks like" reference image on a guide-fixture. */
+export interface GuideFixtureExampleImage {
+  id: string;
+  /** Signed, time-limited URL — never the raw storage key. */
+  url: string;
+  caption?: string;
+  bestInClass: boolean;
+}
+
+/**
+ * One fixture's instruction sheet within a guide: VM notes, reference
+ * images, and the merchandise planogram (products laid out by row).
+ */
+export interface GuideFixtureDetail {
+  fixtureId: string;
+  fixtureName: string;
+  kind: FixtureKind;
+  notes: string;
+  exampleImages: GuideFixtureExampleImage[];
+  merchandise: MerchandiseRow[];
+}

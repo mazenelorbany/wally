@@ -10,6 +10,10 @@ import type {
   StoreScore,
   SessionUser,
   Role,
+  Fixture,
+  FloorPlan,
+  GuideFixtureDetail,
+  ProductDto,
 } from "@wally/types";
 
 /* -------------------------------------------------------------------------- */
@@ -118,6 +122,25 @@ export interface ReportUrl {
   expiresAt: string;
 }
 
+/* ---- CREATE GUIDE ---- */
+
+/** Body for moving/resizing a placed fixture on a floor plan. */
+export interface PlacementMoveBody {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotation: number;
+}
+
+/** Optional filters for the merchandising catalog. */
+export interface ProductFilters {
+  search?: string;
+  brand?: string;
+  category?: string;
+  color?: string;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Client                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -169,6 +192,30 @@ export interface WallyClient {
   reports: {
     /** Resolve a signed URL to the store's report (does not fetch the bytes). */
     url(storeId: string): Promise<ReportUrl>;
+  };
+  /** CREATE GUIDE — the org's fixture library. */
+  fixtures: {
+    list(): Promise<Fixture[]>;
+  };
+  /** CREATE GUIDE — a store's floor plan for a campaign. */
+  floorplan: {
+    get(campaignId: string, storeId: string): Promise<FloorPlan>;
+  };
+  /** CREATE GUIDE — move/resize a placed fixture on a floor plan. */
+  placements: {
+    move(id: string, body: PlacementMoveBody): Promise<void>;
+  };
+  /** CREATE GUIDE — a fixture's instruction sheet within a guide. */
+  guideFixtures: {
+    detail(
+      campaignId: string,
+      fixtureId: string,
+    ): Promise<GuideFixtureDetail>;
+    saveNotes(id: string, notes: string): Promise<void>;
+  };
+  /** CREATE GUIDE — the merchandising catalog. */
+  products: {
+    list(filters?: ProductFilters): Promise<ProductDto[]>;
   };
 }
 
@@ -264,6 +311,18 @@ export function createClient(opts: CreateClientOptions): WallyClient {
   const get = <T>(path: string) => request<T>("GET", path);
   const post = <T>(path: string, json?: unknown) =>
     request<T>("POST", path, json === undefined ? undefined : { json });
+  const patch = <T>(path: string, json?: unknown) =>
+    request<T>("PATCH", path, json === undefined ? undefined : { json });
+
+  /** Build a `?a=b&c=d` query string from defined, non-empty filters. */
+  const query = (params: Record<string, string | undefined>): string => {
+    const sp = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== "") sp.set(k, v);
+    }
+    const s = sp.toString();
+    return s ? `?${s}` : "";
+  };
 
   return {
     auth: {
@@ -312,9 +371,54 @@ export function createClient(opts: CreateClientOptions): WallyClient {
       url: (storeId) =>
         get<ReportUrl>(`reports/${encodeURIComponent(storeId)}/url`),
     },
+    fixtures: {
+      list: () => get<Fixture[]>("fixtures"),
+    },
+    floorplan: {
+      get: (campaignId, storeId) =>
+        get<FloorPlan>(
+          `campaigns/${encodeURIComponent(campaignId)}/stores/${encodeURIComponent(storeId)}/floorplan`,
+        ),
+    },
+    placements: {
+      move: (id, body) =>
+        patch<void>(`placements/${encodeURIComponent(id)}`, body),
+    },
+    guideFixtures: {
+      detail: (campaignId, fixtureId) =>
+        get<GuideFixtureDetail>(
+          `campaigns/${encodeURIComponent(campaignId)}/fixtures/${encodeURIComponent(fixtureId)}/detail`,
+        ),
+      saveNotes: (id, notes) =>
+        patch<void>(`guide-fixtures/${encodeURIComponent(id)}`, { notes }),
+    },
+    products: {
+      list: (filters) =>
+        get<ProductDto[]>(
+          `products${query({
+            search: filters?.search,
+            brand: filters?.brand,
+            category: filters?.category,
+            color: filters?.color,
+          })}`,
+        ),
+    },
   };
 }
 
-export type { ScoreResult, StoreScore, SessionUser, Role } from "@wally/types";
+export type {
+  ScoreResult,
+  StoreScore,
+  SessionUser,
+  Role,
+  Fixture,
+  FixtureKind,
+  PlacedFixture,
+  FloorPlan,
+  ProductDto,
+  MerchandiseRow,
+  GuideFixtureDetail,
+  GuideFixtureExampleImage,
+} from "@wally/types";
 
 export default createClient;

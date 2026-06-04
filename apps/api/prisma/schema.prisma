@@ -28,6 +28,11 @@ model Org {
   campaigns  Campaign[]
   rubrics    Rubric[]
   submissions Submission[]
+  fixtures      Fixture[]
+  placements    Placement[]
+  guideFixtures GuideFixture[]
+  products      Product[]
+  merchandise   Merchandise[]
 }
 
 enum Role {
@@ -95,6 +100,7 @@ model Store {
   submissions   Submission[]
   storeFixtures StoreFixture[]
   managers      User[]
+  placements    Placement[]
 
   @@index([orgId])
 }
@@ -118,6 +124,8 @@ model Campaign {
   org         Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
   rubrics     Rubric[]
   submissions Submission[]
+  placements    Placement[]
+  guideFixtures GuideFixture[]
 
   @@unique([orgId, key])
   @@index([orgId])
@@ -280,4 +288,124 @@ model Review {
   reviewer User    @relation(fields: [reviewerId], references: [id])
 
   @@index([verdictId])
+}
+
+// ═══════════════════════════════════════════ CREATE GUIDE platform
+// A VM guide (Campaign) places Fixtures on each Store's floor plan (Placement),
+// and each fixture in a guide (GuideFixture) carries notes + example images +
+// the Products merchandised on it. This is the keystone the money-map and
+// dashboards build on. Compliance pillar (above) keeps its own models for now.
+
+// Canonical fixture in the library (e.g. "TCC Wall Bay 1", "Cookset Bulkstack").
+model Fixture {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  kind      String   @default("bay") // bay | table | stand | window | dais | trolley
+  createdAt DateTime @default(now())
+
+  org           Org            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  placements    Placement[]
+  guideFixtures GuideFixture[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+}
+
+// A fixture placed on one store's floor plan for one guide (its x/y/w/h on the
+// canvas + per-store applicability — the "we don't have this" lives here too).
+model Placement {
+  id         String  @id @default(cuid())
+  orgId      String
+  storeId    String
+  campaignId String
+  fixtureId  String
+  label      String
+  x          Float   @default(0)
+  y          Float   @default(0)
+  w          Float   @default(120)
+  h          Float   @default(80)
+  rotation   Float   @default(0)
+  applicable Boolean @default(true)
+  order      Int     @default(0)
+
+  org      Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  fixture  Fixture  @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, campaignId, fixtureId])
+  @@index([campaignId, storeId])
+}
+
+// A fixture's instruction sheet within a guide: rich-text notes + example
+// images + the products merchandised on it (the right rail in the demo).
+model GuideFixture {
+  id         String   @id @default(cuid())
+  orgId      String
+  campaignId String
+  fixtureId  String
+  notes      String   @default("") // rich text / markdown
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  org           Org            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  campaign      Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  fixture       Fixture        @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  merchandise   Merchandise[]
+  exampleImages ExampleImage[]
+
+  @@unique([campaignId, fixtureId])
+  @@index([campaignId])
+}
+
+// Product catalog (connected to the buying/allocation source).
+model Product {
+  id        String   @id @default(cuid())
+  orgId     String
+  sku       String
+  name      String
+  brand     String?
+  category  String?
+  color     String?
+  imageUrl  String?
+  createdAt DateTime @default(now())
+
+  org         Org           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  merchandise Merchandise[]
+
+  @@unique([orgId, sku])
+  @@index([orgId])
+}
+
+// A product merchandised onto a guide-fixture (with a row grouping like the demo).
+model Merchandise {
+  id             String   @id @default(cuid())
+  orgId          String
+  guideFixtureId String
+  productId      String
+  row            String?  // "Top rack", "New row", ...
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  org          Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  guideFixture GuideFixture @relation(fields: [guideFixtureId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([guideFixtureId])
+}
+
+// The VM-team example image(s) for a guide-fixture ("what good looks like").
+model ExampleImage {
+  id             String   @id @default(cuid())
+  orgId          String
+  guideFixtureId String
+  storageKey     String
+  caption        String?
+  bestInClass    Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  guideFixture GuideFixture @relation(fields: [guideFixtureId], references: [id], onDelete: Cascade)
+
+  @@index([guideFixtureId])
 }

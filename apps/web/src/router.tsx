@@ -9,6 +9,7 @@ import { CapturePage } from './capture/CapturePage';
 import { ConsolePage } from './console/ConsolePage';
 import { StoreDetailPage } from './console/StoreDetailPage';
 import { FixtureReviewPage } from './console/FixtureReviewPage';
+import { studioRoutes } from './studio/routes';
 import { Spinner } from '@wally/ui';
 
 /** Root index — send each role to the surface they live in. */
@@ -54,6 +55,10 @@ export const router = createBrowserRouter([
       { path: '/console/fixture/:photoId', element: <FixtureReviewPage /> },
     ],
   },
+
+  // CREATE GUIDE studio (guide authors). Self-contained route subtree with its
+  // own shell; see ./studio/routes.
+  studioRoutes,
 
   { path: '/', element: <RoleHome /> },
   { path: '*', element: <Navigate to="/" replace /> },
