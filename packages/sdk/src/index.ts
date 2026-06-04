@@ -68,7 +68,15 @@ export interface Submission {
   campaignId: string;
   storeName: string;
   campaignKey: string;
+  /** The store's applicable fixtures = the checklist (ordered). */
+  fixtures: SubmissionFixture[];
   photos: SubmissionPhoto[];
+}
+
+export interface SubmissionFixture {
+  fixtureKey: string;
+  label: string;
+  order: number;
 }
 
 export interface SubmissionPhoto {
@@ -146,6 +154,8 @@ export interface WallyClient {
     storeScore(id: string, campaignId: string): Promise<StoreScore>;
   };
   submissions: {
+    /** The signed-in store manager's current checklist (store + active campaign). */
+    current(): Promise<{ submissionId: string; campaignKey: string }>;
     get(id: string): Promise<Submission>;
     uploadPhoto(
       submissionId: string,
@@ -277,6 +287,8 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         ),
     },
     submissions: {
+      current: () =>
+        get<{ submissionId: string; campaignKey: string }>("submissions/current"),
       get: (id) => get<Submission>(`submissions/${encodeURIComponent(id)}`),
       uploadPhoto: (submissionId, fixtureKey, file) => {
         const form = new FormData();

@@ -80,6 +80,17 @@ export class SubmissionController {
     );
   }
 
+  /**
+   * The signed-in store manager's current checklist: resolves their store + the
+   * active campaign, opens (or resumes) the submission, and returns its id — so
+   * /capture lands straight on the checklist with no ID to paste.
+   * Declared before `:id` so "current" isn't swallowed by the param route.
+   */
+  @Get('current')
+  current(@CurrentUser() user: SessionUser) {
+    return this.submissions.currentForManager(user);
+  }
+
   /** A submission with its photos + verdicts. */
   @Get(':id')
   getOne(@CurrentUser() user: SessionUser, @Param('id') submissionId: string) {

@@ -90,4 +90,6 @@ export interface SessionUser {
   name?: string | null;
   role: Role;
   orgId: string;
+  /** Set for STORE_MANAGER users — the store whose checklist they capture. */
+  storeId?: string | null;
 }

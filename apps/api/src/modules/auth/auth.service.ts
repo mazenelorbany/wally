@@ -170,12 +170,15 @@ export class AuthService {
     // user is created with the role the token was minted for.
     const user = await this.prisma.user.upsert({
       where: { email: token.email },
-      update: {},
+      // Keep an existing user's role, but always bind them to the store the
+      // invite was scoped to (a manager's checklist follows the invite).
+      update: token.storeId ? { storeId: token.storeId } : {},
       create: {
         email: token.email,
         name: token.email.split('@')[0] ?? null,
         role: token.role,
         orgId: token.orgId,
+        storeId: token.storeId ?? null,
       },
     });
 
@@ -266,15 +269,26 @@ export class AuthService {
       (await this.prisma.org.findFirst({ orderBy: { createdAt: 'asc' } })) ??
       (await this.prisma.org.create({ data: { name: 'Dev Org', slug: 'dev' } }));
 
+    // A dev STORE_MANAGER needs a store to land on — bind to the first seeded
+    // store so /capture resolves a checklist instead of asking for an ID.
+    const storeId =
+      role === Role.STORE_MANAGER
+        ? (await this.prisma.store.findFirst({
+            where: { orgId: org.id },
+            orderBy: { name: 'asc' },
+          }))?.id ?? null
+        : null;
+
     const email = `${role.toLowerCase()}@dev.local`;
     const user = await this.prisma.user.upsert({
       where: { email },
-      update: { role, orgId: org.id },
+      update: { role, orgId: org.id, storeId },
       create: {
         email,
         name: `Dev ${titleCase(role)}`,
         role,
         orgId: org.id,
+        storeId,
       },
     });
 
@@ -289,6 +303,7 @@ function toSessionUser(u: {
   name: string | null;
   role: Role;
   orgId: string;
+  storeId: string | null;
 }): SessionUser {
   return {
     id: u.id,
@@ -296,6 +311,7 @@ function toSessionUser(u: {
     name: u.name,
     role: u.role,
     orgId: u.orgId,
+    storeId: u.storeId,
   };
 }
 

@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  CampaignStatus,
   JobStatus,
   Overall as DbOverall,
   PhotoStatus,
@@ -15,6 +16,7 @@ import type {
   FixtureOutcome,
   FixtureStatus,
   Overall,
+  SessionUser,
   StoreScore,
 } from '@wally/types';
 import sharp from 'sharp';
@@ -94,6 +96,30 @@ export class SubmissionService {
    * is unique, so this is idempotent: a store manager re-opening the flow gets
    * back the same submission rather than a 409.
    */
+  /**
+   * Resolve the signed-in store manager's checklist: their store + the active
+   * campaign, opening (or resuming) the submission. So /capture needs no ID.
+   */
+  async currentForManager(user: SessionUser) {
+    if (!user.storeId) {
+      throw new NotFoundException(
+        'No store is linked to this account. Ask head office to re-send your checklist link.',
+      );
+    }
+    const campaign = await this.prisma.campaign.findFirst({
+      where: { orgId: user.orgId, status: CampaignStatus.ACTIVE },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!campaign) {
+      throw new NotFoundException('There is no active campaign right now.');
+    }
+    const submission = await this.create(user.orgId, {
+      storeId: user.storeId,
+      campaignId: campaign.id,
+    });
+    return { submissionId: submission.id, campaignKey: campaign.key };
+  }
+
   async create(orgId: string, input: CreateSubmissionInput) {
     const store = await this.requireStore(orgId, input.storeId);
     await this.requireCampaign(orgId, input.campaignId);
@@ -213,13 +239,31 @@ export class SubmissionService {
     });
     if (!submission) throw new NotFoundException('submission not found');
 
+    // The checklist is the store's APPLICABLE fixtures (not just what's been
+    // uploaded), so the manager sees what's still outstanding.
+    const fixtures = await this.prisma.storeFixture.findMany({
+      where: {
+        storeId: submission.storeId,
+        campaignId: submission.campaignId,
+        applicable: true,
+      },
+      orderBy: { order: 'asc' },
+      select: { fixtureKey: true, label: true, order: true },
+    });
+
     return {
       id: submission.id,
       status: submission.status,
       submittedAt: submission.submittedAt,
       createdAt: submission.createdAt,
+      storeId: submission.storeId,
+      campaignId: submission.campaignId,
+      // Flat names match the @wally/sdk Submission contract the web reads.
+      storeName: submission.store.name,
+      campaignKey: submission.campaign.key,
       store: submission.store,
       campaign: submission.campaign,
+      fixtures,
       photos: submission.photos.map((p) => ({
         ...this.presentPhoto(p),
         verdict: p.verdict ? this.presentVerdict(p.verdict) : null,

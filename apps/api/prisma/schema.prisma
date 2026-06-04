@@ -43,13 +43,16 @@ model User {
   name      String?
   role      Role     @default(REVIEWER)
   googleId  String?  @unique
+  storeId   String?  // store managers belong to a store (set via magic-link)
   createdAt DateTime @default(now())
 
   org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  store    Store?    @relation(fields: [storeId], references: [id], onDelete: SetNull)
   sessions Session[]
   reviews  Review[]
 
   @@index([orgId])
+  @@index([storeId])
 }
 
 model Session {
@@ -91,6 +94,7 @@ model Store {
   org           Org            @relation(fields: [orgId], references: [id], onDelete: Cascade)
   submissions   Submission[]
   storeFixtures StoreFixture[]
+  managers      User[]
 
   @@index([orgId])
 }

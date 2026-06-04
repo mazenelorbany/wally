@@ -11,8 +11,9 @@ import {
 import { Button, Card, ConfidenceBar } from '@wally/ui';
 
 import { useSubmission } from '../lib/hooks';
+import { api, errorMessage } from '../lib/api';
 import { qk } from '../lib/queryKeys';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   selectUploadsForSubmission,
   useCaptureQueue,
@@ -40,15 +41,43 @@ function useSubmissionId(): string | undefined {
 
 export function CapturePage() {
   const submissionId = useSubmissionId();
+  const navigate = useNavigate();
 
-  if (!submissionId) {
-    return <ConnectChecklist />;
-  }
-  return <CaptureFlow submissionId={submissionId} />;
+  // No id from the invite link / last-used → resolve the manager's OWN
+  // checklist (their store + the active campaign). A store manager should never
+  // type an ID; the paste box below is only a cold-start fallback.
+  const currentQ = useQuery({
+    queryKey: ['current-submission'],
+    queryFn: () => api.submissions.current(),
+    enabled: !submissionId,
+    retry: false,
+  });
+
+  React.useEffect(() => {
+    const id = currentQ.data?.submissionId;
+    if (!submissionId && id) navigate(`/capture/${id}`, { replace: true });
+  }, [submissionId, currentQ.data, navigate]);
+
+  if (submissionId) return <CaptureFlow submissionId={submissionId} />;
+  if (currentQ.isLoading || currentQ.data) return <CaptureResolving />;
+  return (
+    <ConnectChecklist
+      message={currentQ.error ? errorMessage(currentQ.error) : undefined}
+    />
+  );
 }
 
-/** Entry screen when we don't yet know which submission to capture for. */
-function ConnectChecklist() {
+function CaptureResolving() {
+  return (
+    <div className="mx-auto max-w-md pt-12 text-center">
+      <Skeleton className="mx-auto h-28 w-full max-w-sm rounded-lg" />
+      <p className="mt-4 text-sm text-steel">Opening your store checklist…</p>
+    </div>
+  );
+}
+
+/** Cold-start fallback when we can't resolve the manager's checklist. */
+function ConnectChecklist({ message }: { message?: string }) {
   const navigate = useNavigate();
   const [value, setValue] = React.useState('');
 
@@ -70,6 +99,11 @@ function ConnectChecklist() {
         <p className="mt-1 text-sm text-steel">
           Paste the checklist link from your invite, or its ID, to start capturing.
         </p>
+        {message ? (
+          <p className="mt-3 rounded-md bg-surface px-3 py-2 text-sm text-fail">
+            {message}
+          </p>
+        ) : null}
         <form onSubmit={open} className="mt-4 flex flex-col gap-2">
           <input
             className="field text-center"
@@ -142,10 +176,12 @@ function CaptureFlow({ submissionId }: { submissionId: string }) {
     () =>
       buildSlots({
         submission: submissionQ.data,
-        // The submission's own photo list defines the checklist keys; the
-        // campaign fixture list isn't exposed via the SDK, so empty slots come
-        // from photos the API seeded as not_submitted.
-        fixtureKeys: submissionQ.data?.photos.map((p) => p.fixtureKey),
+        // The checklist is the store's APPLICABLE fixtures (ordered), so unshot
+        // fixtures show as empty slots — not just the ones already uploaded.
+        fixtureKeys: submissionQ.data?.fixtures
+          ?.slice()
+          .sort((a, b) => a.order - b.order)
+          .map((f) => f.fixtureKey),
         queued,
         skipped,
         previews,
