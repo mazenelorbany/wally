@@ -24,13 +24,35 @@ const money = (n: number) =>
 const priceLabel = (n: number) =>
   `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// Local calendar day as 'YYYY-MM-DD' (the <input type="date"> + API format).
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate(),
+  ).padStart(2, '0')}`;
+};
+
+// Friendly label for the running-total header ("Today" or "Mon, Jun 2").
+const dayLabel = (iso: string) =>
+  iso === todayStr()
+    ? 'Today'
+    : new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      });
+
 export function SalesLogView() {
   const { storeId } = useManagerStore();
   const qc = useQueryClient();
 
+  // Sales are logged per calendar day; default to today, but the manager can
+  // pick any date to enter or review that day's units.
+  const [date, setDate] = React.useState(todayStr);
+
   const salesQ = useQuery({
-    queryKey: ['manager', 'sales', storeId],
-    queryFn: () => api.manager.salesLog(storeId),
+    queryKey: ['manager', 'sales', storeId, date],
+    queryFn: () => api.manager.salesLog(storeId, date),
   });
 
   const [draft, setDraft] = React.useState<Record<string, number>>({});
@@ -57,8 +79,15 @@ export function SalesLogView() {
   }, [salesQ.data]);
 
   const save = useMutation({
-    mutationFn: ({ productId, units }: { productId: string; units: number }) =>
-      api.manager.logSale(productId, units, storeId),
+    mutationFn: ({
+      productId,
+      units,
+      soldOn,
+    }: {
+      productId: string;
+      units: number;
+      soldOn: string;
+    }) => api.manager.logSale(productId, units, storeId, soldOn),
   });
 
   const setUnits = (line: SalesLine, units: number) => {
@@ -68,7 +97,7 @@ export function SalesLogView() {
     clearTimeout(timers.current[line.productId]);
     timers.current[line.productId] = setTimeout(() => {
       save.mutate(
-        { productId: line.productId, units: u },
+        { productId: line.productId, units: u, soldOn: date },
         {
           onSettled: () => {
             setSaving(false);
@@ -154,17 +183,28 @@ export function SalesLogView() {
             Search a product or open a fixture, then tap units sold.
           </p>
         </div>
-        <span className="inline-flex items-center gap-1 text-xs text-steel">
-          {saving ? (
-            <>
-              <Spinner className="text-sm" /> Saving
-            </>
-          ) : (
-            <>
-              <Check className="h-3.5 w-3.5 text-pass" /> Saved
-            </>
-          )}
-        </span>
+        <div className="flex flex-col items-end gap-1.5">
+          <label className="flex items-center gap-2 text-xs text-steel">
+            <span className="uppercase tracking-brand">Date</span>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value || todayStr())}
+              className="field h-9 w-auto px-2.5 py-1 text-sm tabular-nums"
+            />
+          </label>
+          <span className="inline-flex items-center gap-1 text-xs text-steel">
+            {saving ? (
+              <>
+                <Spinner className="text-sm" /> Saving
+              </>
+            ) : (
+              <>
+                <Check className="h-3.5 w-3.5 text-pass" /> Saved
+              </>
+            )}
+          </span>
+        </div>
       </header>
 
       {/* Sticky search + running total */}
@@ -190,7 +230,7 @@ export function SalesLogView() {
         </div>
         <div className="flex items-center justify-between">
           <span className="text-[11px] uppercase tracking-brand text-steel">
-            Period total
+            {dayLabel(date)} · total
           </span>
           <span className="font-display text-lg font-semibold tabular-nums text-ink">
             {money(totalRevenue)}
