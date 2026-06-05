@@ -546,6 +546,15 @@ async function main(): Promise<void> {
   // --- CREATE GUIDE pillar (reuses the GRB org + MSP2-2026 campaign above) ---
   await seedCreateGuide({ orgId: org.id, campaignId: campaign.id, stores });
 
+  // --- Bulletins (the sale memo every Myer store reads + acknowledges) -------
+  await seedBulletins({
+    orgId: org.id,
+    projectId: myerProject.id,
+    campaignId: campaign.id,
+    stores,
+    ackUserId: admin.id,
+  });
+
   // --- Ambiente project (TRADESHOW) — a full booth setup, seeded end-to-end --
   await seedAmbiente({ orgId: org.id });
 
@@ -581,6 +590,119 @@ async function main(): Promise<void> {
   console.log(
     `  dev users: ${viewer.email} (VIEWER), ${setupCrew.email} (STORE_MANAGER @ Ambiente venue)`,
   );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BULLETINS — the "sale memo" head office pushes to every store for a campaign.
+// ───────────────────────────────────────────────────────────────────────────
+// Seeds a realistic feed for the Myer project: a pinned setup memo (published,
+// most stores have read it), a planogram-update notice (published, a few reads),
+// and a teardown checklist still in Draft. Acks are spread across the first N
+// stores so the studio's "Acknowledged x/y" rollup renders a partial bar.
+// Idempotent: bulletins upsert on a fixed id; acks upsert on (bulletinId,storeId).
+// ═══════════════════════════════════════════════════════════════════════════
+async function seedBulletins(ctx: {
+  orgId: string;
+  projectId: string;
+  campaignId: string;
+  stores: { id: string; name: string }[];
+  ackUserId: string;
+}): Promise<void> {
+  const { orgId, projectId, campaignId, stores, ackUserId } = ctx;
+  console.log('\nSeeding BULLETINS (Myer sale memo + read receipts)…');
+
+  const specs: {
+    id: string;
+    title: string;
+    body: string;
+    pinned: boolean;
+    startsAt?: Date;
+    endsAt?: Date;
+    publishedAt: Date | null;
+    /** How many of the first stores have acknowledged (published only). */
+    ackStores: number;
+  }[] = [
+    {
+      id: 'seed-bulletin-myer-setup',
+      title: 'MSP2 2026 · Sale 3 — store setup memo',
+      body: [
+        'Sale 3 goes live Friday. Have every fixture reset before doors open.',
+        '',
+        '• VM Tables 1–3: lead with the Le Connoisseur range, NOOK second, iD3 on the end cap.',
+        '• TCC Wall Bays 1–7: A7 sharps warning in the 2nd cabinet, far-left, acrylic only.',
+        '• All knife blocks: white RRP A7 ticket in the acrylic in front; sale ticket in front of RRP.',
+        '• Pull all Sale 2 signage the night before — no mixed pricing on the floor.',
+        '',
+        'Submit your storefront + door-buster photos by end of day Friday.',
+      ].join('\n'),
+      pinned: true,
+      startsAt: new Date('2026-02-06T00:00:00Z'),
+      endsAt: new Date('2026-02-20T00:00:00Z'),
+      publishedAt: new Date('2026-02-03T08:00:00Z'),
+      ackStores: Math.min(20, stores.length),
+    },
+    {
+      id: 'seed-bulletin-myer-id3',
+      title: 'New Baccarat iD3 range — planogram update',
+      body: [
+        'The iD3 knife range lands this week. Updated planograms are on TCC Wall Bay 1 and the VM tables.',
+        '',
+        'Face all iD3 blocks forward, magnets across the top of each cabinet, loose knives facing the cabinet.',
+        'Check the attached layout before you build the wall.',
+      ].join('\n'),
+      pinned: false,
+      publishedAt: new Date('2026-02-04T09:30:00Z'),
+      ackStores: Math.min(7, stores.length),
+    },
+    {
+      id: 'seed-bulletin-myer-teardown',
+      title: 'End-of-sale teardown checklist (draft)',
+      body: [
+        'Draft — do not action yet. Posting the teardown checklist closer to the sale end date.',
+        '',
+        'Will cover: signage removal, fixture reset to core range, and the stock-return process.',
+      ].join('\n'),
+      pinned: false,
+      publishedAt: null,
+      ackStores: 0,
+    },
+  ];
+
+  let created = 0;
+  let ackCount = 0;
+  for (const s of specs) {
+    const data = {
+      orgId,
+      projectId,
+      campaignId,
+      title: s.title,
+      body: s.body,
+      pinned: s.pinned,
+      startsAt: s.startsAt ?? null,
+      endsAt: s.endsAt ?? null,
+      publishedAt: s.publishedAt,
+    };
+    await prisma.bulletin.upsert({
+      where: { id: s.id },
+      update: data,
+      create: { id: s.id, ...data },
+    });
+    created++;
+
+    // Read receipts — only meaningful once published.
+    if (s.publishedAt && s.ackStores > 0) {
+      const ackTargets = stores.slice(0, s.ackStores);
+      for (const store of ackTargets) {
+        await prisma.bulletinAck.upsert({
+          where: { bulletinId_storeId: { bulletinId: s.id, storeId: store.id } },
+          update: {},
+          create: { bulletinId: s.id, storeId: store.id, userId: ackUserId },
+        });
+        ackCount++;
+      }
+    }
+  }
+  console.log(`  bulletins: ${created} (${ackCount} read receipts across stores)`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1097,6 +1219,14 @@ async function seedManagerWorkspace(ctx: {
     .map((n) => byName(n))
     .filter((s): s is { id: string; name: string } => Boolean(s));
   const merchSkus = [...fixtureNameByProductSku.keys()];
+  // Sales are tracked per calendar DAY (SalesEntry.soldOn). Spread the seeded
+  // rows across the first few days of the sale so the manager's daily view and
+  // the money map both have real day-over-day variety (date-only, UTC midnight).
+  const SALE_DAYS = [
+    new Date('2026-02-06T00:00:00Z'),
+    new Date('2026-02-07T00:00:00Z'),
+    new Date('2026-02-08T00:00:00Z'),
+  ];
   let salesCount = 0;
   for (const store of salesStores) {
     // ~70% of merchandised products get a sales row (deterministic by sku).
@@ -1110,10 +1240,13 @@ async function seedManagerWorkspace(ctx: {
       const units = 2 + Math.floor(unitHash(`${store.name}|units|${sku}`) * 39); // 2..40
       const unitPrice = info.salePrice ?? info.rrp ?? 0;
       const revenue = Math.round(units * unitPrice * 100) / 100;
+      const soldOn = SALE_DAYS[Math.floor(unitHash(`${store.name}|day|${sku}`) * SALE_DAYS.length)];
       await prisma.salesEntry.upsert({
-        where: { storeId_campaignId_productId: { storeId: store.id, campaignId, productId } },
+        where: {
+          storeId_campaignId_productId_soldOn: { storeId: store.id, campaignId, productId, soldOn },
+        },
         update: { fixtureId, units, unitPrice, revenue },
-        create: { orgId, storeId: store.id, campaignId, productId, fixtureId, units, unitPrice, revenue },
+        create: { orgId, storeId: store.id, campaignId, productId, fixtureId, units, unitPrice, revenue, soldOn },
       });
       salesCount++;
     }

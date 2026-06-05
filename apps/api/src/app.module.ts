@@ -25,6 +25,7 @@ import { ProductModule } from './modules/product/product.module';
 import { ProjectModule } from './modules/project/project.module';
 import { ManagerModule } from './modules/manager/manager.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { BulletinModule } from './modules/bulletin/bulletin.module';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { AdminModule } from './modules/admin/admin.module';
     ProjectModule,
     ManagerModule,
     AdminModule,
+    BulletinModule,
   ],
   providers: [
     // Apply the rate limiter to every controller route by default.

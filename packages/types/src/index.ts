@@ -529,3 +529,38 @@ export interface FixtureComplianceDetail {
   confidence?: number | null;
   scoredAt?: string | null;
 }
+
+/* -------------------------------------------------------------------------- */
+/* BULLETINS — the per-sale memo authored for a project; read + acknowledged    */
+/* -------------------------------------------------------------------------- */
+
+export interface BulletinDto {
+  id: string;
+  projectId: string;
+  campaignId?: string | null;
+  title: string;
+  /** Markdown body. */
+  body: string;
+  pinned: boolean;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  /** Signed, time-limited URL to the attached PDF/image (never the raw key). */
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
+  /** Null while a draft. */
+  publishedAt?: string | null;
+  createdAt: string;
+  /** Acknowledgement rollup (admin view): how many stores have acknowledged. */
+  ackCount: number;
+  ackTotal: number;
+  /** Whether the signed-in manager's store has acknowledged (manager view). */
+  acknowledged?: boolean;
+}
+
+/** One store's acknowledgement state for a bulletin (the admin ack list). */
+export interface BulletinAckRow {
+  storeId: string;
+  storeName: string;
+  acknowledged: boolean;
+  acknowledgedAt?: string | null;
+}

@@ -39,6 +39,7 @@ model Org {
   salesEntries  SalesEntry[]
   captures      FixtureCapture[]
   complianceSnapshots ComplianceSnapshot[]
+  bulletins     Bulletin[]
 }
 
 enum Role {
@@ -67,6 +68,7 @@ model Project {
   org       Org        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   campaigns Campaign[]
   stores    Store[]
+  bulletins Bulletin[]
 
   @@unique([orgId, slug])
   @@index([orgId])
@@ -141,6 +143,7 @@ model Store {
   tasks         Task[]
   salesEntries  SalesEntry[]
   captures      FixtureCapture[]
+  bulletinAcks  BulletinAck[]
 
   @@index([orgId])
 }
@@ -619,4 +622,50 @@ model FixtureCapture {
 
   @@unique([storeId, campaignId, fixtureId])
   @@index([storeId, campaignId])
+}
+
+// ═══════════════════════════════════════════ BULLETINS
+// The per-sale memo that ships with each promotion (like the real "BULLETIN 89"):
+// an admin authors it for a project (title + body + key dates + an optional PDF/
+// image attachment), publishes it, and every store manager in the project must
+// read + acknowledge it. A feed (newest first; pin the important ones).
+
+model Bulletin {
+  id             String    @id @default(cuid())
+  orgId          String
+  projectId      String
+  campaignId     String? // the sale this belongs to (the project's active campaign)
+  title          String
+  body           String    @default("") // markdown
+  pinned         Boolean   @default(false)
+  startsAt       DateTime?
+  endsAt         DateTime?
+  attachmentKey  String? // storage key of the attached PDF / image
+  attachmentName String?
+  publishedAt    DateTime? // null = draft
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  org     Org           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  acks    BulletinAck[]
+
+  @@index([projectId])
+  @@index([orgId])
+}
+
+// One store manager's acknowledgement of a bulletin (the read receipt).
+model BulletinAck {
+  id             String   @id @default(cuid())
+  bulletinId     String
+  storeId        String
+  userId         String
+  acknowledgedAt DateTime @default(now())
+
+  bulletin Bulletin @relation(fields: [bulletinId], references: [id], onDelete: Cascade)
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([bulletinId, storeId])
+  @@index([bulletinId])
 }

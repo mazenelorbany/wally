@@ -6,6 +6,7 @@ import {
   ListChecks,
   LogOut,
   Map as MapIcon,
+  Megaphone,
   Package,
   Receipt,
   Settings,
@@ -36,9 +37,16 @@ export function ManagerSidebar({ onNavigate }: { onNavigate?: () => void }) {
   });
   const unseen = homeQ.data?.unseenTasks ?? 0;
 
+  const bulletinsQ = useQuery({
+    queryKey: ['manager', 'bulletins', storeId],
+    queryFn: () => api.bulletins.mine(storeId),
+  });
+  const unreadBulletins = (bulletinsQ.data ?? []).filter((b) => !b.acknowledged).length;
+
   const items: NavItem[] = [
     { label: 'Home', icon: Home, to: '/store', end: true },
     { label: 'Tasks', icon: ListChecks, to: '/store/tasks', badge: unseen },
+    { label: 'Bulletins', icon: Megaphone, to: '/store/bulletins', badge: unreadBulletins },
     { label: 'Floor map', icon: MapIcon, to: '/store/guide' },
     { label: 'Log sales', icon: Receipt, to: '/store/sales' },
     { label: 'Products', icon: Package, to: '/store/products' },

@@ -27,6 +27,7 @@ import { StoreDirectoryView } from './views/StoreDirectoryView';
 import { UsersView } from './views/UsersView';
 import { RubricsView } from './views/RubricsView';
 import { ProjectsView } from './views/ProjectsView';
+import { BulletinsView } from './views/BulletinsView';
 import { SettingsPage } from '../components/SettingsPage';
 
 /** The studio route subtree. Mount at the app router top level. */
@@ -44,6 +45,7 @@ export const studioRoutes: RouteObject = {
     { path: 'fixtures', element: <FixturesView /> },
     { path: 'products', element: <ProductsView /> },
     { path: 'gallery', element: <GalleryView /> },
+    { path: 'bulletins', element: <BulletinsView /> },
     { path: 'money-map', element: <MoneyMapView /> },
     { path: 'dashboard', element: <DashboardView /> },
     { path: 'leaderboard', element: <LeaderboardView /> },

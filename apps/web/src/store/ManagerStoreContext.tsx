@@ -29,29 +29,39 @@ export function ManagerStoreProvider({ children }: { children: React.ReactNode }
   const { user } = useSession();
   const canSwitch = user?.role === 'ADMIN' || user?.role === 'REVIEWER';
 
-  // Admins pick from the live store list (active campaign's stores).
-  const campaignsQ = useQuery({
-    queryKey: ['manager', 'campaigns'],
-    queryFn: () => api.campaigns.list(),
+  // Admins pick from the real store list. Managers run RETAIL stores, so resolve
+  // the retail project (Myer) and list its venues — NOT campaigns.queue, which is
+  // the submission queue (only stores that have submitted) and goes empty for the
+  // cross-project "first active campaign". Mirrors the studio StoresView fix.
+  const projectsQ = useQuery({
+    queryKey: ['manager', 'projects'],
+    queryFn: () => api.projects.list(),
     enabled: canSwitch,
   });
-  const campaign =
-    campaignsQ.data?.find((c) => c.status === 'ACTIVE') ?? campaignsQ.data?.[0];
+  const project = React.useMemo(() => {
+    const all = projectsQ.data ?? [];
+    return (
+      all.find((p) => p.kind === 'RETAIL' && p.venueCount > 0) ??
+      all.find((p) => p.kind === 'RETAIL') ??
+      all[0]
+    );
+  }, [projectsQ.data]);
 
-  const storesQ = useQuery({
-    queryKey: ['manager', 'stores', campaign?.id],
-    queryFn: () => api.campaigns.queue(campaign!.id),
-    enabled: canSwitch && Boolean(campaign?.id),
+  const venuesQ = useQuery({
+    queryKey: ['manager', 'venues', project?.id],
+    queryFn: () => api.projects.venues(project!.id),
+    enabled: canSwitch && Boolean(project?.id),
   });
 
   const stores = React.useMemo(
     () =>
-      (storesQ.data ?? []).map((s) => ({ id: s.storeId, name: s.storeName })),
-    [storesQ.data],
+      (venuesQ.data ?? []).map((s) => ({ id: s.storeId, name: s.storeName })),
+    [venuesQ.data],
   );
 
   const [picked, setPicked] = React.useState<string | undefined>();
   const storeId = canSwitch ? picked ?? stores[0]?.id : undefined;
+  const campaignId = project?.campaignId ?? undefined;
 
   const value = React.useMemo<ManagerStoreValue>(
     () => ({
@@ -59,9 +69,9 @@ export function ManagerStoreProvider({ children }: { children: React.ReactNode }
       setStoreId: setPicked,
       stores,
       canSwitch,
-      campaignId: campaign?.id,
+      campaignId,
     }),
-    [storeId, stores, canSwitch, campaign?.id],
+    [storeId, stores, canSwitch, campaignId],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

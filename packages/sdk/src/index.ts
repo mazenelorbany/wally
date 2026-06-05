@@ -39,6 +39,8 @@ import type {
   TaskKind,
   FixtureCompliance,
   FixtureComplianceDetail,
+  BulletinDto,
+  BulletinAckRow,
 } from "@wally/types";
 
 /* -------------------------------------------------------------------------- */
@@ -239,6 +241,27 @@ export interface CreateTaskBody {
   body?: string;
   fixtureKey?: string;
   dueAt?: string;
+}
+
+/** Body for creating a bulletin (the file is sent separately as multipart). */
+export interface CreateBulletinBody {
+  title: string;
+  body?: string;
+  startsAt?: string;
+  endsAt?: string;
+  pinned?: boolean;
+  /** Publish now (visible to managers); omit/false to keep it a draft. */
+  publish?: boolean;
+}
+
+/** Body for editing a bulletin. */
+export interface UpdateBulletinBody {
+  title?: string;
+  body?: string;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  pinned?: boolean;
+  publish?: boolean;
 }
 
 /** Body for inviting a teammate (admin user management). */
@@ -479,6 +502,25 @@ export interface WallyClient {
     list(): Promise<UserDto[]>;
     invite(body: InviteUserBody): Promise<UserDto>;
     update(id: string, body: UpdateUserBody): Promise<UserDto>;
+  };
+  /** BULLETINS — the per-sale memo (admin authors; managers read + acknowledge). */
+  bulletins: {
+    /** Admin: the project's bulletin feed (with ack rollups). */
+    list(projectId: string): Promise<BulletinDto[]>;
+    /** Admin: create a bulletin, with an optional PDF/image attachment. */
+    create(
+      projectId: string,
+      body: CreateBulletinBody,
+      file?: Blob | File,
+    ): Promise<BulletinDto>;
+    update(id: string, body: UpdateBulletinBody): Promise<BulletinDto>;
+    remove(id: string): Promise<void>;
+    /** Admin: which stores have acknowledged this bulletin. */
+    acks(id: string): Promise<BulletinAckRow[]>;
+    /** Manager: bulletins for my store's project, with my-ack flag. */
+    mine(storeId?: string): Promise<BulletinDto[]>;
+    /** Manager: acknowledge a bulletin (read receipt). */
+    acknowledge(id: string, storeId?: string): Promise<void>;
   };
 }
 
@@ -824,6 +866,38 @@ export function createClient(opts: CreateClientOptions): WallyClient {
       update: (id, body) =>
         patch<UserDto>(`admin/users/${encodeURIComponent(id)}`, body),
     },
+    bulletins: {
+      list: (projectId) =>
+        get<BulletinDto[]>(
+          `projects/${encodeURIComponent(projectId)}/bulletins`,
+        ),
+      create: (projectId, body, file) => {
+        const form = new FormData();
+        form.append("title", body.title);
+        if (body.body !== undefined) form.append("body", body.body);
+        if (body.startsAt) form.append("startsAt", body.startsAt);
+        if (body.endsAt) form.append("endsAt", body.endsAt);
+        if (body.pinned !== undefined) form.append("pinned", String(body.pinned));
+        if (body.publish !== undefined) form.append("publish", String(body.publish));
+        if (file) form.append("file", file);
+        return request<BulletinDto>(
+          "POST",
+          `projects/${encodeURIComponent(projectId)}/bulletins`,
+          { body: form },
+        );
+      },
+      update: (id, body) =>
+        patch<BulletinDto>(`bulletins/${encodeURIComponent(id)}`, body),
+      remove: (id) => del<void>(`bulletins/${encodeURIComponent(id)}`),
+      acks: (id) =>
+        get<BulletinAckRow[]>(`bulletins/${encodeURIComponent(id)}/acks`),
+      mine: (storeId) =>
+        get<BulletinDto[]>(`manager/bulletins${query({ storeId })}`),
+      acknowledge: (id, storeId) =>
+        post<void>(
+          `manager/bulletins/${encodeURIComponent(id)}/ack${query({ storeId })}`,
+        ),
+    },
   };
 }
 
@@ -859,6 +933,8 @@ export type {
   ProjectDto,
   ProjectKind,
   ProjectVenue,
+  BulletinDto,
+  BulletinAckRow,
 } from "@wally/types";
 
 export default createClient;
