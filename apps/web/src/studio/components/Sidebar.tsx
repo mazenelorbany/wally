@@ -16,6 +16,7 @@ import {
   Users,
   ClipboardList,
   Megaphone,
+  GraduationCap,
   LogOut,
   Settings,
   ChevronDown,
@@ -63,6 +64,7 @@ const GROUPS: NavGroup[] = [
       { label: 'Products', icon: Package, to: () => '/studio/products' },
       { label: 'Gallery', icon: Images, to: () => '/studio/gallery' },
       { label: 'Bulletins', icon: Megaphone, to: () => '/studio/bulletins' },
+      { label: 'Training', icon: GraduationCap, to: () => '/studio/resources' },
       {
         label: 'Review',
         icon: ClipboardCheck,

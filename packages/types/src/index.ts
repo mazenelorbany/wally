@@ -564,3 +564,23 @@ export interface BulletinAckRow {
   acknowledged: boolean;
   acknowledgedAt?: string | null;
 }
+
+/* -------------------------------------------------------------------------- */
+/* RESOURCES — the org's training & reference library (org-wide, no receipts)   */
+/* -------------------------------------------------------------------------- */
+
+/** A training/reference item: a category-grouped link OR uploaded file. */
+export interface ResourceDto {
+  id: string;
+  title: string;
+  description: string;
+  /** Free-text grouping (e.g. "VM Standards", "Product Knowledge", "Safety"). */
+  category: string;
+  /** External link (video, doc, brand site) — set when this is a link resource. */
+  url?: string | null;
+  /** Signed, time-limited URL to the uploaded file (never the raw key). */
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
+  pinned: boolean;
+  createdAt: string;
+}

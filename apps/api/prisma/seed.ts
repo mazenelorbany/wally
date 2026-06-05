@@ -555,6 +555,9 @@ async function main(): Promise<void> {
     ackUserId: admin.id,
   });
 
+  // --- Training & Resources (org-wide library every store draws on) ---------
+  await seedResources({ orgId: org.id, authorId: admin.id });
+
   // --- Ambiente project (TRADESHOW) — a full booth setup, seeded end-to-end --
   await seedAmbiente({ orgId: org.id });
 
@@ -703,6 +706,120 @@ async function seedBulletins(ctx: {
     }
   }
   console.log(`  bulletins: ${created} (${ackCount} read receipts across stores)`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RESOURCES — the org's training & reference library (org-wide, no receipts).
+// ───────────────────────────────────────────────────────────────────────────
+// A realistic spread across categories: VM standards, product knowledge, how-to
+// videos, safety, and onboarding. All seeded as links (the file-upload path is
+// exercised from the admin UI). Idempotent: each item upserts on a fixed id.
+// ═══════════════════════════════════════════════════════════════════════════
+async function seedResources(ctx: {
+  orgId: string;
+  authorId: string;
+}): Promise<void> {
+  const { orgId, authorId } = ctx;
+  console.log('\nSeeding RESOURCES (training & reference library)…');
+
+  const items: {
+    id: string;
+    title: string;
+    description: string;
+    category: string;
+    url: string;
+    pinned?: boolean;
+    order?: number;
+  }[] = [
+    {
+      id: 'seed-resource-vm-guide',
+      title: 'MSP2 2026 — full VM guide',
+      description:
+        'The complete merchandising guide for this sale: floor plan, every bay and table, ticketing, and what good looks like. Start here.',
+      category: 'VM Standards',
+      url: 'https://www.baccarat.com.au/',
+      pinned: true,
+    },
+    {
+      id: 'seed-resource-knife-wall-standard',
+      title: 'Knife wall planogram standard',
+      description:
+        'How the TCC knife wall must be built: magnets across the top, loose knives facing the cabinet, A7 sharps warning in the 2nd cabinet far-left.',
+      category: 'VM Standards',
+      url: 'https://www.baccarat.com.au/',
+      order: 1,
+    },
+    {
+      id: 'seed-resource-id3',
+      title: 'Baccarat iD3 knife range — overview',
+      description:
+        'Product knowledge for the new iD3 range: materials, the blocks in the range, and the headline selling points for customers.',
+      category: 'Product Knowledge',
+      url: 'https://www.baccarat.com.au/',
+    },
+    {
+      id: 'seed-resource-le-connoisseur',
+      title: 'Le Connoisseur cookware — range guide',
+      description:
+        'The hero cookware range for this sale. Construction, the pieces in the set, and care instructions to share with customers.',
+      category: 'Product Knowledge',
+      url: 'https://www.baccarat.com.au/',
+    },
+    {
+      id: 'seed-resource-acrylic-tickets',
+      title: 'How to set an acrylic RRP ticket',
+      description:
+        'Step-by-step: white RRP A7 ticket in the acrylic in front of the block; sale ticket slipped in front of the RRP when on promotion.',
+      category: 'How-to',
+      url: 'https://www.baccarat.com.au/',
+    },
+    {
+      id: 'seed-resource-build-knife-wall',
+      title: 'Building a 7-bay knife wall (video)',
+      description:
+        'A walk-through of building the full TCC wall from empty bays to a finished, ticketed display.',
+      category: 'How-to',
+      url: 'https://www.baccarat.com.au/',
+    },
+    {
+      id: 'seed-resource-sharps-safety',
+      title: 'A7 sharps warning — display & handling',
+      description:
+        'Where the sharps warning goes, and safe handling of loose knives on the floor. Required reading before you set the knife wall.',
+      category: 'Safety',
+      url: 'https://www.baccarat.com.au/',
+    },
+    {
+      id: 'seed-resource-onboarding',
+      title: 'New store manager — first-week checklist',
+      description:
+        'Everything a new manager needs in week one: logging in, reading bulletins, the floor map, logging sales, and the photo-compliance cadence.',
+      category: 'Onboarding',
+      url: 'https://www.baccarat.com.au/',
+    },
+  ];
+
+  let count = 0;
+  for (const r of items) {
+    const data = {
+      orgId,
+      title: r.title,
+      description: r.description,
+      category: r.category,
+      url: r.url,
+      pinned: r.pinned ?? false,
+      order: r.order ?? 0,
+      createdById: authorId,
+    };
+    await prisma.resource.upsert({
+      where: { id: r.id },
+      update: data,
+      create: { id: r.id, ...data },
+    });
+    count++;
+  }
+  const cats = [...new Set(items.map((i) => i.category))].length;
+  console.log(`  resources: ${count} across ${cats} categories`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

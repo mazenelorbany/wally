@@ -18,6 +18,7 @@ import { GuideFixtureDetailView } from './views/GuideView';
 import { ManagerProductsView } from './views/ManagerProductsView';
 import { SalesLogView } from './views/SalesLogView';
 import { ManagerBulletinsView } from './views/ManagerBulletinsView';
+import { ManagerResourcesView } from './views/ManagerResourcesView';
 import { ManagerSettingsView } from './views/ManagerSettingsView';
 
 export const managerRoutes: RouteObject = {
@@ -35,6 +36,7 @@ export const managerRoutes: RouteObject = {
     { path: 'products', element: <ManagerProductsView /> },
     { path: 'sales', element: <SalesLogView /> },
     { path: 'bulletins', element: <ManagerBulletinsView /> },
+    { path: 'resources', element: <ManagerResourcesView /> },
     { path: 'settings', element: <ManagerSettingsView /> },
     { path: '*', element: <Navigate to="/store" replace /> },
   ],

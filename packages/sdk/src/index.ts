@@ -41,6 +41,7 @@ import type {
   FixtureComplianceDetail,
   BulletinDto,
   BulletinAckRow,
+  ResourceDto,
 } from "@wally/types";
 
 /* -------------------------------------------------------------------------- */
@@ -262,6 +263,25 @@ export interface UpdateBulletinBody {
   endsAt?: string | null;
   pinned?: boolean;
   publish?: boolean;
+}
+
+/** Body for creating a resource (an uploaded file is sent separately). */
+export interface CreateResourceBody {
+  title: string;
+  description?: string;
+  category?: string;
+  /** External link; omit when uploading a file instead. */
+  url?: string;
+  pinned?: boolean;
+}
+
+/** Body for editing a resource. */
+export interface UpdateResourceBody {
+  title?: string;
+  description?: string;
+  category?: string;
+  url?: string | null;
+  pinned?: boolean;
 }
 
 /** Body for inviting a teammate (admin user management). */
@@ -521,6 +541,15 @@ export interface WallyClient {
     mine(storeId?: string): Promise<BulletinDto[]>;
     /** Manager: acknowledge a bulletin (read receipt). */
     acknowledge(id: string, storeId?: string): Promise<void>;
+  };
+  /** RESOURCES — the org's training & reference library (read by everyone). */
+  resources: {
+    /** The whole library (pinned first, then by category). Any signed-in role. */
+    list(): Promise<ResourceDto[]>;
+    /** Admin: add a resource — either an external link or an uploaded file. */
+    create(body: CreateResourceBody, file?: Blob | File): Promise<ResourceDto>;
+    update(id: string, body: UpdateResourceBody): Promise<ResourceDto>;
+    remove(id: string): Promise<void>;
   };
 }
 
@@ -898,6 +927,23 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           `manager/bulletins/${encodeURIComponent(id)}/ack${query({ storeId })}`,
         ),
     },
+    resources: {
+      list: () => get<ResourceDto[]>("resources"),
+      create: (body, file) => {
+        const form = new FormData();
+        form.append("title", body.title);
+        if (body.description !== undefined)
+          form.append("description", body.description);
+        if (body.category !== undefined) form.append("category", body.category);
+        if (body.url) form.append("url", body.url);
+        if (body.pinned !== undefined) form.append("pinned", String(body.pinned));
+        if (file) form.append("file", file);
+        return request<ResourceDto>("POST", "resources", { body: form });
+      },
+      update: (id, body) =>
+        patch<ResourceDto>(`resources/${encodeURIComponent(id)}`, body),
+      remove: (id) => del<void>(`resources/${encodeURIComponent(id)}`),
+    },
   };
 }
 
@@ -935,6 +981,7 @@ export type {
   ProjectVenue,
   BulletinDto,
   BulletinAckRow,
+  ResourceDto,
 } from "@wally/types";
 
 export default createClient;

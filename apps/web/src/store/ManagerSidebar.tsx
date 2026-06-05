@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
+  GraduationCap,
   Home,
   ListChecks,
   LogOut,
@@ -50,6 +51,7 @@ export function ManagerSidebar({ onNavigate }: { onNavigate?: () => void }) {
     { label: 'Floor map', icon: MapIcon, to: '/store/guide' },
     { label: 'Log sales', icon: Receipt, to: '/store/sales' },
     { label: 'Products', icon: Package, to: '/store/products' },
+    { label: 'Training', icon: GraduationCap, to: '/store/resources' },
   ];
 
   return (
