@@ -4,6 +4,9 @@
 
 export const sqk = {
   fixtures: ['studio', 'fixtures'] as const,
+  fixtureUsage: (id: string) => ['studio', 'fixture-usage', id] as const,
+  fixtureProducts: (id: string) =>
+    ['studio', 'fixture-products', id] as const,
   floorplan: (campaignId: string, storeId: string) =>
     ['studio', 'floorplan', campaignId, storeId] as const,
   guideFixture: (campaignId: string, fixtureId: string) =>

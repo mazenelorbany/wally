@@ -1,9 +1,11 @@
 import * as React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Spinner } from '@wally/ui';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Star } from 'lucide-react';
+import { Spinner, cn } from '@wally/ui';
 import type { GalleryItem, Overall } from '@wally/types';
 
 import { api } from '../../lib/api';
+import { useSession } from '../../lib/auth';
 import { useSetStudioTopBar } from '../components/StudioContext';
 
 const BAND: Record<Overall, { icon: string; label: string; cls: string }> = {
@@ -30,6 +32,18 @@ export function GalleryView() {
     enabled: Boolean(campaign?.id),
   });
   const items = galleryQ.data ?? [];
+
+  const qc = useQueryClient();
+  const { user } = useSession();
+  const canCurate = user?.role === 'ADMIN' || user?.role === 'REVIEWER';
+  const toggleBic = useMutation({
+    mutationFn: (v: { photoId: string; value: boolean }) =>
+      api.photos.setBestInClass(v.photoId, v.value),
+    onSuccess: () =>
+      void qc.invalidateQueries({
+        queryKey: ['studio', 'gallery', campaign?.id],
+      }),
+  });
 
   const [store, setStore] = React.useState('all');
   const [fixture, setFixture] = React.useState('all');
@@ -87,7 +101,13 @@ export function GalleryView() {
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {shown.map((it) => (
-            <GalleryCard key={it.id} item={it} />
+            <GalleryCard
+              key={it.id}
+              item={it}
+              canCurate={canCurate}
+              pending={toggleBic.isPending}
+              onToggle={(value) => toggleBic.mutate({ photoId: it.id, value })}
+            />
           ))}
         </div>
       )}
@@ -95,17 +115,55 @@ export function GalleryView() {
   );
 }
 
-function GalleryCard({ item }: { item: GalleryItem }) {
+function GalleryCard({
+  item,
+  canCurate,
+  pending,
+  onToggle,
+}: {
+  item: GalleryItem;
+  canCurate: boolean;
+  pending: boolean;
+  onToggle: (value: boolean) => void;
+}) {
   const band = item.overall ? BAND[item.overall] : null;
   return (
-    <figure className="overflow-hidden rounded-lg border border-mist/60 bg-paper">
-      <div className="aspect-[4/3] bg-surface">
+    <figure
+      className={cn(
+        'overflow-hidden rounded-lg border bg-paper',
+        item.bestInClass ? 'border-signal/50' : 'border-mist/60',
+      )}
+    >
+      <div className="relative aspect-[4/3] bg-surface">
         <img
           src={item.url}
           alt={`${item.storeName} · ${item.fixtureKey}`}
           loading="lazy"
           className="h-full w-full object-cover"
         />
+        {canCurate ? (
+          <button
+            type="button"
+            onClick={() => onToggle(!item.bestInClass)}
+            disabled={pending}
+            aria-label={
+              item.bestInClass ? 'Unmark best-in-class' : 'Mark best-in-class'
+            }
+            className={cn(
+              'absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-md bg-paper/90 shadow-card transition-colors disabled:opacity-50',
+              item.bestInClass ? 'text-signal' : 'text-steel hover:text-ink',
+            )}
+          >
+            <Star
+              className={cn('h-4 w-4', item.bestInClass && 'fill-signal')}
+              aria-hidden="true"
+            />
+          </button>
+        ) : item.bestInClass ? (
+          <span className="absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-md bg-paper/90 text-signal shadow-card">
+            <Star className="h-4 w-4 fill-signal" aria-hidden="true" />
+          </span>
+        ) : null}
       </div>
       <figcaption className="flex items-center justify-between gap-2 px-2.5 py-2">
         <span className="min-w-0">

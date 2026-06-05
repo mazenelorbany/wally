@@ -19,3 +19,35 @@ export const AddMerchandiseSchema = z
   .strict();
 
 export type AddMerchandiseInput = z.infer<typeof AddMerchandiseSchema>;
+
+// PATCH /guide-fixtures/:id/planogram — persist a full drag-and-drop layout:
+// shelves top→bottom, each a left→right list of merchandise ids. The server
+// owns the `order` integer (the client only sends structure).
+export const ReorderPlanogramSchema = z
+  .object({
+    shelves: z
+      .array(
+        z.object({
+          row: z.string().trim().min(1).max(120),
+          merchandiseIds: z.array(z.string().min(1)),
+        }),
+      )
+      .max(50),
+  })
+  .strict()
+  .refine(
+    (s) => {
+      const labels = s.shelves.map((x) => x.row.toLowerCase());
+      return new Set(labels).size === labels.length;
+    },
+    { message: 'duplicate shelf label' },
+  )
+  .refine(
+    (s) => {
+      const ids = s.shelves.flatMap((x) => x.merchandiseIds);
+      return new Set(ids).size === ids.length;
+    },
+    { message: 'duplicate merchandise id' },
+  );
+
+export type ReorderPlanogramInput = z.infer<typeof ReorderPlanogramSchema>;

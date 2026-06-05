@@ -46,13 +46,11 @@ const RAIL: RailItem[] = [
     label: 'Money Map',
     icon: Coins,
     to: () => '/studio/money-map',
-    comingSoon: true,
   },
   {
     label: 'Dashboard',
     icon: LayoutDashboard,
     to: () => '/studio/dashboard',
-    comingSoon: true,
   },
 ];
 

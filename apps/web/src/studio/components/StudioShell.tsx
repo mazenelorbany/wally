@@ -8,22 +8,25 @@ import {
   StudioTopBarProvider,
   useStudioTopBar,
 } from './StudioContext';
+import { ProjectProvider } from '../ProjectContext';
 
 /** The signed-in CREATE GUIDE chrome: left icon rail + contextual top bar. */
 export function StudioShell() {
   return (
     <TooltipProvider delayDuration={200}>
-      <StudioTopBarProvider>
-        <div className="flex h-dvh overflow-hidden bg-paper text-ink">
-          <Sidebar />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <TopBarBridge />
-            <main className="min-h-0 flex-1 overflow-y-auto">
-              <Outlet />
-            </main>
+      <ProjectProvider>
+        <StudioTopBarProvider>
+          <div className="flex h-dvh overflow-hidden bg-paper text-ink">
+            <Sidebar />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <TopBarBridge />
+              <main className="min-h-0 flex-1 overflow-y-auto">
+                <Outlet />
+              </main>
+            </div>
           </div>
-        </div>
-      </StudioTopBarProvider>
+        </StudioTopBarProvider>
+      </ProjectProvider>
     </TooltipProvider>
   );
 }

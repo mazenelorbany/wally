@@ -6,6 +6,7 @@ import { googleOAuthConfigured } from './auth.config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { MailService } from './mail.service';
+import { NoViewerGuard } from './no-viewer.guard';
 import { RolesGuard } from './roles.guard';
 import { SessionGuard } from './session.guard';
 import { GoogleStrategy } from './strategies/google.strategy';
@@ -41,6 +42,7 @@ import { GoogleStrategy } from './strategies/google.strategy';
     MailService,
     SessionGuard,
     RolesGuard,
+    NoViewerGuard,
     // Authenticate every route by default; @Public() opts specific ones out.
     { provide: APP_GUARD, useClass: SessionGuard },
     // GoogleStrategy's constructor throws when its credentials are missing, so
@@ -55,6 +57,7 @@ import { GoogleStrategy } from './strategies/google.strategy';
     AuthService,
     SessionGuard,
     RolesGuard,
+    NoViewerGuard,
   ],
 })
 export class AuthModule {}

@@ -26,3 +26,8 @@ export const UploadPhotoSchema = z
   .strict();
 
 export type UploadPhotoInput = z.infer<typeof UploadPhotoSchema>;
+
+// Toggle a store execution photo as best-in-class (the showcase flag).
+export const SetBestInClassSchema = z.object({ value: z.boolean() }).strict();
+
+export type SetBestInClassInput = z.infer<typeof SetBestInClassSchema>;

@@ -18,3 +18,22 @@ export const UpdatePlacementSchema = z
   });
 
 export type UpdatePlacementInput = z.infer<typeof UpdatePlacementSchema>;
+
+// POST /campaigns/:campaignId/stores/:storeId/placements — add a fixture to a
+// store's floor plan (the layout builder). Only `fixtureId` is required; the
+// geometry + label default server-side (centre of canvas, the fixture's name).
+// Idempotent on (storeId, campaignId, fixtureId): re-posting returns the
+// existing placement rather than erroring.
+export const CreatePlacementSchema = z
+  .object({
+    fixtureId: z.string().min(1),
+    label: z.string().optional(),
+    x: z.number().finite().optional(),
+    y: z.number().finite().optional(),
+    w: z.number().finite().positive().optional(),
+    h: z.number().finite().positive().optional(),
+    rotation: z.number().finite().optional(),
+  })
+  .strict();
+
+export type CreatePlacementInput = z.infer<typeof CreatePlacementSchema>;

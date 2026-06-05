@@ -11,12 +11,15 @@ import {
 import type { SessionUser } from '@wally/types';
 
 import { CurrentUser } from '../auth/current-user.decorator';
+import { NoViewerGuard } from '../auth/no-viewer.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { ZodValidationPipe } from '../org/zod-validation.pipe';
 
 import {
   AddMerchandiseSchema,
   type AddMerchandiseInput,
+  ReorderPlanogramSchema,
+  type ReorderPlanogramInput,
   SaveNotesSchema,
   type SaveNotesInput,
 } from './guide-fixture.dto';
@@ -40,11 +43,27 @@ export class GuideFixtureDetailController {
   ) {
     return this.guideFixtures.detail(user.orgId, campaignId, fixtureId);
   }
+
+  /** Pre-populate the sheet from the fixture's default product set. */
+  @Post(':campaignId/fixtures/:fixtureId/prepopulate')
+  @UseGuards(NoViewerGuard)
+  prepopulate(
+    @CurrentUser() user: SessionUser,
+    @Param('campaignId') campaignId: string,
+    @Param('fixtureId') fixtureId: string,
+  ) {
+    return this.guideFixtures.prepopulateFromDefaults(
+      user.orgId,
+      campaignId,
+      fixtureId,
+    );
+  }
 }
 
-// Mutations addressed by the GuideFixture's own id.
+// Mutations addressed by the GuideFixture's own id. All mutating, so the whole
+// controller blocks the read-only VIEWER role (NoViewerGuard).
 @Controller('guide-fixtures')
-@UseGuards(SessionGuard)
+@UseGuards(SessionGuard, NoViewerGuard)
 export class GuideFixtureController {
   constructor(private readonly guideFixtures: GuideFixtureService) {}
 
@@ -76,5 +95,15 @@ export class GuideFixtureController {
     @Param('merchandiseId') merchandiseId: string,
   ) {
     return this.guideFixtures.removeMerchandise(user.orgId, id, merchandiseId);
+  }
+
+  /** Reorder/relabel the whole planogram in one shot (drag-and-drop persistence). */
+  @Patch(':id/planogram')
+  reorderPlanogram(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ReorderPlanogramSchema)) dto: ReorderPlanogramInput,
+  ) {
+    return this.guideFixtures.reorderPlanogram(user.orgId, id, dto.shelves);
   }
 }

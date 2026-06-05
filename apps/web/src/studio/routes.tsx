@@ -18,11 +18,12 @@ import { FixturesView } from './views/FixturesView';
 import { ProductsView } from './views/ProductsView';
 import { StoresView } from './views/StoresView';
 import { GalleryView } from './views/GalleryView';
-import {
-  DashboardView,
-  MoneyMapView,
-  InsightsView,
-} from './views/ComingSoonView';
+import { MoneyMapView } from './views/MoneyMapView';
+import { DashboardView } from './views/DashboardView';
+import { LeaderboardView } from './views/LeaderboardView';
+import { InsightsView } from './views/InsightsView';
+import { ProjectsView } from './views/ProjectsView';
+import { SettingsPage } from '../components/SettingsPage';
 
 /** The studio route subtree. Mount at the app router top level. */
 export const studioRoutes: RouteObject = {
@@ -34,13 +35,16 @@ export const studioRoutes: RouteObject = {
   ),
   children: [
     { index: true, element: <HomeView /> },
+    { path: 'projects', element: <ProjectsView /> },
     { path: 'stores', element: <StoresView /> },
     { path: 'fixtures', element: <FixturesView /> },
     { path: 'products', element: <ProductsView /> },
     { path: 'gallery', element: <GalleryView /> },
     { path: 'money-map', element: <MoneyMapView /> },
     { path: 'dashboard', element: <DashboardView /> },
+    { path: 'leaderboard', element: <LeaderboardView /> },
     { path: 'insights', element: <InsightsView /> },
+    { path: 'settings', element: <SettingsPage /> },
     { path: ':campaignId/store/:storeId', element: <FloorPlanView /> },
     // Unknown studio sub-path → back to the studio home.
     { path: '*', element: <Navigate to="/studio" replace /> },

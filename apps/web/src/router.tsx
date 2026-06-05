@@ -10,6 +10,8 @@ import { ConsolePage } from './console/ConsolePage';
 import { StoreDetailPage } from './console/StoreDetailPage';
 import { FixtureReviewPage } from './console/FixtureReviewPage';
 import { studioRoutes } from './studio/routes';
+import { managerRoutes } from './store/routes';
+import { SettingsPage } from './components/SettingsPage';
 import { Spinner } from '@wally/ui';
 
 /** Root index — send each role to the surface they live in. */
@@ -56,9 +58,23 @@ export const router = createBrowserRouter([
     ],
   },
 
+  // Shared account settings for the console/capture chrome.
+  {
+    element: (
+      <RequireRole roles={['REVIEWER', 'ADMIN', 'STORE_MANAGER']}>
+        <AppShell />
+      </RequireRole>
+    ),
+    children: [{ path: '/settings', element: <SettingsPage /> }],
+  },
+
   // CREATE GUIDE studio (guide authors). Self-contained route subtree with its
   // own shell; see ./studio/routes.
   studioRoutes,
+
+  // STORE MANAGER workspace (own store: home, tasks, floor map, sales,
+  // settings). Mobile-first shell; see ./store/routes.
+  managerRoutes,
 
   { path: '/', element: <RoleHome /> },
   { path: '*', element: <Navigate to="/" replace /> },

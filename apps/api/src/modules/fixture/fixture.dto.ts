@@ -20,3 +20,10 @@ export const CreateFixtureSchema = z
   .strict();
 
 export type CreateFixtureInput = z.infer<typeof CreateFixtureSchema>;
+
+// Body for adding a product to a fixture's default set.
+export const AddFixtureProductSchema = z
+  .object({ productId: z.string().min(1) })
+  .strict();
+
+export type AddFixtureProductInput = z.infer<typeof AddFixtureProductSchema>;

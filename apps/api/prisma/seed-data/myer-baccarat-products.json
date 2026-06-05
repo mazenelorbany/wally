@@ -1,0 +1,1222 @@
+[
+ {
+  "sku": "PCP-1036356",
+  "name": "LE CON MINI CASS 160ML TEA",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$25.99",
+  "salePrice": "$7.80",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1036219",
+  "name": "LE CON CANISTERS S3 TEAL",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$79.99",
+  "salePrice": "$24.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1036354",
+  "name": "LE CON MINI CASS 160ML WHT",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$25.99",
+  "salePrice": "$7.80",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1036220",
+  "name": "LE CON CANISTERS S3 WHITE",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$79.99",
+  "salePrice": "$24.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1036346",
+  "name": "LE CON RAMEKIN S2 9CM WHT",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$25.99",
+  "salePrice": "$7.80",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1049745",
+  "name": "LE CON LASAGNE 38CM MIST",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$79.99",
+  "salePrice": "$24.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1036351",
+  "name": "LE CON RAMEKIN S2 9CM TEA",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$25.99",
+  "salePrice": "$7.80",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1042613",
+  "name": "LE CON ESPRESSO S2 90ML WHT",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$29.99",
+  "salePrice": "$9.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1046903",
+  "name": "LE CON LASAGNE 38CM SAGE",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$79.99",
+  "salePrice": "$24.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1044464",
+  "name": "LE CON RND SPOON REST TEAL",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$29.99",
+  "salePrice": "$9.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1039244",
+  "name": "LE CON LASAGNE 38CM HONEY",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$79.99",
+  "salePrice": "$24.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1044465",
+  "name": "LE CON RND SPOON REST WHITE",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$29.99",
+  "salePrice": "$9.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1049758",
+  "name": "LE CON MIXING BOWL 28CM CRM",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$79.99",
+  "salePrice": "$24.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049756",
+  "name": "LE CON ESPR S2 90ML MIST",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$29.99",
+  "salePrice": "$9.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1050118",
+  "name": "LE CON MIXING BOWL 28CM RED",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$79.99",
+  "salePrice": "$24.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049762",
+  "name": "LE CON MILK JUG 500ML MIST",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$29.99",
+  "salePrice": "$9.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1050119",
+  "name": "LE CON MIXING BOWL 28CM LAG",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$79.99",
+  "salePrice": "$24.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049763",
+  "name": "LE CON MILK JUG 500ML HONEY",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$29.99",
+  "salePrice": "$9.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1036341",
+  "name": "LE CON SQR BAKER WHT",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$59.99",
+  "salePrice": "$24.00",
+  "fixture": "IKEA TABLE",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1049767",
+  "name": "LE CON MEASURI SPOON S4 MIS",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$29.99",
+  "salePrice": "$9.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1036338",
+  "name": "LE CON LASAGNE 38CM TEA",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$79.99",
+  "salePrice": "$32.00",
+  "fixture": "IKEA TABLE",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1039081",
+  "name": "LE CON CITRUS JUICER WHITE",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$34.99",
+  "salePrice": "$10.50",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1036333",
+  "name": "LE CON LASAGNE 38CM WHT",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$79.99",
+  "salePrice": "$32.00",
+  "fixture": "IKEA TABLE",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1049754",
+  "name": "LE CON CITRUS JUICER MIST",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$34.99",
+  "salePrice": "$10.50",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049757",
+  "name": "LE CON MUGS S6 MULTI III",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$119.99",
+  "salePrice": "$36.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1044470",
+  "name": "LE CON CITRUS JUICER HONEY",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$34.99",
+  "salePrice": "$10.50",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049759",
+  "name": "LE CON MIXING BOWL S3 CREAM",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$159.99",
+  "salePrice": "$48.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1039238",
+  "name": "LE CON BUTTER DISH 16CM TEA",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1036214",
+  "name": "LE CON UTENSIL HOLDER WHITE",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1040474",
+  "name": "LE CON RND GRILLPAN 28CM IN",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$199.99",
+  "salePrice": "$60.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1036278",
+  "name": "LE CON S+P GRINDER WHITE",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1040473",
+  "name": "LE CON RND GRILLPAN 28CM RD",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$199.99",
+  "salePrice": "$80.00",
+  "fixture": "IKEA TABLE",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1044468",
+  "name": "LE CON MORTAR AND PESTLE TE",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1040472",
+  "name": "LE CON SAUTE PAN 31CM BLACK",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$299.99",
+  "salePrice": "$90.00",
+  "fixture": "BULK STACK",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1036281",
+  "name": "LE CON S+P GRINDER BLUE",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1040469",
+  "name": "LE CON SAUTE PAN 31CM TEAL",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$299.99",
+  "salePrice": "$90.00",
+  "fixture": "BULK STACK",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1049750",
+  "name": "LE CON SALT PEP GRINDER MIS",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049743",
+  "name": "LE CON RND FR OVEN 3.9L MIS",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$279.99",
+  "salePrice": "$112.00",
+  "fixture": "BULK STACK",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049751",
+  "name": "LE CON SALT PEP GRINDER HON",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049744",
+  "name": "LE CON FR OVE 3.9 FLWER PNK",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$279.99",
+  "salePrice": "$112.00",
+  "fixture": "BULK STACK",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049752",
+  "name": "LE CON BUTTER DISH 16CM MIS",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1021275",
+  "name": "LE CON OVL FR OVEN 3.5L RED",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$279.99",
+  "salePrice": "$112.00",
+  "fixture": "BULK STACK",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1049753",
+  "name": "LE CON BUTTER DISH 16CM HON",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049740",
+  "name": "LE CON RND FR OVEN 6.3L MIS",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$339.99",
+  "salePrice": "$135.00",
+  "fixture": "BULK STACK",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049760",
+  "name": "LE CON DIPPING BOWL S3 MIST",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049742",
+  "name": "LE CON RND FR OVEN 6.3L MOC",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$339.99",
+  "salePrice": "$135.00",
+  "fixture": "BULK STACK",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049761",
+  "name": "LE CON DIPPING BOWL S3 HONE",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049766",
+  "name": "LE CON MEASURING CUP S4 MIS",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1039052",
+  "name": "LE CON RND FR OVEN 6.3L HON",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$339.99",
+  "salePrice": "$135.00",
+  "fixture": "BULK STACK",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1036207",
+  "name": "LE CON OIL BOTTLE WHITE 300",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$29.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027443",
+  "name": "LE CON RND FR OVEN 6.3L BLK",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$339.99",
+  "salePrice": "$135.00",
+  "fixture": "BULK STACK",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1036206",
+  "name": "LE CON OIL BOTTLE TEAL 300M",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$29.99",
+  "salePrice": "$12.00",
+  "fixture": "IKEA TABLE",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1033691",
+  "name": "LE CON RND FR OVEN 6.3L TEA",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$339.99",
+  "salePrice": "$135.00",
+  "fixture": "BULK STACK",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1044576",
+  "name": "LE CON GRAVY BOAT WHT",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$49.99",
+  "salePrice": "$15.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1027445",
+  "name": "LE CON RND FR OVEN 6.3L WHT",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$339.99",
+  "salePrice": "$135.00",
+  "fixture": "BULK STACK",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1039235",
+  "name": "LE CON JUG 1.5L WHITE",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$49.99",
+  "salePrice": "$15.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1040468",
+  "name": "LE CON RND FR OVEN 6.3L MOS",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$339.99",
+  "salePrice": "$135.00",
+  "fixture": "BULK STACK",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1044570",
+  "name": "LE CON GRAVY BOAT TEA",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$49.99",
+  "salePrice": "$15.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1046892",
+  "name": "LE CON RND FR OVEN 6.3L MER",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$339.99",
+  "salePrice": "$135.00",
+  "fixture": "BULK STACK",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1036492",
+  "name": "LE CON OVEN GLOVE RED",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$35.99",
+  "salePrice": "$15.00",
+  "fixture": "IKEA TABLE",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1036145",
+  "name": "LE CON RND FR OVEN 6.3L ORA",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$399.99",
+  "salePrice": "$135.00",
+  "fixture": "BULK STACK",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1036493",
+  "name": "LE CON OVEN GLOVE BLACK",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$35.99",
+  "salePrice": "$15.00",
+  "fixture": "IKEA TABLE",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1036147",
+  "name": "LE CON RND FR OVEN 6.3L PUR",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$339.99",
+  "salePrice": "$135.00",
+  "fixture": "BULK STACK",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1036494",
+  "name": "LE CON OVEN GLOVE TEAL",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$35.99",
+  "salePrice": "$15.00",
+  "fixture": "IKEA TABLE",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1039237",
+  "name": "LE CON BUTTER DISH 16CM WH",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$16.00",
+  "fixture": "IKEA TABLE",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1036280",
+  "name": "LE CON S+P GRINDER TEAL",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$39.99",
+  "salePrice": "$16.00",
+  "fixture": "IKEA TABLE",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1036343",
+  "name": "LE CON SQR BAKER TEA",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$59.99",
+  "salePrice": "$18.00",
+  "fixture": "IKEA TABLE",
+  "status": "FURTHER FC"
+ },
+ {
+  "sku": "PCP-1049748",
+  "name": "LE CON SQR BAKER 24CM MIST",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$59.99",
+  "salePrice": "$18.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1046907",
+  "name": "LE CON SQR BAKER 24CM SAGE",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$59.99",
+  "salePrice": "$18.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049764",
+  "name": "LE CON MILK PAN 16CM MIST",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$79.99",
+  "salePrice": "$20.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1049765",
+  "name": "LE CON MILK PAN 16CM CREAM",
+  "brand": "Baccarat",
+  "range": "LE CON",
+  "rrp": "$79.99",
+  "salePrice": "$20.00",
+  "fixture": "IKEA TABLE",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1046318",
+  "name": "AIRFRYER 5.7L COMPACT CRM",
+  "brand": "Baccarat",
+  "range": "KITCHEN APPLIANCES",
+  "rrp": "$279.99",
+  "salePrice": "$99.00",
+  "fixture": "END CAPS",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1044440",
+  "name": "CORDLESS ELECTRIC KNIFE",
+  "brand": "Baccarat",
+  "range": "KITCHEN APPLIANCES",
+  "rrp": "$159.99",
+  "salePrice": "$69.00",
+  "fixture": "END CAPS",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1045873",
+  "name": "ICE CUBE MAKER 12KGS BLK",
+  "brand": "Baccarat",
+  "range": "KITCHEN APPLIANCES",
+  "rrp": "$399.99",
+  "salePrice": "$139.00",
+  "fixture": "END CAPS",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1039375",
+  "name": "MULTICOOKER 8L BLK",
+  "brand": "Baccarat",
+  "range": "KITCHEN APPLIANCES",
+  "rrp": "$399.99",
+  "salePrice": "$179.00",
+  "fixture": "END CAPS",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1047806",
+  "name": "NUGGET ICE CUBE MAKER SS",
+  "brand": "Baccarat",
+  "range": "KITCHEN APPLIANCES",
+  "rrp": "$699.99",
+  "salePrice": "$249.00",
+  "fixture": "END CAPS",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1047812",
+  "name": "SLUSHIE MAKER BLK",
+  "brand": "Baccarat",
+  "range": "KITCHEN APPLIANCES",
+  "rrp": "$999.99",
+  "salePrice": "$399.00",
+  "fixture": "END CAPS",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1047814",
+  "name": "SLUSHIE MAKER CREAM",
+  "brand": "Baccarat",
+  "range": "KITCHEN APPLIANCES",
+  "rrp": "$999.99",
+  "salePrice": "$399.00",
+  "fixture": "END CAPS",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1027984",
+  "name": "ID3 F COOKSET 6PC",
+  "brand": "Baccarat",
+  "range": "COOKSETS",
+  "rrp": "$1,349.99",
+  "salePrice": "$199.99",
+  "fixture": "BULK STACK",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1047070",
+  "name": "SIGNATURE COOKSET 6PC FORES",
+  "brand": "Baccarat",
+  "range": "COOKSETS",
+  "rrp": "$899.99",
+  "salePrice": "$199.99",
+  "fixture": "BULK STACK",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1047934",
+  "name": "NOOK SPOON DENIM",
+  "brand": "Baccarat",
+  "range": "NOOK",
+  "rrp": "$29.99",
+  "salePrice": "$12.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1047937",
+  "name": "NOOK TONGS 12IN DENIM",
+  "brand": "Baccarat",
+  "range": "NOOK",
+  "rrp": "$29.99",
+  "salePrice": "$12.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1047931",
+  "name": "NOOK SLOTTED TURNER DENIM",
+  "brand": "Baccarat",
+  "range": "NOOK",
+  "rrp": "$29.99",
+  "salePrice": "$12.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1047475",
+  "name": "NOOK FRYPAN 28CM DENIM",
+  "brand": "Baccarat",
+  "range": "NOOK",
+  "rrp": "$159.99",
+  "salePrice": "$60.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1047476",
+  "name": "NOOK FRYPAN 30CM DENIM",
+  "brand": "Baccarat",
+  "range": "NOOK",
+  "rrp": "$179.99",
+  "salePrice": "$70.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1047477",
+  "name": "NOOK FRYPAN 32CM DENIM",
+  "brand": "Baccarat",
+  "range": "NOOK",
+  "rrp": "$199.99",
+  "salePrice": "$80.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1047480",
+  "name": "NOOK SAUCEPAN WLID 20CM DEN",
+  "brand": "Baccarat",
+  "range": "NOOK",
+  "rrp": "$199.99",
+  "salePrice": "$80.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1047482",
+  "name": "NOOK ROASTER 34CM DENIM",
+  "brand": "Baccarat",
+  "range": "NOOK",
+  "rrp": "$239.99",
+  "salePrice": "$96.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1047481",
+  "name": "NOOK CASSEROLE WLID 28 DEN",
+  "brand": "Baccarat",
+  "range": "NOOK",
+  "rrp": "$239.99",
+  "salePrice": "$96.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1047478",
+  "name": "NOOK SAUTE WLID 30CM DENIM",
+  "brand": "Baccarat",
+  "range": "NOOK",
+  "rrp": "$239.99",
+  "salePrice": "$96.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027978",
+  "name": "ID3 F CASSEROL WLID 24X11CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$259.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1028285",
+  "name": "ID3 F HA CREPE PAN 24CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$159.99",
+  "salePrice": "$47.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1028286",
+  "name": "ID3 F HA EGG POACHER W LID",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$199.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1028968",
+  "name": "ID3 F HA FRYPAN 16CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$99.99",
+  "salePrice": "$24.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027965",
+  "name": "ID3 F HA FRYPAN 20CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$119.99",
+  "salePrice": "$35.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027966",
+  "name": "ID3 F HA FRYPAN 26CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$159.99",
+  "salePrice": "$47.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027967",
+  "name": "ID3 F HA FRYPAN 30CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$199.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027968",
+  "name": "ID3 F HA FRYPAN HELPER 32CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$259.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027969",
+  "name": "ID3 F HA SAUTE W/LID 30CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$379.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027971",
+  "name": "ID3 F HA SAUTEWLID 32X8.5CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$379.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027972",
+  "name": "ID3 F HA STIR FRY 28CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$199.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027980",
+  "name": "ID3 F HA WOK W/LID 36CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$379.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027975",
+  "name": "ID3 F SAUCEPAN WLID 16X10CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$224.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027976",
+  "name": "ID3 F SAUCEPAN WLID 18X11CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$249.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027977",
+  "name": "ID3 F SAUCEPAN WLID 20X12CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$274.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027979",
+  "name": "ID3 F STOCKPOT WLID 24X17CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$379.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1044577",
+  "name": "ID3 F ULTIMATE GRILL 27X23",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$299.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1029988",
+  "name": "ID3 CS FRYPAN 16CM",
+  "brand": "Baccarat",
+  "range": "ID3 CS",
+  "rrp": "$99.99",
+  "salePrice": "$16.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027949",
+  "name": "ID3 CS HA FRYPAN 20CM",
+  "brand": "Baccarat",
+  "range": "ID3 CS",
+  "rrp": "$119.99",
+  "salePrice": "$29.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027950",
+  "name": "ID3 CS HA FRYPAN 26CM",
+  "brand": "Baccarat",
+  "range": "ID3 CS",
+  "rrp": "$159.99",
+  "salePrice": "$39.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027955",
+  "name": "ID3 CS HA GRIDDLE 26CM",
+  "brand": "Baccarat",
+  "range": "ID3 CS",
+  "rrp": "$199.99",
+  "salePrice": "$45.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027951",
+  "name": "ID3 CS HA FRYPAN 30CM",
+  "brand": "Baccarat",
+  "range": "ID3 CS",
+  "rrp": "$199.99",
+  "salePrice": "$49.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1027952",
+  "name": "ID3 CS HA FRYPAN 32CM",
+  "brand": "Baccarat",
+  "range": "ID3 CS",
+  "rrp": "$299.99",
+  "salePrice": "$59.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1030043",
+  "name": "CERAMIX WOK WLID 30CM",
+  "brand": "Baccarat",
+  "range": "LOOSE COOKWARE",
+  "rrp": "$249.99",
+  "salePrice": "$69.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "NEW FC"
+ },
+ {
+  "sku": "PCP-1037748",
+  "name": "GRYLT CI GARLIC ROASTER",
+  "brand": "Baccarat",
+  "range": "GRYLT",
+  "rrp": "$59.99",
+  "salePrice": "$20.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1037747",
+  "name": "GRYLT CI SIZZLE PAN",
+  "brand": "Baccarat",
+  "range": "GRYLT",
+  "rrp": "$59.99",
+  "salePrice": "$20.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1034223",
+  "name": "GRYLT CI CHICKEN ROASTER",
+  "brand": "Baccarat",
+  "range": "GRYLT",
+  "rrp": "$119.99",
+  "salePrice": "$45.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1033688",
+  "name": "GRYLT CI REVERSIBLE GRILL 48CM",
+  "brand": "Baccarat",
+  "range": "GRYLT",
+  "rrp": "$159.99",
+  "salePrice": "$60.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1034153",
+  "name": "GRYLT CI SAUCEPAN 20CM",
+  "brand": "Baccarat",
+  "range": "GRYLT",
+  "rrp": "$159.99",
+  "salePrice": "$60.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1038477",
+  "name": "GRYLT CI MULTIPAN 25CM",
+  "brand": "Baccarat",
+  "range": "GRYLT",
+  "rrp": "$259.99",
+  "salePrice": "$99.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1038476",
+  "name": "GRYLT CI MULTI SAUTE&FRYP 30CM",
+  "brand": "Baccarat",
+  "range": "GRYLT",
+  "rrp": "$359.99",
+  "salePrice": "$139.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ },
+ {
+  "sku": "PCP-1038475",
+  "name": "GRYLT CI MULTI CASS&GRILL 28CM",
+  "brand": "Baccarat",
+  "range": "GRYLT",
+  "rrp": "$399.99",
+  "salePrice": "$139.00",
+  "fixture": "TRESTLE TABLES",
+  "status": "CURRENT FC"
+ }
+]

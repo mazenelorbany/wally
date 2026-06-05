@@ -1,6 +1,15 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { Fixture, FixtureKind } from '@wally/types';
+import type {
+  Fixture,
+  FixtureDefaultProduct,
+  FixtureKind,
+  FixtureUsage,
+} from '@wally/types';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -19,10 +28,12 @@ import type { CreateFixtureInput } from './fixture.dto';
 export class FixtureService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** The org's fixture library, ordered by name, mapped to the shared contract. */
+  /** The org's fixture library, ordered by name, mapped to the shared contract.
+   *  Archived fixtures are hidden — they stay in the DB so existing placements
+   *  keep working, but they no longer appear in the library. */
   async list(orgId: string): Promise<Fixture[]> {
     const fixtures = await this.prisma.fixture.findMany({
-      where: { orgId },
+      where: { orgId, archivedAt: null },
       orderBy: { name: 'asc' },
       select: { id: true, name: true, kind: true },
     });
@@ -59,6 +70,142 @@ export class FixtureService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Where a fixture is in use, so the delete dialog can warn before acting:
+   * the distinct stores that have it placed on a floor plan, plus how many
+   * guides reference it. Org-scoped; 404 if the fixture isn't this org's.
+   */
+  async usage(orgId: string, id: string): Promise<FixtureUsage> {
+    const fixture = await this.prisma.fixture.findFirst({
+      where: { id, orgId },
+      select: { id: true },
+    });
+    if (!fixture) throw new NotFoundException('fixture not found');
+
+    const [placements, guideCount] = await Promise.all([
+      this.prisma.placement.findMany({
+        where: { fixtureId: id, orgId },
+        select: { store: { select: { id: true, name: true } } },
+        distinct: ['storeId'],
+        orderBy: { store: { name: 'asc' } },
+      }),
+      this.prisma.guideFixture.count({ where: { fixtureId: id, orgId } }),
+    ]);
+
+    const stores = placements.map((p) => ({
+      id: p.store.id,
+      name: p.store.name,
+    }));
+    return { stores, storeCount: stores.length, guideCount };
+  }
+
+  /**
+   * Soft-delete: hide the fixture from the library but keep its placements and
+   * guide entries intact (reversible). Org-scoped; 404 if not found.
+   */
+  async archive(orgId: string, id: string): Promise<void> {
+    const res = await this.prisma.fixture.updateMany({
+      where: { id, orgId, archivedAt: null },
+      data: { archivedAt: new Date() },
+    });
+    if (res.count === 0) throw new NotFoundException('fixture not found');
+  }
+
+  /**
+   * Hard-delete: remove the fixture and everything that hangs off it
+   * (placements, guide fixtures + their merchandise/example images, captures —
+   * all `onDelete: Cascade`). Org-scoped; 404 if not found.
+   */
+  async remove(orgId: string, id: string): Promise<void> {
+    const res = await this.prisma.fixture.deleteMany({ where: { id, orgId } });
+    if (res.count === 0) throw new NotFoundException('fixture not found');
+  }
+
+  // ----- default products (the reusable starter set) -----------------------
+
+  /** The fixture's default product set, in planogram order. */
+  async listProducts(
+    orgId: string,
+    fixtureId: string,
+  ): Promise<FixtureDefaultProduct[]> {
+    await this.ensureOwned(orgId, fixtureId);
+    const rows = await this.prisma.fixtureProduct.findMany({
+      where: { fixtureId, orgId },
+      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+      include: { product: true },
+    });
+    return rows.map((r) => ({
+      fixtureProductId: r.id,
+      id: r.product.id,
+      sku: r.product.sku,
+      name: r.product.name,
+      brand: r.product.brand ?? undefined,
+      category: r.product.category ?? undefined,
+      color: r.product.color ?? undefined,
+      imageUrl: r.product.imageUrl ?? undefined,
+      row: r.row,
+    }));
+  }
+
+  /** Add a product to the fixture's default set (idempotent on re-add). */
+  async addProduct(
+    orgId: string,
+    fixtureId: string,
+    productId: string,
+  ): Promise<void> {
+    await this.ensureOwned(orgId, fixtureId);
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, orgId },
+      select: { id: true },
+    });
+    if (!product) throw new NotFoundException('product not found');
+
+    const last = await this.prisma.fixtureProduct.findFirst({
+      where: { fixtureId },
+      orderBy: { order: 'desc' },
+      select: { order: true },
+    });
+    const order = (last?.order ?? -1) + 1;
+
+    try {
+      await this.prisma.fixtureProduct.create({
+        data: { orgId, fixtureId, productId, order },
+      });
+    } catch (err) {
+      // Already in the set — adding twice is a no-op, not an error.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        return;
+      }
+      throw err;
+    }
+  }
+
+  /** Remove a product from the fixture's default set. */
+  async removeProduct(
+    orgId: string,
+    fixtureId: string,
+    fixtureProductId: string,
+  ): Promise<void> {
+    const res = await this.prisma.fixtureProduct.deleteMany({
+      where: { id: fixtureProductId, fixtureId, orgId },
+    });
+    if (res.count === 0) {
+      throw new NotFoundException('default product not found');
+    }
+  }
+
+  /** Guard: the fixture must belong to the caller's org (else 404). */
+  private async ensureOwned(orgId: string, fixtureId: string): Promise<void> {
+    const f = await this.prisma.fixture.findFirst({
+      where: { id: fixtureId, orgId },
+      select: { id: true },
+    });
+    if (!f) throw new NotFoundException('fixture not found');
   }
 }
 

@@ -26,6 +26,7 @@ model Org {
   users      User[]
   stores     Store[]
   campaigns  Campaign[]
+  projects   Project[]
   rubrics    Rubric[]
   submissions Submission[]
   fixtures      Fixture[]
@@ -33,12 +34,42 @@ model Org {
   guideFixtures GuideFixture[]
   products      Product[]
   merchandise   Merchandise[]
+  fixtureProducts FixtureProduct[]
+  tasks         Task[]
+  salesEntries  SalesEntry[]
+  captures      FixtureCapture[]
+  complianceSnapshots ComplianceSnapshot[]
 }
 
 enum Role {
   ADMIN
   REVIEWER
   STORE_MANAGER
+  VIEWER // read-only: sees layouts, photos, and scores; cannot edit or upload
+}
+
+// A project is the top-level container an admin works in: a retail VM campaign
+// (Myer) or a tradeshow stand setup (Ambiente). It owns its venues (stores),
+// its guide (campaign), the floor-plan layout, and the verify-and-score flow.
+enum ProjectKind {
+  RETAIL
+  TRADESHOW
+}
+
+model Project {
+  id        String      @id @default(cuid())
+  orgId     String
+  name      String
+  slug      String
+  kind      ProjectKind @default(RETAIL)
+  createdAt DateTime    @default(now())
+
+  org       Org        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  campaigns Campaign[]
+  stores    Store[]
+
+  @@unique([orgId, slug])
+  @@index([orgId])
 }
 
 model User {
@@ -91,16 +122,24 @@ model MagicLinkToken {
 model Store {
   id          String   @id @default(cuid())
   orgId       String
+  projectId   String?  // the project (venue group) this store belongs to
   name        String
   brand       String   // "House", "Robins Kitchen", "The Custom Chef"
   externalRef String?  // ReStore / Globe id
+  region      String?  // segmentation: state / area, e.g. "NSW", "VIC"
+  areaManager String?  // segmentation: the field manager who owns the store
+  storeType   String?  // segmentation: "Full line" | "Express" | ...
   createdAt   DateTime @default(now())
 
   org           Org            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project       Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
   submissions   Submission[]
   storeFixtures StoreFixture[]
   managers      User[]
   placements    Placement[]
+  tasks         Task[]
+  salesEntries  SalesEntry[]
+  captures      FixtureCapture[]
 
   @@index([orgId])
 }
@@ -114,6 +153,7 @@ enum CampaignStatus {
 model Campaign {
   id        String         @id @default(cuid())
   orgId     String
+  projectId String?        // the project this guide belongs to
   key       String // "MSP2-2026"
   name      String
   status    CampaignStatus @default(DRAFT)
@@ -122,13 +162,44 @@ model Campaign {
   createdAt DateTime       @default(now())
 
   org         Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
   rubrics     Rubric[]
   submissions Submission[]
   placements    Placement[]
   guideFixtures GuideFixture[]
+  tasks         Task[]
+  salesEntries  SalesEntry[]
+  captures      FixtureCapture[]
+  complianceSnapshots ComplianceSnapshot[]
 
   @@unique([orgId, key])
   @@index([orgId])
+}
+
+// A daily point-in-time rollup of a campaign's compliance, so the dashboard can
+// chart pass-rate / completion over time. Written by the snapshot cron (and an
+// admin "capture now" button); upsert-keyed by (campaignId, dateKey) so one run
+// per day is idempotent.
+model ComplianceSnapshot {
+  id          String   @id @default(cuid())
+  orgId       String
+  campaignId  String
+  dateKey     String // 'YYYY-MM-DD' (UTC) — one snapshot per campaign per day
+  capturedAt  DateTime @default(now())
+  storeCount  Int
+  onTrack     Int // stores in perfect + good
+  needsReview Int
+  failing     Int // stores in not_good
+  incomplete  Int
+  submitted   Int // fixtures photographed
+  expected    Int // applicable fixtures
+  passing     Int // fixtures scored perfect/good
+
+  org      Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, dateKey])
+  @@index([campaignId, capturedAt])
 }
 
 // Append-only. Editing publishes a new (campaignId, fixtureKey, version) row.
@@ -208,6 +279,7 @@ model Photo {
   status       PhotoStatus @default(UPLOADED)
   width        Int?
   height       Int?
+  bestInClass  Boolean     @default(false) // reviewer-flagged exemplar execution
   createdAt    DateTime    @default(now())
 
   submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
@@ -298,15 +370,19 @@ model Review {
 
 // Canonical fixture in the library (e.g. "TCC Wall Bay 1", "Cookset Bulkstack").
 model Fixture {
-  id        String   @id @default(cuid())
-  orgId     String
-  name      String
-  kind      String   @default("bay") // bay | table | stand | window | dais | trolley
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  orgId      String
+  name       String
+  kind       String   @default("bay") // bay | table | stand | window | dais | trolley
+  department String? // Myer department: "The Custom Chef" | "The Cook Shop"
+  createdAt  DateTime @default(now())
+  archivedAt DateTime? // soft-delete: hidden from the library, placements kept
 
-  org           Org            @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  placements    Placement[]
-  guideFixtures GuideFixture[]
+  org             Org              @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  placements      Placement[]
+  guideFixtures   GuideFixture[]
+  captures        FixtureCapture[]
+  defaultProducts FixtureProduct[]
 
   @@unique([orgId, name])
   @@index([orgId])
@@ -328,6 +404,10 @@ model Placement {
   rotation   Float   @default(0)
   applicable Boolean @default(true)
   order      Int     @default(0)
+  // Money map: illustrative period sales for this fixture in this store. Null
+  // until a real POS feed lands; seeded with sample figures for the demo.
+  revenue    Float?
+  units      Int?
 
   org      Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
   store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
@@ -364,18 +444,44 @@ model Product {
   id        String   @id @default(cuid())
   orgId     String
   sku       String
-  name      String
+  name      String   // the VM-guide label (e.g. "LE CON MINI CASS 160ML TEA")
+  webTitle  String?  // full retail title from baccarat.com.au
   brand     String?
+  range     String?  // Baccarat range: "Le Connoisseur", "Nook", "Iconix"…
   category  String?
   color     String?
   imageUrl  String?
+  rrp       Float?   // recommended retail price
+  salePrice Float?   // current sale/ticket price — the per-unit price sales log against
   createdAt DateTime @default(now())
 
-  org         Org           @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  merchandise Merchandise[]
+  org             Org              @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  merchandise     Merchandise[]
+  salesEntries    SalesEntry[]
+  fixtureDefaults FixtureProduct[]
 
   @@unique([orgId, sku])
   @@index([orgId])
+}
+
+// A default product on a library fixture — the reusable "what goes on this
+// fixture" set (e.g. a Nook cookware setup). Copied onto a guide-fixture's
+// merchandise when the author chooses to pre-populate, rather than start blank.
+model FixtureProduct {
+  id        String   @id @default(cuid())
+  orgId     String
+  fixtureId String
+  productId String
+  row       String? // optional planogram row grouping, mirrors Merchandise.row
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  fixture Fixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([fixtureId, productId])
+  @@index([fixtureId])
 }
 
 // A product merchandised onto a guide-fixture (with a row grouping like the demo).
@@ -408,4 +514,107 @@ model ExampleImage {
   guideFixture GuideFixture @relation(fields: [guideFixtureId], references: [id], onDelete: Cascade)
 
   @@index([guideFixtureId])
+}
+
+// ═══════════════════════════════════════════ STORE-MANAGER workspace
+// Tasks an admin assigns to a store (its manager): capture a photo, log sales,
+// or a general ask. The manager's home shows OPEN tasks; `seenAt` drives the
+// unread notification badge. SalesEntry is the manager's per-product sales log
+// for a campaign period; it rolls up to the fixture (and the Money Map).
+
+enum TaskKind {
+  UPLOAD_PHOTO // capture/upload a fixture photo into the checklist
+  LOG_SALES // log sales for the period
+  GENERAL // free-form ask
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  orgId       String
+  storeId     String // the store (its manager) the task is assigned to
+  campaignId  String?
+  kind        TaskKind   @default(GENERAL)
+  status      TaskStatus @default(OPEN)
+  title       String
+  body        String? // what the admin is asking for
+  fixtureKey  String? // for UPLOAD_PHOTO: which fixture
+  dueAt       DateTime?
+  seenAt      DateTime? // when the manager first opened it (notification badge)
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+
+  org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, status])
+  @@index([orgId])
+}
+
+// One running sales tally per (store, campaign, product): units sold × the
+// unit price snapshot = revenue. `fixtureId` is denormalised from the product's
+// placement so the Money Map rolls up by fixture with a simple groupBy.
+model SalesEntry {
+  id         String   @id @default(cuid())
+  orgId      String
+  storeId    String
+  campaignId String
+  productId  String
+  fixtureId  String?
+  units      Int      @default(0)
+  unitPrice  Float    @default(0) // price snapshot at log time
+  revenue    Float    @default(0) // units × unitPrice, stored for fast rollups
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  org      Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, campaignId, productId])
+  @@index([storeId, campaignId])
+  @@index([campaignId, fixtureId])
+}
+
+// The store-manager compliance loop on the floor map. One row per
+// (store, campaign, fixture): whether a photo is wanted this sale, the photo
+// the manager submitted, and the AI verdict from comparing it to the guide's
+// reference image + VM notes. Distinct from the legacy Submission/Photo pipeline
+// (which is keyed by generic fixtureKey) — this is fixture-on-the-floor-plan.
+enum CaptureVerdict {
+  PASS
+  NEEDS_REVIEW
+  FAIL
+}
+
+model FixtureCapture {
+  id         String          @id @default(cuid())
+  orgId      String
+  storeId    String
+  campaignId String
+  fixtureId  String
+  needsPhoto Boolean         @default(true) // requested this sale / by a reviewer
+  storageKey String? // the manager's uploaded photo
+  uploadedAt DateTime?
+  verdict    CaptureVerdict?
+  aiNotes    String? // the model's compare notes
+  confidence Float?
+  modelId    String? // e.g. "gemini-2.5-flash" or "stub"
+  scoredAt   DateTime?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  org      Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  fixture  Fixture  @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, campaignId, fixtureId])
+  @@index([storeId, campaignId])
 }

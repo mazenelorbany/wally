@@ -55,6 +55,22 @@ export interface StudioApi {
     detail(campaignId: string, fixtureId: string): Promise<GuideFixtureDetail>;
     /** Save the VM notes for a guide-fixture. */
     saveNotes(id: string, notes: string): Promise<void>;
+    /** Place a product on the sheet (by GuideFixture id). */
+    addMerchandise(
+      guideFixtureId: string,
+      productId: string,
+      row?: string,
+    ): Promise<void>;
+    /** Remove a placed product from the sheet. */
+    removeMerchandise(
+      guideFixtureId: string,
+      merchandiseId: string,
+    ): Promise<void>;
+    /** Persist the full planogram layout (drag-and-drop). Returns the refreshed sheet. */
+    reorderPlanogram(
+      guideFixtureId: string,
+      body: { shelves: { row: string; merchandiseIds: string[] }[] },
+    ): Promise<GuideFixtureDetail>;
   };
   products: {
     /** The merchandising catalog, optionally filtered. */

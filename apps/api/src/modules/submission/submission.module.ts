@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import {
   CampaignQueueController,
   PhotoBlobController,
+  PhotoController,
   StoreScoreController,
   SubmissionController,
 } from './submission.controller';
@@ -18,6 +19,7 @@ import { SubmissionService } from './submission.service';
     CampaignQueueController,
     StoreScoreController,
     PhotoBlobController,
+    PhotoController,
   ],
   providers: [SubmissionService],
   exports: [SubmissionService],

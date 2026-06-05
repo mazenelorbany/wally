@@ -5,6 +5,7 @@ import {
   Header,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   Res,
@@ -18,6 +19,7 @@ import type { SessionUser } from '@wally/types';
 
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
+import { Roles } from '../auth/roles.decorator';
 import { SessionGuard } from '../auth/session.guard';
 import { ZodValidationPipe } from '../org/zod-validation.pipe';
 import { StorageService } from '../storage/storage.service';
@@ -25,6 +27,8 @@ import { StorageService } from '../storage/storage.service';
 import {
   CreateSubmissionSchema,
   type CreateSubmissionInput,
+  SetBestInClassSchema,
+  type SetBestInClassInput,
   UploadPhotoSchema,
 } from './submission.dto';
 import { SubmissionService } from './submission.service';
@@ -114,6 +118,51 @@ export class CampaignQueueController {
   @Get(':id/gallery')
   gallery(@CurrentUser() user: SessionUser, @Param('id') campaignId: string) {
     return this.submissions.gallery(user.orgId, campaignId);
+  }
+
+  /** Operational turnaround: review speed + which stores needed most rework. */
+  @Get(':id/turnaround')
+  turnaround(@CurrentUser() user: SessionUser, @Param('id') campaignId: string) {
+    return this.submissions.campaignTurnaround(user.orgId, campaignId);
+  }
+
+  /** Compliance snapshots over time (the trend chart). */
+  @Get(':id/trend')
+  trend(@CurrentUser() user: SessionUser, @Param('id') campaignId: string) {
+    return this.submissions.campaignTrend(user.orgId, campaignId);
+  }
+
+  /** Capture today's compliance as a snapshot now (idempotent per day). */
+  @Post(':id/snapshot')
+  @Roles('ADMIN')
+  snapshot(@CurrentUser() user: SessionUser, @Param('id') campaignId: string) {
+    return this.submissions.captureSnapshot(user.orgId, campaignId);
+  }
+
+  /** Best-in-class execution photos — exemplars to show other stores. */
+  @Get(':id/best-in-class')
+  bestInClass(
+    @CurrentUser() user: SessionUser,
+    @Param('id') campaignId: string,
+  ) {
+    return this.submissions.bestInClass(user.orgId, campaignId);
+  }
+}
+
+// Photo-addressed mutations (best-in-class toggle). Reviewers curate exemplars.
+@Controller('photos')
+@UseGuards(SessionGuard)
+export class PhotoController {
+  constructor(private readonly submissions: SubmissionService) {}
+
+  @Patch(':id/best-in-class')
+  @Roles('ADMIN', 'REVIEWER')
+  setBestInClass(
+    @CurrentUser() user: SessionUser,
+    @Param('id') photoId: string,
+    @Body(new ZodValidationPipe(SetBestInClassSchema)) dto: SetBestInClassInput,
+  ) {
+    return this.submissions.setBestInClass(user.orgId, photoId, dto.value);
   }
 }
 

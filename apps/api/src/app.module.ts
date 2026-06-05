@@ -22,6 +22,9 @@ import { FixtureModule } from './modules/fixture/fixture.module';
 import { FloorplanModule } from './modules/floorplan/floorplan.module';
 import { GuideFixtureModule } from './modules/guide-fixture/guide-fixture.module';
 import { ProductModule } from './modules/product/product.module';
+import { ProjectModule } from './modules/project/project.module';
+import { ManagerModule } from './modules/manager/manager.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -71,6 +74,9 @@ import { ProductModule } from './modules/product/product.module';
     FloorplanModule,
     GuideFixtureModule,
     ProductModule,
+    ProjectModule,
+    ManagerModule,
+    AdminModule,
   ],
   providers: [
     // Apply the rate limiter to every controller route by default.

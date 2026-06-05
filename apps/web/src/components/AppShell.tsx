@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Camera, ClipboardList, LogOut, WifiOff } from 'lucide-react';
+import { Camera, ClipboardList, LogOut, Settings, WifiOff } from 'lucide-react';
 import { Button } from '@wally/ui';
 
 import { useLogout, useSession } from '../lib/auth';
@@ -11,7 +11,7 @@ interface NavItem {
   to: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  roles: Array<'ADMIN' | 'REVIEWER' | 'STORE_MANAGER'>;
+  roles: Array<'ADMIN' | 'REVIEWER' | 'STORE_MANAGER' | 'VIEWER'>;
 }
 
 const NAV: NavItem[] = [
@@ -90,6 +90,13 @@ export function AppShell() {
                 </p>
               </div>
             ) : null}
+            <Link
+              to="/settings"
+              aria-label="Settings"
+              className="grid h-9 w-9 place-items-center rounded-md text-steel hover:bg-surface hover:text-graphite"
+            >
+              <Settings className="h-4 w-4" />
+            </Link>
             <Button
               variant="ghost"
               size="sm"
@@ -111,7 +118,7 @@ export function AppShell() {
   );
 }
 
-function roleLabel(role: 'ADMIN' | 'REVIEWER' | 'STORE_MANAGER'): string {
+function roleLabel(role: 'ADMIN' | 'REVIEWER' | 'STORE_MANAGER' | 'VIEWER'): string {
   switch (role) {
     case 'ADMIN':
       return 'Admin';
@@ -119,5 +126,7 @@ function roleLabel(role: 'ADMIN' | 'REVIEWER' | 'STORE_MANAGER'): string {
       return 'Reviewer';
     case 'STORE_MANAGER':
       return 'Store manager';
+    case 'VIEWER':
+      return 'Viewer';
   }
 }

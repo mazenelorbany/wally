@@ -1,0 +1,259 @@
+{
+ "campaign": {
+  "key": "MSP2-2026-SALE3",
+  "name": "Myer Mid-Season Sale Phase 2 \u2014 Sale 3",
+  "window": "1 Jun 2026 \u2013 6 Jul 2026 (inclusive)",
+  "departments": [
+   "The Custom Chef (TCC)",
+   "The Cook Shop (TCS)"
+  ]
+ },
+ "fixtures": [
+  {
+   "label": "Store Entry Bulk Stack 1",
+   "kind": "stand",
+   "dept": "shared",
+   "applies": "ALL",
+   "note": "GWP: free BC DM Mizu Knife Block 7pc Oak"
+  },
+  {
+   "label": "Store Entry Bulk Stack 2",
+   "kind": "stand",
+   "dept": "shared",
+   "applies": "ALL",
+   "note": "GWP: free BC Airfryer 9L Blk"
+  },
+  {
+   "label": "Store Entry Bulk Stack 3",
+   "kind": "stand",
+   "dept": "shared",
+   "applies": "ALL",
+   "note": "Front&Back: Le Connoisseur / NOOK"
+  },
+  {
+   "label": "VM Table 1 (Promo Table)",
+   "kind": "table",
+   "dept": "shared",
+   "applies": "ALL"
+  },
+  {
+   "label": "VM Table 2",
+   "kind": "table",
+   "dept": "shared",
+   "applies": "ALL"
+  },
+  {
+   "label": "VM Table 3",
+   "kind": "table",
+   "dept": "shared",
+   "applies": "ALL"
+  },
+  {
+   "label": "VM Table 4",
+   "kind": "table",
+   "dept": "shared",
+   "applies": "22 stores"
+  },
+  {
+   "label": "VM Table 5",
+   "kind": "table",
+   "dept": "shared",
+   "applies": "14 stores"
+  },
+  {
+   "label": "VM Table 6",
+   "kind": "table",
+   "dept": "shared",
+   "applies": "7 stores"
+  },
+  {
+   "label": "VM Table 7",
+   "kind": "table",
+   "dept": "shared",
+   "applies": "3 stores"
+  },
+  {
+   "label": "VM Table 8",
+   "kind": "table",
+   "dept": "shared",
+   "applies": "Chadstone only"
+  },
+  {
+   "label": "VM Table 9",
+   "kind": "table",
+   "dept": "shared",
+   "applies": "Chadstone only"
+  },
+  {
+   "label": "VM Table 10",
+   "kind": "table",
+   "dept": "shared",
+   "applies": "Chadstone only"
+  },
+  {
+   "label": "VM Table 11",
+   "kind": "table",
+   "dept": "shared",
+   "applies": "Chadstone only"
+  },
+  {
+   "label": "VM Table 12",
+   "kind": "table",
+   "dept": "shared",
+   "applies": "Chadstone only"
+  },
+  {
+   "label": "TCC Wall Bay 1",
+   "kind": "bay",
+   "dept": "TCC",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCC Wall Bay 2",
+   "kind": "bay",
+   "dept": "TCC",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCC Wall Bay 3",
+   "kind": "bay",
+   "dept": "TCC",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCC Wall Bay 4",
+   "kind": "bay",
+   "dept": "TCC",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCC Wall Bay 5",
+   "kind": "bay",
+   "dept": "TCC",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCC Wall Bay 6",
+   "kind": "bay",
+   "dept": "TCC",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCC Wall Bay 7",
+   "kind": "bay",
+   "dept": "TCC",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCS Wall Bay 1",
+   "kind": "bay",
+   "dept": "TCS",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCS Wall Bay 2",
+   "kind": "bay",
+   "dept": "TCS",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCS Wall Bay 3",
+   "kind": "bay",
+   "dept": "TCS",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCS Wall Bay 4",
+   "kind": "bay",
+   "dept": "TCS",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCS Wall Bay 5",
+   "kind": "bay",
+   "dept": "TCS",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCS Wall Bay 6",
+   "kind": "bay",
+   "dept": "TCS",
+   "applies": "ALL"
+  },
+  {
+   "label": "TCS Wall Bay 7",
+   "kind": "bay",
+   "dept": "TCS",
+   "applies": "ALL"
+  },
+  {
+   "label": "Fry Wall Bays",
+   "kind": "bay",
+   "dept": "TCC",
+   "applies": "ALL",
+   "note": "selected stores use Quad Stands instead"
+  },
+  {
+   "label": "Quad Stand 1 (Frypans)",
+   "kind": "stand",
+   "dept": "TCS",
+   "applies": "selected stores"
+  },
+  {
+   "label": "Free Stander - Accessories",
+   "kind": "stand",
+   "dept": "TCC",
+   "applies": "ALL"
+  },
+  {
+   "label": "Free Stander - Gadgets",
+   "kind": "stand",
+   "dept": "TCS",
+   "applies": "ALL"
+  },
+  {
+   "label": "Knife Block Bulk Stack",
+   "kind": "stand",
+   "dept": "TCC",
+   "applies": "ALL"
+  },
+  {
+   "label": "Cookset Bulk Stack",
+   "kind": "stand",
+   "dept": "TCS",
+   "applies": "ALL"
+  },
+  {
+   "label": "Electrical Stand 1 (Best Visual Position)",
+   "kind": "stand",
+   "dept": "shared",
+   "applies": "ALL",
+   "note": "Kitchen Appliances"
+  },
+  {
+   "label": "Electrical Stand 2",
+   "kind": "stand",
+   "dept": "shared",
+   "applies": "ALL",
+   "note": "Kitchen Appliances"
+  },
+  {
+   "label": "GWPs & Door Busters",
+   "kind": "stand",
+   "dept": "shared",
+   "applies": "ALL"
+  }
+ ],
+ "ranges_displayed": [
+  "Le Connoisseur (LE CON)",
+  "NOOK",
+  "A-Series",
+  "Easy Grip",
+  "Kolori",
+  "GRYLT",
+  "ID3",
+  "Loose Cookware",
+  "Cooksets",
+  "Kitchen Appliances"
+ ]
+}

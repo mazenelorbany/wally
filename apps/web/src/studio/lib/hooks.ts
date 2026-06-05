@@ -15,6 +15,9 @@ import {
 } from '@tanstack/react-query';
 import type {
   Fixture,
+  FixtureDefaultProduct,
+  FixtureKind,
+  FixtureUsage,
   FloorPlan,
   GuideFixtureDetail,
   PlacedFixture,
@@ -29,6 +32,99 @@ export function useFixtures(): UseQueryResult<Fixture[]> {
   return useQuery({
     queryKey: sqk.fixtures,
     queryFn: () => studio.fixtures.list(),
+  });
+}
+
+/** Add a fixture to the library; refreshes the grid on success. */
+export function useCreateFixture(): UseMutationResult<
+  Fixture,
+  unknown,
+  { name: string; kind?: FixtureKind }
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input) => studio.fixtures.create(input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: sqk.fixtures }),
+  });
+}
+
+/** Where a fixture is used (stores + guides) — drives the delete dialog. */
+export function useFixtureUsage(
+  id: string | undefined,
+): UseQueryResult<FixtureUsage> {
+  return useQuery({
+    queryKey: sqk.fixtureUsage(id ?? 'none'),
+    queryFn: () => studio.fixtures.usage(id!),
+    enabled: Boolean(id),
+  });
+}
+
+/** Soft-delete (archive): hides the fixture, keeps its placements. */
+export function useArchiveFixture(): UseMutationResult<void, unknown, string> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => studio.fixtures.archive(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: sqk.fixtures }),
+  });
+}
+
+/** Hard-delete: removes the fixture everywhere (placements, guide entries). */
+export function useDeleteFixture(): UseMutationResult<void, unknown, string> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => studio.fixtures.remove(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: sqk.fixtures }),
+  });
+}
+
+/** A fixture's default product set (its reusable starter list). */
+export function useFixtureProducts(
+  fixtureId: string | undefined,
+): UseQueryResult<FixtureDefaultProduct[]> {
+  return useQuery({
+    queryKey: sqk.fixtureProducts(fixtureId ?? 'none'),
+    queryFn: () => studio.fixtures.products.list(fixtureId!),
+    enabled: Boolean(fixtureId),
+  });
+}
+
+/** Add / remove a product in a fixture's default set; refreshes the set. */
+export function useAddFixtureProduct(
+  fixtureId: string,
+): UseMutationResult<void, unknown, string> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (productId) => studio.fixtures.products.add(fixtureId, productId),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: sqk.fixtureProducts(fixtureId) }),
+  });
+}
+
+export function useRemoveFixtureProduct(
+  fixtureId: string,
+): UseMutationResult<void, unknown, string> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (fixtureProductId) =>
+      studio.fixtures.products.remove(fixtureId, fixtureProductId),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: sqk.fixtureProducts(fixtureId) }),
+  });
+}
+
+/** Pre-populate a guide-fixture's sheet from the fixture's default products. */
+export function usePrepopulate(
+  campaignId: string | undefined,
+  fixtureId: string | undefined,
+): UseMutationResult<GuideFixtureDetail, unknown, void> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => studio.guideFixtures.prepopulate(campaignId!, fixtureId!),
+    onSuccess: (detail) => {
+      if (campaignId && fixtureId) {
+        qc.setQueryData(sqk.guideFixture(campaignId, fixtureId), detail);
+      }
+    },
   });
 }
 
@@ -136,6 +232,106 @@ export function useSaveNotes(
           queryKey: sqk.guideFixture(campaignId, fixtureId),
         });
       }
+    },
+  });
+}
+
+/** Add / remove a product on a fixture's planogram; refreshes the sheet. */
+export function useAddMerchandise(
+  campaignId: string | undefined,
+  fixtureId: string | undefined,
+): UseMutationResult<
+  void,
+  unknown,
+  { guideFixtureId: string; productId: string; row?: string }
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ guideFixtureId, productId, row }) =>
+      studio.guideFixtures.addMerchandise(guideFixtureId, productId, row),
+    onSuccess: () => {
+      if (campaignId && fixtureId) {
+        void qc.invalidateQueries({
+          queryKey: sqk.guideFixture(campaignId, fixtureId),
+        });
+      }
+    },
+  });
+}
+
+export function useRemoveMerchandise(
+  campaignId: string | undefined,
+  fixtureId: string | undefined,
+): UseMutationResult<
+  void,
+  unknown,
+  { guideFixtureId: string; merchandiseId: string }
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ guideFixtureId, merchandiseId }) =>
+      studio.guideFixtures.removeMerchandise(guideFixtureId, merchandiseId),
+    onSuccess: () => {
+      if (campaignId && fixtureId) {
+        void qc.invalidateQueries({
+          queryKey: sqk.guideFixture(campaignId, fixtureId),
+        });
+      }
+    },
+  });
+}
+
+/**
+ * Persist a full drag-and-drop planogram layout. Optimistically regroups the
+ * cached sheet, then reconciles to the server's canonical detail on success
+ * (mirrors usePrepopulate's self-healing-cache pattern).
+ */
+export function useReorderPlanogram(
+  campaignId: string | undefined,
+  fixtureId: string | undefined,
+): UseMutationResult<
+  GuideFixtureDetail,
+  unknown,
+  { guideFixtureId: string; body: { shelves: { row: string; merchandiseIds: string[] }[] } },
+  { previous?: GuideFixtureDetail }
+> {
+  const qc = useQueryClient();
+  const key =
+    campaignId && fixtureId
+      ? sqk.guideFixture(campaignId, fixtureId)
+      : (['studio', 'guide-fixture', 'none'] as const);
+  return useMutation({
+    mutationFn: ({ guideFixtureId, body }) =>
+      studio.guideFixtures.reorderPlanogram(guideFixtureId, body),
+    onMutate: async ({ body }) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<GuideFixtureDetail>(key);
+      if (previous) {
+        const byId = new Map(
+          previous.merchandise.flatMap((r) =>
+            r.products.map((p) => [p.merchandiseId, p] as const),
+          ),
+        );
+        const merchandise = body.shelves
+          .map((s) => ({
+            row: s.row,
+            products: s.merchandiseIds
+              .map((id) => byId.get(id))
+              .filter(Boolean) as GuideFixtureDetail['merchandise'][number]['products'],
+          }))
+          .filter((r) => r.products.length > 0);
+        qc.setQueryData<GuideFixtureDetail>(key, { ...previous, merchandise });
+      }
+      return { previous };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+    },
+    onSuccess: (detail) => {
+      qc.setQueryData(key, detail);
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: key });
     },
   });
 }

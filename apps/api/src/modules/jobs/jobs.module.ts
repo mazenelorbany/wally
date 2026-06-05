@@ -3,9 +3,11 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ScoringModule } from '../scoring/scoring.module';
 import { StorageModule } from '../storage/storage.module';
+import { SubmissionModule } from '../submission/submission.module';
 
 import { ChaseService } from './chase.service';
 import { ScoreWorkerService } from './score-worker.service';
+import { SnapshotService } from './snapshot.service';
 
 // =============================================================================
 // JobsModule — Wally's background workers.
@@ -25,8 +27,8 @@ import { ScoreWorkerService } from './score-worker.service';
 // =============================================================================
 
 @Module({
-  imports: [PrismaModule, ScoringModule, StorageModule],
-  providers: [ScoreWorkerService, ChaseService],
-  exports: [ScoreWorkerService, ChaseService],
+  imports: [PrismaModule, ScoringModule, StorageModule, SubmissionModule],
+  providers: [ScoreWorkerService, ChaseService, SnapshotService],
+  exports: [ScoreWorkerService, ChaseService, SnapshotService],
 })
 export class JobsModule {}

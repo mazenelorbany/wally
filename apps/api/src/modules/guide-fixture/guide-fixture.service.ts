@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   ExampleImage,
@@ -89,6 +93,7 @@ export class GuideFixtureService {
 
     return {
       fixtureId: fixture.id,
+      guideFixtureId: guideFixture.id,
       fixtureName: fixture.name,
       kind: fixture.kind as FixtureKind,
       notes: guideFixture.notes,
@@ -97,6 +102,64 @@ export class GuideFixtureService {
       ),
       merchandise: groupMerchandise(guideFixture.merchandise),
     };
+  }
+
+  /**
+   * Pre-populate this sheet from the fixture's default product set (the
+   * "use the starter set" choice instead of starting blank). Products already
+   * on the sheet are skipped, so running it twice is safe. Returns the
+   * refreshed sheet. Org-scoped; a foreign campaign/fixture 404s.
+   */
+  async prepopulateFromDefaults(
+    orgId: string,
+    campaignId: string,
+    fixtureId: string,
+  ): Promise<GuideFixtureDetail> {
+    const [campaign, fixture] = await Promise.all([
+      this.prisma.campaign.findFirst({
+        where: { id: campaignId, orgId },
+        select: { id: true },
+      }),
+      this.prisma.fixture.findFirst({
+        where: { id: fixtureId, orgId },
+        select: { id: true },
+      }),
+    ]);
+    if (!campaign) throw new NotFoundException('campaign not found');
+    if (!fixture) throw new NotFoundException('fixture not found');
+
+    const guideFixture = await this.ensureGuideFixture(
+      orgId,
+      campaignId,
+      fixtureId,
+    );
+
+    const defaults = await this.prisma.fixtureProduct.findMany({
+      where: { fixtureId, orgId },
+      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+      select: { productId: true, row: true },
+    });
+
+    const already = new Set(guideFixture.merchandise.map((m) => m.productId));
+    let order = guideFixture.merchandise.reduce(
+      (max, m) => Math.max(max, m.order),
+      -1,
+    );
+    const toCreate = defaults
+      .filter((d) => !already.has(d.productId))
+      .map((d) => ({
+        orgId,
+        guideFixtureId: guideFixture.id,
+        productId: d.productId,
+        row: d.row,
+        order: ++order,
+      }));
+
+    if (toCreate.length > 0) {
+      await this.prisma.merchandise.createMany({ data: toCreate });
+    }
+
+    return this.detail(orgId, campaignId, fixtureId);
   }
 
   /**
@@ -188,6 +251,71 @@ export class GuideFixtureService {
     return { ok: true };
   }
 
+  /**
+   * Persist a full planogram layout: shelves top→bottom, each a left→right list
+   * of merchandise ids. Rewrites (row, order) for every facing in one
+   * transaction; order = shelfIdx*1000 + colIdx, so the existing read
+   * (orderBy order asc → groupMerchandise) reproduces shelf order AND intra-shelf
+   * order with no extra column. The payload must cover EXACTLY the sheet's
+   * current facings (no aliens, no orphans) so a stale client can't half-rewrite.
+   */
+  async reorderPlanogram(
+    orgId: string,
+    guideFixtureId: string,
+    shelves: { row: string; merchandiseIds: string[] }[],
+  ): Promise<GuideFixtureDetail> {
+    await this.getOwned(orgId, guideFixtureId);
+    const existing = await this.prisma.merchandise.findMany({
+      where: { guideFixtureId, orgId },
+      select: { id: true },
+    });
+    const existingIds = new Set(existing.map((m) => m.id));
+    const sent = shelves.flatMap((s) => s.merchandiseIds);
+    for (const id of sent) {
+      if (!existingIds.has(id)) throw new BadRequestException('unknown merchandise');
+    }
+    if (sent.length !== existingIds.size) {
+      throw new BadRequestException('layout must cover all merchandise on the sheet');
+    }
+    await this.prisma.$transaction(
+      shelves.flatMap((shelf, shelfIdx) =>
+        shelf.merchandiseIds.map((mid, colIdx) =>
+          this.prisma.merchandise.update({
+            where: { id: mid },
+            data: { row: shelf.row.trim(), order: shelfIdx * 1000 + colIdx },
+          }),
+        ),
+      ),
+    );
+    return this.detailByGuideFixtureId(orgId, guideFixtureId);
+  }
+
+  /** Re-read + map a sheet by GuideFixture id (for mutations that hold only the gf id). */
+  private async detailByGuideFixtureId(
+    orgId: string,
+    guideFixtureId: string,
+  ): Promise<GuideFixtureDetail> {
+    const gf = await this.prisma.guideFixture.findFirst({
+      where: { id: guideFixtureId, orgId },
+      include: GUIDE_FIXTURE_INCLUDE,
+    });
+    if (!gf) throw new NotFoundException('guide fixture not found');
+    const fixture = await this.prisma.fixture.findFirst({
+      where: { id: gf.fixtureId, orgId },
+      select: { id: true, name: true, kind: true },
+    });
+    if (!fixture) throw new NotFoundException('fixture not found');
+    return {
+      fixtureId: fixture.id,
+      guideFixtureId: gf.id,
+      fixtureName: fixture.name,
+      kind: fixture.kind as FixtureKind,
+      notes: gf.notes,
+      exampleImages: gf.exampleImages.map((img) => this.toExampleImage(img)),
+      merchandise: groupMerchandise(gf.merchandise),
+    };
+  }
+
   // ----- helpers -----------------------------------------------------------
 
   /** Load a guide-fixture scoped to the org (404 if it belongs elsewhere). */
@@ -228,7 +356,7 @@ function groupMerchandise(
       bucket = { row: label, products: [] };
       rows.set(label, bucket);
     }
-    bucket.products.push(toProductDto(item.product));
+    bucket.products.push({ ...toProductDto(item.product), merchandiseId: item.id });
   }
 
   // Float the catch-all "Unsorted" row to the bottom; keep first-seen order for

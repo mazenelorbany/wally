@@ -13,6 +13,9 @@ import {
   type Verdict,
 } from '@prisma/client';
 import type {
+  BestInClassItem,
+  ComplianceTrendPoint,
+  ComplianceTurnaround,
   FixtureOutcome,
   FixtureStatus,
   Overall,
@@ -295,6 +298,9 @@ export class SubmissionService {
       const built = await this.buildStoreScore(store.id, campaign.id, {
         storeName: store.name,
         campaignKey: campaign.key,
+        region: store.region,
+        areaManager: store.areaManager,
+        storeType: store.storeType,
       });
       if (built.kind === 'score') scores.push(built.score);
       else skipped.push({ storeId: store.id, storeName: store.name, reason: built.reason });
@@ -309,6 +315,131 @@ export class SubmissionService {
     return { campaignId: campaign.id, campaignKey: campaign.key, stores: scores, skipped };
   }
 
+  /**
+   * Operational turnaround for a campaign: how fast AI verdicts get a reviewer
+   * action, and which stores needed the most rework (override/escalate).
+   */
+  async campaignTurnaround(
+    orgId: string,
+    campaignId: string,
+  ): Promise<ComplianceTurnaround> {
+    await this.requireCampaign(orgId, campaignId);
+
+    const reviews = await this.prisma.review.findMany({
+      where: { verdict: { photo: { submission: { campaignId } } } },
+      select: {
+        action: true,
+        createdAt: true,
+        verdict: {
+          select: {
+            createdAt: true,
+            photo: {
+              select: {
+                submission: {
+                  select: {
+                    storeId: true,
+                    store: { select: { name: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const durations = reviews
+      .map((r) => (r.createdAt.getTime() - r.verdict.createdAt.getTime()) / 60000)
+      .filter((m) => m >= 0)
+      .sort((a, b) => a - b);
+    const avg =
+      durations.length > 0
+        ? durations.reduce((a, b) => a + b, 0) / durations.length
+        : null;
+    const median =
+      durations.length > 0
+        ? (durations[Math.floor((durations.length - 1) / 2)] ?? null)
+        : null;
+
+    const revisions = reviews.filter((r) => r.action !== 'CONFIRM');
+    const byStore = new Map<
+      string,
+      { storeId: string; storeName: string; revisions: number }
+    >();
+    for (const r of revisions) {
+      const sub = r.verdict.photo.submission;
+      const cur = byStore.get(sub.storeId) ?? {
+        storeId: sub.storeId,
+        storeName: sub.store.name,
+        revisions: 0,
+      };
+      cur.revisions += 1;
+      byStore.set(sub.storeId, cur);
+    }
+    const mostRevised = [...byStore.values()]
+      .sort((a, b) => b.revisions - a.revisions)
+      .slice(0, 5);
+
+    return {
+      reviewedCount: reviews.length,
+      avgReviewMinutes: avg,
+      medianReviewMinutes: median,
+      revisionCount: revisions.length,
+      mostRevised,
+    };
+  }
+
+  /**
+   * Capture today's compliance rollup for a campaign as a snapshot (idempotent
+   * per day via upsert on (campaignId, dateKey)). Reuses the live queue rollup,
+   * so the snapshot matches exactly what the dashboard shows right now.
+   */
+  async captureSnapshot(
+    orgId: string,
+    campaignId: string,
+  ): Promise<ComplianceTrendPoint> {
+    const queue = await this.campaignQueue(orgId, campaignId);
+    const stores = queue.stores;
+    const passing = (s: StoreScore) =>
+      s.fixtures.filter(
+        (f) =>
+          f.status === 'scored' &&
+          (f.overall === 'perfect' || f.overall === 'good'),
+      ).length;
+    const agg = {
+      storeCount: stores.length,
+      onTrack: stores.filter(
+        (s) => s.overall === 'perfect' || s.overall === 'good',
+      ).length,
+      needsReview: stores.filter((s) => s.overall === 'needs_review').length,
+      failing: stores.filter((s) => s.overall === 'not_good').length,
+      incomplete: stores.filter((s) => s.overall === 'incomplete').length,
+      submitted: stores.reduce((a, s) => a + s.submitted, 0),
+      expected: stores.reduce((a, s) => a + s.expected, 0),
+      passing: stores.reduce((a, s) => a + passing(s), 0),
+    };
+    const dateKey = new Date().toISOString().slice(0, 10);
+    const row = await this.prisma.complianceSnapshot.upsert({
+      where: { campaignId_dateKey: { campaignId, dateKey } },
+      create: { orgId, campaignId, dateKey, ...agg },
+      update: { ...agg, capturedAt: new Date() },
+    });
+    return toTrendPoint(row);
+  }
+
+  /** The campaign's compliance snapshots over time, oldest first. */
+  async campaignTrend(
+    orgId: string,
+    campaignId: string,
+  ): Promise<ComplianceTrendPoint[]> {
+    await this.requireCampaign(orgId, campaignId);
+    const rows = await this.prisma.complianceSnapshot.findMany({
+      where: { campaignId },
+      orderBy: { capturedAt: 'asc' },
+    });
+    return rows.map(toTrendPoint);
+  }
+
   /** One store's rolled-up score for a campaign. */
   async storeScore(orgId: string, storeId: string, campaignId: string) {
     const store = await this.requireStore(orgId, storeId);
@@ -317,6 +448,9 @@ export class SubmissionService {
     const built = await this.buildStoreScore(store.id, campaign.id, {
       storeName: store.name,
       campaignKey: campaign.key,
+      region: store.region,
+      areaManager: store.areaManager,
+      storeType: store.storeType,
     });
     if (built.kind === 'empty') {
       throw new BadRequestException(built.reason);
@@ -338,7 +472,13 @@ export class SubmissionService {
   private async buildStoreScore(
     storeId: string,
     campaignId: string,
-    meta: { storeName: string; campaignKey: string },
+    meta: {
+      storeName: string;
+      campaignKey: string;
+      region?: string | null;
+      areaManager?: string | null;
+      storeType?: string | null;
+    },
   ): Promise<
     | { kind: 'score'; score: StoreScore }
     | { kind: 'empty'; reason: string }
@@ -416,7 +556,15 @@ export class SubmissionService {
         fixtures: outcomes,
         rubricVersions,
       });
-      return { kind: 'score', score };
+      return {
+        kind: 'score',
+        score: {
+          ...score,
+          region: meta.region ?? null,
+          areaManager: meta.areaManager ?? null,
+          storeType: meta.storeType ?? null,
+        },
+      };
     } catch (err) {
       if (err instanceof ApplicabilityError) {
         // Every fixture marked "we don't have it" — nothing to grade. Surface it
@@ -456,7 +604,14 @@ export class SubmissionService {
   private async requireStore(orgId: string, storeId: string) {
     const store = await this.prisma.store.findFirst({
       where: { id: storeId, orgId },
-      select: { id: true, name: true, brand: true },
+      select: {
+        id: true,
+        name: true,
+        brand: true,
+        region: true,
+        areaManager: true,
+        storeType: true,
+      },
     });
     if (!store) throw new NotFoundException('store not found');
     return store;
@@ -502,6 +657,51 @@ export class SubmissionService {
       fixtureKey: p.fixtureKey,
       status: p.status,
       overall: p.verdict ? dbOverallToCore(p.verdict.overall) : undefined,
+      bestInClass: p.bestInClass,
+    }));
+  }
+
+  /** Toggle a store execution photo as best-in-class (a showcase exemplar). */
+  async setBestInClass(
+    orgId: string,
+    photoId: string,
+    value: boolean,
+  ): Promise<{ id: string; bestInClass: boolean }> {
+    const photo = await this.prisma.photo.findFirst({
+      where: { id: photoId, submission: { orgId } },
+      select: { id: true },
+    });
+    if (!photo) throw new NotFoundException('photo not found');
+    return this.prisma.photo.update({
+      where: { id: photoId },
+      data: { bestInClass: value },
+      select: { id: true, bestInClass: true },
+    });
+  }
+
+  /** The campaign's best-in-class execution photos — exemplars to show stores. */
+  async bestInClass(
+    orgId: string,
+    campaignId: string,
+  ): Promise<BestInClassItem[]> {
+    await this.requireCampaign(orgId, campaignId);
+    const photos = await this.prisma.photo.findMany({
+      where: { bestInClass: true, submission: { orgId, campaignId } },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        submission: {
+          select: { storeId: true, store: { select: { name: true } } },
+        },
+        verdict: { select: { overall: true } },
+      },
+    });
+    return photos.map((p) => ({
+      photoId: p.id,
+      url: this.storage.signedGetUrl(p.storageKey),
+      storeId: p.submission.storeId,
+      storeName: p.submission.store.name,
+      fixtureKey: p.fixtureKey,
+      overall: p.verdict ? dbOverallToCore(p.verdict.overall) : undefined,
     }));
   }
 
@@ -542,4 +742,31 @@ function mimeToExt(mime: string): string {
     default:
       return '.jpg';
   }
+}
+
+/** Map a ComplianceSnapshot DB row to the shared trend-point contract. */
+function toTrendPoint(r: {
+  dateKey: string;
+  capturedAt: Date;
+  storeCount: number;
+  onTrack: number;
+  needsReview: number;
+  failing: number;
+  incomplete: number;
+  submitted: number;
+  expected: number;
+  passing: number;
+}): ComplianceTrendPoint {
+  return {
+    dateKey: r.dateKey,
+    capturedAt: r.capturedAt.toISOString(),
+    storeCount: r.storeCount,
+    onTrack: r.onTrack,
+    needsReview: r.needsReview,
+    failing: r.failing,
+    incomplete: r.incomplete,
+    submitted: r.submitted,
+    expected: r.expected,
+    passing: r.passing,
+  };
 }

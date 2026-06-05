@@ -86,7 +86,8 @@ export function useLogout(): UseMutationResult<void, unknown, void> {
 
 /** Where a freshly-signed-in user of a given role should land. Reviewers/admins
  *  land in the guide studio (floor plan / fixtures / products); the review queue
- *  is reachable from the studio's left rail. Store managers go to capture. */
+ *  is reachable from the studio's left rail. Store managers go to their own
+ *  store workspace (/store): home, tasks, floor map, sales. */
 export function homeForRole(role: Role): string {
-  return role === 'STORE_MANAGER' ? '/capture' : '/studio';
+  return role === 'STORE_MANAGER' ? '/store' : '/studio';
 }

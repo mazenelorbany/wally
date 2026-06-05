@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { NavLink, useParams } from 'react-router-dom';
+import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import {
   Home,
   Store,
@@ -11,9 +11,18 @@ import {
   LayoutDashboard,
   Coins,
   BarChart3,
+  Trophy,
+  LogOut,
+  Settings,
+  ChevronDown,
+  FolderKanban,
+  Store as TradeshowIcon,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@wally/ui';
+
+import { useLogout, useSession } from '../../lib/auth';
+import { useProject } from '../ProjectContext';
 
 interface NavItem {
   label: string;
@@ -62,19 +71,21 @@ const GROUPS: NavGroup[] = [
         label: 'Money Map',
         icon: Coins,
         to: () => '/studio/money-map',
-        soon: true,
       },
       {
         label: 'Dashboard',
         icon: LayoutDashboard,
         to: () => '/studio/dashboard',
-        soon: true,
+      },
+      {
+        label: 'Leaderboard',
+        icon: Trophy,
+        to: () => '/studio/leaderboard',
       },
       {
         label: 'Insights',
         icon: BarChart3,
         to: () => '/studio/insights',
-        soon: true,
       },
     ],
   },
@@ -101,6 +112,8 @@ export function Sidebar() {
         </span>
       </div>
 
+      <ProjectSwitcher />
+
       {GROUPS.map((group) => (
         <div key={group.title}>
           <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-brand text-steel">
@@ -113,7 +126,133 @@ export function Sidebar() {
           </div>
         </div>
       ))}
+
+      <SidebarAccount />
     </nav>
+  );
+}
+
+/** Workspace switcher: pick the project (Myer / Ambiente) the studio works in. */
+function ProjectSwitcher() {
+  const { projects, project, setProjectId } = useProject();
+  const navigate = useNavigate();
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 rounded-md border border-mist/70 bg-paper px-2.5 py-2 text-left hover:border-steel"
+      >
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded bg-ink/90 text-paper">
+          {project?.kind === 'TRADESHOW' ? (
+            <TradeshowIcon className="h-3.5 w-3.5" />
+          ) : (
+            <FolderKanban className="h-3.5 w-3.5" />
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-ink">
+            {project?.name ?? 'Projects'}
+          </span>
+          <span className="block text-[10px] uppercase tracking-brand text-steel">
+            {project ? (project.kind === 'TRADESHOW' ? 'Tradeshow' : 'Retail') : '—'}
+          </span>
+        </span>
+        <ChevronDown className="h-4 w-4 shrink-0 text-steel" />
+      </button>
+
+      {open ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 overflow-hidden rounded-md border border-mist/70 bg-paper shadow-lift">
+          {projects.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                setProjectId(p.id);
+                setOpen(false);
+                navigate('/studio');
+              }}
+              className={cn(
+                'flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-surface',
+                p.id === project?.id ? 'bg-surface/60 font-medium text-ink' : 'text-graphite',
+              )}
+            >
+              <span className="grid h-5 w-5 shrink-0 place-items-center rounded bg-mist/40 text-graphite">
+                {p.kind === 'TRADESHOW' ? (
+                  <TradeshowIcon className="h-3 w-3" />
+                ) : (
+                  <FolderKanban className="h-3 w-3" />
+                )}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{p.name}</span>
+              <span className="shrink-0 text-[10px] text-steel">{p.venueCount}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              navigate('/studio/projects');
+            }}
+            className="flex w-full items-center gap-2 border-t border-mist/60 px-2.5 py-2 text-left text-xs font-medium text-steel hover:bg-surface hover:text-ink"
+          >
+            <FolderKanban className="h-3.5 w-3.5" /> All projects
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Bottom-of-rail account block: who you are, Settings, and Sign out. */
+function SidebarAccount() {
+  const { user } = useSession();
+  const logout = useLogout();
+  const navigate = useNavigate();
+
+  const signOut = async () => {
+    await logout.mutateAsync();
+    navigate('/login', { replace: true });
+  };
+
+  return (
+    <div className="mt-auto border-t border-mist/60 pt-3">
+      <div className="px-2 pb-2">
+        <p className="truncate text-sm font-medium text-ink">
+          {user?.name ?? user?.email ?? 'Signed in'}
+        </p>
+        <p className="text-[10px] uppercase tracking-brand text-steel">
+          {user?.role === 'ADMIN' ? 'Admin' : 'Reviewer'}
+        </p>
+      </div>
+      <Link
+        to="/studio/settings"
+        className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-graphite transition-colors hover:bg-paper hover:text-ink"
+      >
+        <Settings className="h-[18px] w-[18px]" />
+        Settings
+      </Link>
+      <button
+        type="button"
+        onClick={signOut}
+        className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-steel transition-colors hover:bg-paper hover:text-signal"
+      >
+        <LogOut className="h-[18px] w-[18px]" />
+        Sign out
+      </button>
+    </div>
   );
 }
 

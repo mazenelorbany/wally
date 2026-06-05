@@ -15,6 +15,7 @@ import { cn, Spinner } from '@wally/ui';
 
 import { api } from '../../lib/api';
 import { useSetStudioTopBar } from '../components/StudioContext';
+import { useProject } from '../ProjectContext';
 
 interface Pillar {
   label: string;
@@ -52,7 +53,6 @@ const PILLARS: Pillar[] = [
     desc: 'Where the sales sit, fixture by fixture.',
     icon: Coins,
     to: '/studio/money-map',
-    comingSoon: true,
   },
   {
     label: 'Dashboard',
@@ -67,21 +67,17 @@ const PILLARS: Pillar[] = [
 export function HomeView() {
   useSetStudioTopBar({ guideName: 'Guide studio', stores: [] });
 
-  // Resolve the active guide + its stores so each links to a real floor plan.
-  const campaignsQ = useQuery({
-    queryKey: ['studio', 'campaigns'],
-    queryFn: () => api.campaigns.list(),
-  });
-  const campaign =
-    campaignsQ.data?.find((c) => c.status === 'ACTIVE') ?? campaignsQ.data?.[0];
+  // Scope to the selected project; list its venues so each links to a real
+  // floor plan (the project's stores, not the compliance queue).
+  const { project, projectId, campaignId } = useProject();
 
-  const storesQ = useQuery({
-    queryKey: ['studio', 'queue-stores', campaign?.id],
-    queryFn: () => api.campaigns.queue(campaign!.id),
-    enabled: Boolean(campaign?.id),
+  const venuesQ = useQuery({
+    queryKey: ['studio', 'project-venues', projectId],
+    queryFn: () => api.projects.venues(projectId!),
+    enabled: Boolean(projectId),
   });
-  const stores = storesQ.data ?? [];
-  const loading = campaignsQ.isLoading || storesQ.isLoading;
+  const stores = venuesQ.data ?? [];
+  const loading = venuesQ.isLoading;
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
@@ -104,8 +100,8 @@ export function HomeView() {
           <h2 className="text-[11px] uppercase tracking-brand text-steel">
             Floor plans — open a store
           </h2>
-          {campaign ? (
-            <span className="text-xs text-steel">{campaign.key}</span>
+          {project?.campaignKey ? (
+            <span className="text-xs text-steel">{project.campaignKey}</span>
           ) : null}
         </div>
 
@@ -113,7 +109,7 @@ export function HomeView() {
           <div className="grid h-28 place-items-center">
             <Spinner className="text-xl text-steel" />
           </div>
-        ) : !campaign ? (
+        ) : !campaignId ? (
           <p className="text-sm text-steel">No active guide yet.</p>
         ) : stores.length === 0 ? (
           <p className="text-sm text-steel">No stores in this guide yet.</p>
@@ -122,7 +118,7 @@ export function HomeView() {
             {stores.map((s) => (
               <Link
                 key={s.storeId}
-                to={`/studio/${campaign.id}/store/${s.storeId}`}
+                to={`/studio/${campaignId}/store/${s.storeId}`}
                 className="group flex flex-col rounded-lg border border-mist/70 bg-paper p-5 shadow-card transition-shadow duration-base ease-out hover:shadow-lift"
               >
                 <div className="flex items-center justify-between">

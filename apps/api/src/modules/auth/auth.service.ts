@@ -309,7 +309,10 @@ function toSessionUser(u: {
     id: u.id,
     email: u.email,
     name: u.name,
-    role: u.role,
+    // The DB Role enum now includes VIEWER, which the @wally/types Role union
+    // doesn't list yet; carry it through to the session as-is (read surfaces and
+    // the NoViewerGuard read it at runtime via the role util).
+    role: u.role as SessionUser['role'],
     orgId: u.orgId,
     storeId: u.storeId,
   };

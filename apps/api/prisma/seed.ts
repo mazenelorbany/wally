@@ -12,9 +12,13 @@
 //     (wally-poc/rubrics/<fixture>.MSP2-2026.v1.yaml) as append-only v1 rows.
 //     One source of truth for "what good looks like" — the eval harness reads
 //     the same files.
-//   - 7 real stores, each with StoreFixture applicability rows: storefront
-//     applicable everywhere; vm_table 1/2 a per-store mix of applicable /
-//     not-applicable / (one store) not-built-yet; doorbuster applicable.
+//   - 32 real Myer stores, each with StoreFixture applicability rows:
+//     storefront applicable everywhere; vm_table 1/2 a per-store mix of
+//     applicable / not-applicable; doorbuster applicable.
+//   - The real 122-product Baccarat catalog (myer-baccarat-products.json joined
+//     to baccarat-web-enrichment.json), merchandised across the guide fixtures.
+//   - Tasks, sample sales (SalesEntry), and compliance flags (FixtureCapture)
+//     on a few showcase stores so the manager + money-map views have data.
 //   - A few Submissions + Photos pointing at sample images copied into the
 //     StorageService so the queue isn't empty. We DO NOT fabricate Verdicts —
 //     the JobsModule worker scores the photos for real on first boot, so the
@@ -33,12 +37,24 @@ import { dirname, join, resolve } from 'node:path';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
   CampaignStatus,
+  CaptureVerdict,
   PhotoStatus,
   PrismaClient,
+  ProjectKind,
   Role,
   SubmissionStatus,
+  TaskKind,
+  TaskStatus,
 } from '@prisma/client';
 import YAML from 'yaml';
+
+import {
+  fixtureForProduct,
+  loadCampaignMeta,
+  loadProducts,
+  rowForProduct,
+  type MyerProduct,
+} from './seed-myer';
 
 // ───────────────────────────────────────────── locations
 // The POC repo is the source of truth for rubrics + sample photos (decision T1).
@@ -51,6 +67,18 @@ const STORAGE_DIR = resolve(process.env.WALLY_STORAGE_DIR ?? './storage');
 
 const CAMPAIGN_KEY = 'MSP2-2026';
 const FIXTURES = ['storefront', 'vm_table', 'doorbuster'] as const;
+
+// ───────────────────────────────────────────── projects (top-level containers)
+// Two demoable projects: the existing Myer retail campaign (RETAIL — attaches the
+// 32 stores + MSP2-2026), and a fully-seeded Ambiente tradeshow stand setup
+// (TRADESHOW — its own venue, guide campaign, booth fixtures, placements, guide
+// sheets with reference images, and a few captures). Deterministic ids so the
+// upserts are idempotent across re-runs.
+const MYER_PROJECT_ID = 'seed-project-myer';
+const AMBIENTE_PROJECT_ID = 'seed-project-ambiente';
+const AMBIENTE_VENUE_REF = 'AMBIENTE-BOOTH';
+const AMBIENTE_VENUE_STORE_ID = `seed-store-${AMBIENTE_VENUE_REF}`;
+const AMBIENTE_CAMPAIGN_KEY = 'AMBIENTE-SS26';
 
 // tsx does not auto-load .env. Load apps/api/.env ourselves (mirrors
 // prisma.config.ts), unless DATABASE_URL is already exported (CI).
@@ -71,6 +99,16 @@ function requireEnv(name: string): string {
     );
   }
   return v;
+}
+
+/** Deterministic 0..1 from a string (FNV-1a) — stable illustrative figures across re-seeds. */
+function unitHash(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return ((h >>> 0) % 100_000) / 100_000;
 }
 
 // ───────────────────────────────────────────── rubric YAML → Rubric.criteria
@@ -165,18 +203,66 @@ function sample(name: string): string | null {
   return existsSync(p) ? p : null;
 }
 
-// ───────────────────────────────────────────── the 7 real GRB stores
-// brand is the concession fascia the storefront rubric grades (The Custom Chef /
-// The Cook Shop, inside the host department store).
-const STORES = [
-  { name: 'Marion', brand: 'The Custom Chef', externalRef: 'GRB-MAR' },
-  { name: 'Altona', brand: 'The Custom Chef', externalRef: 'GRB-ALT' },
-  { name: 'Ballina', brand: 'The Cook Shop', externalRef: 'GRB-BAL' },
-  { name: 'Burleigh', brand: 'The Custom Chef', externalRef: 'GRB-BUR' },
-  { name: 'Cairns Central', brand: 'The Custom Chef', externalRef: 'GRB-CNS' },
-  { name: 'Carousel', brand: 'The Cook Shop', externalRef: 'GRB-CAR' },
-  { name: 'Chad Pav', brand: 'The Custom Chef', externalRef: 'GRB-CHP' },
+// ───────────────────────────────────────────── the 32 real Myer stores
+// Myer is the only retailer in scope. A store's `brand` is the concession fascia
+// the storefront rubric grades; the floor plan splits departments per-fixture
+// (The Custom Chef vs The Cook Shop), so brand here just alternates for variety.
+// externalRef is MYER-<UPPER-SLUG>; the seeded id is `seed-store-<externalRef>`
+// so the floor-plan loop seeds a plan for every store deterministically.
+const CUSTOM_CHEF = 'The Custom Chef';
+const COOK_SHOP = 'The Cook Shop';
+
+const MYER_STORE_NAMES = [
+  'Adelaide City Myer',
+  'Belconnen Myer',
+  'Bondi Myer',
+  'Canberra City Myer',
+  'Castle Hill Myer',
+  'Chadstone Myer',
+  'Charlestown Myer',
+  'Chatswood Myer',
+  'Chermside Myer',
+  'Doncaster Myer',
+  'Eastgardens Myer',
+  'Eastland Myer',
+  'Erina Myer',
+  'Garden City Myer',
+  'Highpoint Myer',
+  'Indooroopilly Myer',
+  'Joondalup Myer',
+  'Karrinyup Myer',
+  'Liverpool Myer',
+  'Macquarie Myer',
+  'Marion Myer',
+  'Maroochydore Myer',
+  'Melbourne City Myer',
+  'Miranda Myer',
+  'Northland Myer',
+  'Parramatta Myer',
+  'Perth City Myer',
+  'Robina Myer',
+  'Southland Myer',
+  'Sydney City Myer',
+  'Tea Tree Plaza Myer',
+  'Warringah Myer',
 ] as const;
+
+/** "Tea Tree Plaza Myer" → "TEA-TREE-PLAZA-MYER" */
+function slugUpper(name: string): string {
+  return name
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+const STORES = MYER_STORE_NAMES.map((name, i) => ({
+  name,
+  // Alternate the fascia for variety; the floor plan is what actually splits
+  // departments per-fixture, so this is cosmetic.
+  brand: i % 2 === 0 ? CUSTOM_CHEF : COOK_SHOP,
+  externalRef: `MYER-${slugUpper(name)}`,
+}));
 
 // Per-store fixture applicability. Range assignment differs by store, so VM
 // tables are a deliberate mix — applicable, not-applicable ("we don't have that
@@ -190,8 +276,9 @@ function fixturesFor(storeName: string) {
     { fixtureKey: 'vm_table', label: 'VM Table 1 · Le Connoisseur', applicable: true, order: 1 },
     { fixtureKey: 'doorbuster', label: 'Store-Entry Door Buster Stack', applicable: true, order: 3 },
   ];
-  // A second VM table that not every store carries.
-  const carriesTable2 = !['Ballina', 'Carousel'].includes(storeName);
+  // A second VM table that not every store carries (deterministic by name so
+  // re-seeds are stable): a couple of stores read "we don't have that table".
+  const carriesTable2 = unitHash(`table2|${storeName}`) > 0.15;
   rows.splice(2, 0, {
     fixtureKey: 'vm_table',
     label: 'VM Table 2 · Nook',
@@ -232,19 +319,43 @@ async function main(): Promise<void> {
   console.log(`  users: ${admin.email} (ADMIN), ${reviewer.email} (REVIEWER)`);
 
   // --- Campaign ------------------------------------------------------------
+  // KEEP the key MSP2-2026: rubric YAML filenames + the scoring stamp
+  // ("storefront.MSP2-2026.v1") and rollup.spec.ts all key off it. We update
+  // only the display name to the real Myer Sale 3 campaign from the JSON.
+  const campaignMeta = loadCampaignMeta();
   const campaign = await prisma.campaign.upsert({
     where: { orgId_key: { orgId: org.id, key: CAMPAIGN_KEY } },
-    update: { status: CampaignStatus.ACTIVE, name: 'Myer Stocktake Sale P2' },
+    update: { status: CampaignStatus.ACTIVE, name: campaignMeta.name },
     create: {
       orgId: org.id,
       key: CAMPAIGN_KEY,
-      name: 'Myer Stocktake Sale P2',
+      name: campaignMeta.name,
       status: CampaignStatus.ACTIVE,
       startsAt: new Date('2026-06-01T00:00:00Z'),
       endsAt: new Date('2026-07-06T23:59:59Z'),
     },
   });
-  console.log(`  campaign: ${campaign.key} (${campaign.status})`);
+  console.log(`  campaign: ${campaign.key} — "${campaign.name}" (${campaign.status})`);
+
+  // --- Myer project (RETAIL) — the container for the 32 stores + MSP2 guide --
+  // Upsert on the deterministic id so re-runs are a no-op. Attach the MSP2-2026
+  // campaign to it now; the 32 stores get attached after they're seeded below.
+  const myerProject = await prisma.project.upsert({
+    where: { id: MYER_PROJECT_ID },
+    update: { orgId: org.id, name: 'Myer', slug: 'myer', kind: ProjectKind.RETAIL },
+    create: {
+      id: MYER_PROJECT_ID,
+      orgId: org.id,
+      name: 'Myer',
+      slug: 'myer',
+      kind: ProjectKind.RETAIL,
+    },
+  });
+  await prisma.campaign.update({
+    where: { id: campaign.id },
+    data: { projectId: myerProject.id },
+  });
+  console.log(`  project: Myer (${myerProject.id}, RETAIL) ← campaign ${campaign.key}`);
 
   // --- Rubrics (real YAML → append-only v1 rows) ---------------------------
   const rawRubrics = loadRubricsFromDisk();
@@ -319,21 +430,42 @@ async function main(): Promise<void> {
   }
   console.log(`  stores: ${stores.map((s) => s.name).join(', ')}`);
 
+  // Prune stores left over from an earlier seed (the old 7 GRB stores keyed
+  // GRB-*). The current seed owns the MYER-* set plus the Ambiente tradeshow
+  // venue (seeded below); anything else under this org is stale. Cascades clean
+  // their placements / submissions / sales / captures / tasks. Keeps re-runs
+  // converging on exactly the 32 Myer stores + 1 Ambiente venue.
+  const keepStoreRefs = [...STORES.map((s) => s.externalRef), AMBIENTE_VENUE_REF];
+  const prunedStores = await prisma.store.deleteMany({
+    where: { orgId: org.id, NOT: { externalRef: { in: keepStoreRefs } } },
+  });
+  if (prunedStores.count > 0) {
+    console.log(`  pruned ${prunedStores.count} stale store(s) from a prior seed`);
+  }
+
+  // Attach all 32 Myer stores to the Myer project (idempotent updateMany on the
+  // owned MYER-* externalRefs — never touches the Ambiente venue).
+  const attachedStores = await prisma.store.updateMany({
+    where: { orgId: org.id, externalRef: { in: STORES.map((s) => s.externalRef) } },
+    data: { projectId: myerProject.id },
+  });
+  console.log(`  project Myer ← ${attachedStores.count} stores attached`);
+
   // --- Submissions + Photos (real bytes into storage, PENDING ScoreJobs) ----
   // We seed a handful so the queue + console aren't empty on first boot. The
   // worker scores them for real — we never fabricate a Verdict.
   //
   // Plan (exercises every store-rollup branch the console renders):
-  //   Marion  — storefront + door buster submitted (two photos to score)
-  //   Altona  — storefront only (one scored fixture; the rest "not submitted")
-  //   Ballina — storefront submitted; this store has no VM Table 2 (n/a row)
+  //   Chadstone Myer      — storefront + door buster submitted (two to score)
+  //   Melbourne City Myer — storefront only (one scored fixture; rest "missing")
+  //   Sydney City Myer    — storefront submitted (a third store in the queue)
   const seedPlan: {
     store: string;
     status: SubmissionStatus;
     photos: { fixtureKey: string; image: string }[];
   }[] = [
     {
-      store: 'Marion',
+      store: 'Chadstone Myer',
       status: SubmissionStatus.SUBMITTED,
       photos: [
         { fixtureKey: 'storefront', image: 'msp2img-01.png' },
@@ -341,12 +473,12 @@ async function main(): Promise<void> {
       ],
     },
     {
-      store: 'Altona',
+      store: 'Melbourne City Myer',
       status: SubmissionStatus.PARTIAL,
       photos: [{ fixtureKey: 'storefront', image: 'msp2img-05.png' }],
     },
     {
-      store: 'Ballina',
+      store: 'Sydney City Myer',
       status: SubmissionStatus.SUBMITTED,
       photos: [{ fixtureKey: 'storefront', image: 'msp2img-03.png' }],
     },
@@ -413,6 +545,42 @@ async function main(): Promise<void> {
 
   // --- CREATE GUIDE pillar (reuses the GRB org + MSP2-2026 campaign above) ---
   await seedCreateGuide({ orgId: org.id, campaignId: campaign.id, stores });
+
+  // --- Ambiente project (TRADESHOW) — a full booth setup, seeded end-to-end --
+  await seedAmbiente({ orgId: org.id });
+
+  // --- Dev users for the access demo --------------------------------------
+  // A read-only VIEWER, and a setup-crew STORE_MANAGER bound to the Ambiente
+  // venue. Upsert on email so re-runs are idempotent.
+  const viewer = await prisma.user.upsert({
+    where: { email: 'viewer@dev.local' },
+    update: { orgId: org.id, role: Role.VIEWER, name: 'Read-only Viewer', storeId: null },
+    create: {
+      orgId: org.id,
+      email: 'viewer@dev.local',
+      name: 'Read-only Viewer',
+      role: Role.VIEWER,
+    },
+  });
+  const setupCrew = await prisma.user.upsert({
+    where: { email: 'setup@ambiente.dev' },
+    update: {
+      orgId: org.id,
+      role: Role.STORE_MANAGER,
+      name: 'Ambiente Setup Crew',
+      storeId: AMBIENTE_VENUE_STORE_ID,
+    },
+    create: {
+      orgId: org.id,
+      email: 'setup@ambiente.dev',
+      name: 'Ambiente Setup Crew',
+      role: Role.STORE_MANAGER,
+      storeId: AMBIENTE_VENUE_STORE_ID,
+    },
+  });
+  console.log(
+    `  dev users: ${viewer.email} (VIEWER), ${setupCrew.email} (STORE_MANAGER @ Ambiente venue)`,
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -430,63 +598,54 @@ async function main(): Promise<void> {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // The real TCC fixture library for the org. kind ∈ bay|table|stand|window|dais|trolley.
-const GUIDE_FIXTURES: { name: string; kind: string }[] = [
-  { name: 'TCC WALL BAY 1', kind: 'bay' },
-  { name: 'TCC WALL BAY 2', kind: 'bay' },
-  { name: 'TCC WALL BAY 3', kind: 'bay' },
-  { name: 'TCC WALL BAY 4', kind: 'bay' },
-  { name: 'TCC WALL BAY 5', kind: 'bay' },
-  { name: 'TCC WALL BAY 6', kind: 'bay' },
-  { name: 'TCC WALL BAY 7', kind: 'bay' },
-  { name: 'COOKSET BULKSTACK', kind: 'stand' },
-  { name: 'COOKWEAR SET BULK STACK', kind: 'stand' },
-  { name: 'KNIFE BLOCK BULK STACK', kind: 'stand' },
-  { name: 'ELECTRICAL STAND 1', kind: 'stand' },
-  { name: 'ELECTRICAL STAND 2', kind: 'stand' },
-  { name: 'FREE STANDER 1 (FRONT)', kind: 'stand' },
-  { name: 'FREE STANDER 1 (BACK)', kind: 'stand' },
-  { name: 'FREE STANDER 2 (FRONT)', kind: 'stand' },
-  { name: 'FREE STANDER 2 (BACK)', kind: 'stand' },
-  { name: 'FREE STANDER 3 (FRONT)', kind: 'stand' },
-  { name: 'FREE STANDER 3 (BACK)', kind: 'stand' },
-  { name: 'QUAD STAND 1', kind: 'stand' },
-  { name: 'KA STAND 1', kind: 'stand' },
-  { name: 'KA STAND 2', kind: 'stand' },
-  { name: 'MINI DAIS 1', kind: 'dais' },
-  { name: 'MINI DAIS 10', kind: 'dais' },
-  { name: 'TROLLEY 1', kind: 'trolley' },
-  { name: 'TROLLEY 2', kind: 'trolley' },
-  { name: 'TROLLEY 3', kind: 'trolley' },
-  { name: 'WINDOW DISPLAY', kind: 'window' },
-  { name: 'FRY WALL BAY 01', kind: 'bay' },
+// Myer is the only retailer in scope, so every store is one floor plan split
+// into two departments: "The Custom Chef" (TCC — knives, chef tools, free
+// standers) and "The Cook Shop" (cookware, cooksets, appliances). The split
+// follows the real "VM GUIDE SALE 3" floor plan (TCC block vs Cook Shop block).
+// (CUSTOM_CHEF / COOK_SHOP are declared alongside STORES above.)
+const GUIDE_FIXTURES: { name: string; kind: string; department: string }[] = [
+  // VM promo tables — where the headline Baccarat ranges merchandise this sale
+  // (Le Connoisseur / NOOK / ID3). Shared department; rendered as Cook Shop.
+  { name: 'VM TABLE 1', kind: 'table', department: COOK_SHOP },
+  { name: 'VM TABLE 2', kind: 'table', department: COOK_SHOP },
+  { name: 'VM TABLE 3', kind: 'table', department: COOK_SHOP },
+  { name: 'TCC WALL BAY 1', kind: 'bay', department: CUSTOM_CHEF },
+  { name: 'TCC WALL BAY 2', kind: 'bay', department: CUSTOM_CHEF },
+  { name: 'TCC WALL BAY 3', kind: 'bay', department: CUSTOM_CHEF },
+  { name: 'TCC WALL BAY 4', kind: 'bay', department: CUSTOM_CHEF },
+  { name: 'TCC WALL BAY 5', kind: 'bay', department: CUSTOM_CHEF },
+  { name: 'TCC WALL BAY 6', kind: 'bay', department: CUSTOM_CHEF },
+  { name: 'TCC WALL BAY 7', kind: 'bay', department: CUSTOM_CHEF },
+  { name: 'COOKSET BULKSTACK', kind: 'stand', department: COOK_SHOP },
+  { name: 'COOKWEAR SET BULK STACK', kind: 'stand', department: COOK_SHOP },
+  { name: 'KNIFE BLOCK BULK STACK', kind: 'stand', department: CUSTOM_CHEF },
+  { name: 'ELECTRICAL STAND 1', kind: 'stand', department: CUSTOM_CHEF },
+  { name: 'ELECTRICAL STAND 2', kind: 'stand', department: CUSTOM_CHEF },
+  { name: 'FREE STANDER 1 (FRONT)', kind: 'stand', department: CUSTOM_CHEF },
+  { name: 'FREE STANDER 1 (BACK)', kind: 'stand', department: CUSTOM_CHEF },
+  { name: 'FREE STANDER 2 (FRONT)', kind: 'stand', department: CUSTOM_CHEF },
+  { name: 'FREE STANDER 2 (BACK)', kind: 'stand', department: CUSTOM_CHEF },
+  { name: 'FREE STANDER 3 (FRONT)', kind: 'stand', department: CUSTOM_CHEF },
+  { name: 'FREE STANDER 3 (BACK)', kind: 'stand', department: CUSTOM_CHEF },
+  { name: 'QUAD STAND 1', kind: 'stand', department: COOK_SHOP },
+  { name: 'KA STAND 1', kind: 'stand', department: COOK_SHOP },
+  { name: 'KA STAND 2', kind: 'stand', department: COOK_SHOP },
+  { name: 'MINI DAIS 1', kind: 'dais', department: COOK_SHOP },
+  { name: 'MINI DAIS 10', kind: 'dais', department: COOK_SHOP },
+  { name: 'TROLLEY 1', kind: 'trolley', department: COOK_SHOP },
+  { name: 'TROLLEY 2', kind: 'trolley', department: COOK_SHOP },
+  { name: 'TROLLEY 3', kind: 'trolley', department: COOK_SHOP },
+  { name: 'WINDOW DISPLAY', kind: 'window', department: CUSTOM_CHEF },
+  { name: 'FRY WALL BAY 01', kind: 'bay', department: COOK_SHOP },
 ];
 
 // Real TCC catalog — Baccarat & Andre Verdier knives (category 'Knives').
 // sku codes follow the TCC web style (epoch-ish base + dash suffix). imageUrl
 // left null on purpose (the catalog feed wires real imagery later).
-const GUIDE_PRODUCTS: {
-  sku: string;
-  name: string;
-  brand: string;
-  category: string;
-  color?: string;
-}[] = [
-  { sku: '1749771144-75', name: 'Baccarat Damashiro EMPEROR Makoto 7 Piece Knife Block', brand: 'Baccarat', category: 'Knives', color: 'Black' },
-  { sku: '1749771144-61', name: 'Baccarat Damashiro EMPEROR Nanashi Knife Block 6 Piece', brand: 'Baccarat', category: 'Knives', color: 'Black' },
-  { sku: '1749771144-20', name: 'Baccarat Damashiro EMPEROR Bread Knife 20cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
-  { sku: '1749771144-15', name: 'Baccarat Damashiro EMPEROR Chefs Knife 15cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
-  { sku: '1749771144-21', name: 'Baccarat Damashiro EMPEROR Chefs Knife 20cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
-  { sku: '1749771144-17', name: 'Baccarat Damashiro EMPEROR Cleaver 17cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
-  { sku: '1749771144-14', name: 'Baccarat Damashiro EMPEROR All Purpose Try Me Knife 14.5cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
-  { sku: '1749771201-14', name: 'Baccarat iconiX Fullen 14 Piece Knife Block', brand: 'Baccarat', category: 'Knives', color: 'Black' },
-  { sku: '1749771201-07', name: 'Baccarat iconiX Straub Knife Block 7 Piece', brand: 'Baccarat', category: 'Knives', color: 'Black' },
-  { sku: '1749771201-06', name: 'Baccarat iconiX Holz Knife Block 6 Piece', brand: 'Baccarat', category: 'Knives', color: 'Wood' },
-  { sku: '1749771201-31', name: 'Baccarat iconiX Carving Knife Set', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
-  { sku: '1749771201-20', name: 'Baccarat iconiX Sharpening Steel 20cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
-  { sku: '1749771201-17', name: 'Baccarat iconiX Carving Fork 17cm', brand: 'Baccarat', category: 'Knives', color: 'Steel' },
-  { sku: '1749772050-06', name: 'Andre Verdier Debutant Set of 6 Serrated Knives Olive Wood', brand: 'Andre Verdier', category: 'Knives', color: 'Olive Wood' },
-  { sku: '1749771144-10', name: 'Baccarat Damashiro Bodo 10 Piece Japanese Steel Knife Block with Chopping Board', brand: 'Baccarat', category: 'Knives', color: 'Wood' },
-];
+//
+// NOTE: the product catalog is no longer hardcoded here — the real 122-product
+// Baccarat catalog is loaded from the seed-data JSONs (myer-baccarat-products +
+// baccarat-web-enrichment) via ./seed-myer and seeded in seedCreateGuide().
 
 // The REAL TCC knife-wall directives (verbatim from the MSP2 guide).
 const WALL_BAY_1_NOTES = [
@@ -562,6 +721,14 @@ function floorPlanFor(): PlacementSpec[] {
     });
   }
 
+  // VM promo tables — the headline Baccarat ranges (LE CON / NOOK / ID3) sit on
+  // these three tables this sale. Placed centre-floor so they read as the hero
+  // tables on the money map.
+  const tableY = 290;
+  push({ fixtureName: 'VM TABLE 1', label: 'VM Table 1 · Le Connoisseur', x: 320, y: tableY, w: 120, h: 90 });
+  push({ fixtureName: 'VM TABLE 2', label: 'VM Table 2 · NOOK', x: 460, y: tableY, w: 120, h: 90 });
+  push({ fixtureName: 'VM TABLE 3', label: 'VM Table 3 · iD3', x: 600, y: tableY, w: 120, h: 90 });
+
   // Trolleys + the second mini dais on a lower band.
   const lowY = 400;
   push({ fixtureName: 'TROLLEY 1', label: 'Trolley 1', x: 320, y: lowY, w: 80, h: 80 });
@@ -591,32 +758,60 @@ async function seedCreateGuide(ctx: {
   for (const f of GUIDE_FIXTURES) {
     const fixture = await prisma.fixture.upsert({
       where: { orgId_name: { orgId, name: f.name } },
-      update: { kind: f.kind },
-      create: { orgId, name: f.name, kind: f.kind },
+      update: { kind: f.kind, department: f.department },
+      create: { orgId, name: f.name, kind: f.kind, department: f.department },
     });
     fixtureByName.set(f.name, fixture.id);
   }
   console.log(`  fixtures: ${GUIDE_FIXTURES.length} in library`);
 
-  // --- Product catalog -----------------------------------------------------
+  // --- Product catalog (real 122 Baccarat products from the seed-data JSONs) -
+  // Joined product sheet × web enrichment. Upsert on (orgId, sku) so re-runs
+  // refresh rather than duplicate. We keep the parsed product alongside its db
+  // id so the sales seeder can read salePrice/rrp without a re-query.
+  const myerProducts = loadProducts();
   const productBySku = new Map<string, string>();
-  for (const p of GUIDE_PRODUCTS) {
+  const productInfoBySku = new Map<string, MyerProduct>();
+  for (const p of myerProducts) {
     const product = await prisma.product.upsert({
       where: { orgId_sku: { orgId, sku: p.sku } },
-      update: { name: p.name, brand: p.brand, category: p.category, color: p.color ?? null },
+      update: {
+        name: p.name,
+        webTitle: p.webTitle,
+        brand: p.brand,
+        range: p.range,
+        category: p.category,
+        imageUrl: p.imageUrl,
+        rrp: p.rrp,
+        salePrice: p.salePrice,
+      },
       create: {
         orgId,
         sku: p.sku,
         name: p.name,
+        webTitle: p.webTitle,
         brand: p.brand,
+        range: p.range,
         category: p.category,
-        color: p.color ?? null,
-        imageUrl: null,
+        imageUrl: p.imageUrl,
+        rrp: p.rrp,
+        salePrice: p.salePrice,
       },
     });
     productBySku.set(p.sku, product.id);
+    productInfoBySku.set(p.sku, p);
   }
-  console.log(`  products: ${GUIDE_PRODUCTS.length} in catalog`);
+  // Prune products from an earlier seed (the old 15 hardcoded knife SKUs). The
+  // current catalog owns exactly the loaded PCP-* skus; cascades clean their
+  // merchandise + sales entries. Keeps re-runs converging on exactly 122.
+  const keepSkus = myerProducts.map((p) => p.sku);
+  const prunedProducts = await prisma.product.deleteMany({
+    where: { orgId, NOT: { sku: { in: keepSkus } } },
+  });
+  if (prunedProducts.count > 0) {
+    console.log(`  pruned ${prunedProducts.count} stale product(s) from a prior seed`);
+  }
+  console.log(`  products: ${myerProducts.length} in catalog (real Baccarat)`);
 
   // --- Floor plan placements for EVERY GRB store ---------------------------
   // Same layout per store for the demo (stores can drag to reposition); the real
@@ -635,6 +830,21 @@ async function seedCreateGuide(ctx: {
         console.warn(`  ! unknown fixture in plan: ${s.fixtureName}`);
         continue;
       }
+      // Illustrative period sales (deterministic so re-seeds are stable). Wall
+      // bays pull the most; bulkstacks mid; dais/trolleys least. Not real POS.
+      const u = unitHash(`${planStore.name}|${s.fixtureName}`);
+      const n = s.fixtureName.toUpperCase();
+      const base = n.includes('WALL BAY')
+        ? 95_000
+        : n.includes('BULK')
+          ? 55_000
+          : n.includes('WINDOW')
+            ? 70_000
+            : n.includes('STANDER') || n.includes('STAND')
+              ? 38_000
+              : 22_000;
+      const revenue = Math.round((base * (0.55 + u * 0.9)) / 50) * 50;
+      const units = Math.max(1, Math.round(revenue / (90 + u * 140)));
       const data = {
         x: s.x,
         y: s.y,
@@ -644,6 +854,8 @@ async function seedCreateGuide(ctx: {
         applicable: s.applicable ?? true,
         label: s.label,
         order: order++,
+        revenue,
+        units,
       };
       await prisma.placement.upsert({
         where: { storeId_campaignId_fixtureId: { storeId: planStore.id, campaignId, fixtureId } },
@@ -655,79 +867,659 @@ async function seedCreateGuide(ctx: {
   }
   console.log(`  placements: ${placed} across ${stores.length} stores' floor plans (1000x640)`);
 
-  // --- Guide sheet for TCC WALL BAY 1 (notes + merchandise + examples) ------
-  const wallBay1Id = fixtureByName.get('TCC WALL BAY 1');
-  if (!wallBay1Id) {
-    console.warn('  ! TCC WALL BAY 1 missing — skipping guide-fixture sheet');
-    return;
-  }
-  const guideFixture = await prisma.guideFixture.upsert({
-    where: { campaignId_fixtureId: { campaignId, fixtureId: wallBay1Id } },
-    update: { notes: WALL_BAY_1_NOTES, order: 0 },
-    create: { orgId, campaignId, fixtureId: wallBay1Id, notes: WALL_BAY_1_NOTES, order: 0 },
-  });
+  // --- Guide sheets + merchandise (real products across many fixtures) ------
+  // Distribute the 122 products across guide-fixtures by range (see
+  // fixtureForProduct in ./seed-myer): LE CON → VM Table 1, NOOK → VM Table 2,
+  // ID3/loose → VM Table 3, cooksets → Cookset Bulkstack, appliances →
+  // Electrical Stand 1, GRYLT → Fry Wall Bay, leftovers spread across wall bays.
+  // Each merchandised fixture gets a GuideFixture sheet; products group into
+  // shelf rows. Idempotent: we clear prior Merchandise per guide-fixture first.
 
-  // Merchandise ~10 knives across 2 rows. Re-seeding: clear prior rows for this
-  // guide-fixture so we don't pile up duplicates (no natural key on Merchandise).
-  await prisma.merchandise.deleteMany({ where: { guideFixtureId: guideFixture.id } });
-  const merchPlan: { row: string; skus: string[] }[] = [
-    {
-      row: 'Top rack',
-      skus: ['1749771144-75', '1749771144-61', '1749771201-14', '1749771201-07', '1749771201-06', '1749771144-10'],
-    },
-    {
-      row: 'New row',
-      skus: ['1749771144-20', '1749771144-15', '1749771144-21', '1749771144-17', '1749771201-31', '1749772050-06'],
-    },
-  ];
+  // 1) Group every product under its target guide-fixture name.
+  const bySheet = new Map<string, MyerProduct[]>();
+  const unplaced: string[] = [];
+  // Always keep the knife-wall sheet (TCC WALL BAY 1) — it carries the real
+  // directives + the "what good looks like" example gallery, even though the
+  // Baccarat sale catalog has no knife SKUs to merchandise onto it.
+  bySheet.set('TCC WALL BAY 1', []);
+  for (const p of myerProducts) {
+    const fixtureName = fixtureForProduct(p);
+    if (!fixtureByName.has(fixtureName)) {
+      unplaced.push(p.sku);
+      continue;
+    }
+    const arr = bySheet.get(fixtureName) ?? [];
+    arr.push(p);
+    bySheet.set(fixtureName, arr);
+  }
+
+  // 2) Notes per fixture: the real knife-wall directives on TCC WALL BAY 1; a
+  //    short merchandising note elsewhere. fixtureId → guideFixtureId so the
+  //    sales seeder can denormalise SalesEntry.fixtureId from a product.
+  const guideFixtureIdByFixtureName = new Map<string, string>();
+  const fixtureNameByProductSku = new Map<string, string>();
   let merchCount = 0;
-  for (const block of merchPlan) {
-    let order = 0;
-    for (const sku of block.skus) {
-      const productId = productBySku.get(sku);
-      if (!productId) {
-        console.warn(`  ! merchandise sku not in catalog: ${sku}`);
-        continue;
-      }
+  let sheetCount = 0;
+  let sheetOrder = 0;
+  // Sort sheet names for a stable order across re-runs.
+  for (const fixtureName of [...bySheet.keys()].sort()) {
+    const fixtureId = fixtureByName.get(fixtureName)!;
+    const notes =
+      fixtureName === 'TCC WALL BAY 1'
+        ? WALL_BAY_1_NOTES
+        : `Merchandise the ${fixtureName} per the VM guide — full-front facings, RRP + sale tickets in acrylics, newest ranges at eye level.`;
+    const guideFixture = await prisma.guideFixture.upsert({
+      where: { campaignId_fixtureId: { campaignId, fixtureId } },
+      update: { notes, order: sheetOrder },
+      create: { orgId, campaignId, fixtureId, notes, order: sheetOrder },
+    });
+    sheetOrder++;
+    sheetCount++;
+    guideFixtureIdByFixtureName.set(fixtureName, guideFixture.id);
+
+    // Clear prior merchandise for this sheet (no natural key on Merchandise).
+    await prisma.merchandise.deleteMany({ where: { guideFixtureId: guideFixture.id } });
+    // Order products within the sheet by row band then sku for stability.
+    const items = [...bySheet.get(fixtureName)!].sort((a, b) =>
+      a.sku < b.sku ? -1 : a.sku > b.sku ? 1 : 0,
+    );
+    const orderByRow = new Map<string, number>();
+    for (const p of items) {
+      const row = rowForProduct(p);
+      const order = orderByRow.get(row) ?? 0;
+      orderByRow.set(row, order + 1);
       await prisma.merchandise.create({
-        data: { orgId, guideFixtureId: guideFixture.id, productId, row: block.row, order: order++ },
+        data: {
+          orgId,
+          guideFixtureId: guideFixture.id,
+          productId: productBySku.get(p.sku)!,
+          row,
+          order,
+        },
       });
+      fixtureNameByProductSku.set(p.sku, fixtureName);
       merchCount++;
     }
   }
+  // Prune guide sheets from a prior seed that this run no longer owns (cascades
+  // their merchandise + example images). Keeps the sheet set converging.
+  const keepGuideIds = [...guideFixtureIdByFixtureName.values()];
+  const prunedSheets = await prisma.guideFixture.deleteMany({
+    where: { campaignId, NOT: { id: { in: keepGuideIds } } },
+  });
+  console.log(
+    `  merchandise: ${merchCount} products across ${sheetCount} guide sheets` +
+      (unplaced.length ? ` (${unplaced.length} unplaced)` : '') +
+      (prunedSheets.count > 0 ? ` (pruned ${prunedSheets.count} stale sheet[s])` : ''),
+  );
 
-  // Example "what good looks like" images. Copy sample bytes into StorageService
-  // under an examples/ prefix (mirrors StorageService.put). Idempotent: clear
-  // prior seeded example rows first. SECURITY: reference by key only.
-  await prisma.exampleImage.deleteMany({ where: { guideFixtureId: guideFixture.id } });
-  const examplePlan: { image: string; caption: string; bestInClass: boolean }[] = [
-    { image: 'directive-01.png', caption: 'Knife wall — magnets across the top, blocks fronted with RRP A7 tickets.', bestInClass: true },
-    { image: 'directive-02.png', caption: 'Sale ticket slipped in front of the RRP ticket in the acrylic stand.', bestInClass: false },
-  ];
+  // 3) Example "what good looks like" images on the knife-wall sheet (unchanged
+  //    behaviour). Copy sample bytes into StorageService under examples/; clear
+  //    prior seeded rows first. SECURITY: reference by key only.
+  const wallBay1GuideId = guideFixtureIdByFixtureName.get('TCC WALL BAY 1');
   let exampleCount = 0;
-  for (const ex of examplePlan) {
-    const abs = sample(ex.image);
-    if (!abs) {
-      console.warn(`  ! example sample missing, skipping: ${ex.image}`);
-      continue;
+  if (wallBay1GuideId) {
+    await prisma.exampleImage.deleteMany({ where: { guideFixtureId: wallBay1GuideId } });
+    const examplePlan: { image: string; caption: string; bestInClass: boolean }[] = [
+      { image: 'directive-01.png', caption: 'Knife wall — magnets across the top, blocks fronted with RRP A7 tickets.', bestInClass: true },
+      { image: 'directive-02.png', caption: 'Sale ticket slipped in front of the RRP ticket in the acrylic stand.', bestInClass: false },
+    ];
+    for (const ex of examplePlan) {
+      const abs = sample(ex.image);
+      if (!abs) {
+        console.warn(`  ! example sample missing, skipping: ${ex.image}`);
+        continue;
+      }
+      const { key, bytes } = await storeSample(abs, 'examples');
+      await prisma.exampleImage.create({
+        data: {
+          orgId,
+          guideFixtureId: wallBay1GuideId,
+          storageKey: key,
+          caption: ex.caption,
+          bestInClass: ex.bestInClass,
+        },
+      });
+      exampleCount++;
+      console.log(`  example: TCC WALL BAY 1 -> ${key} (${bytes} B)`);
     }
-    const { key, bytes } = await storeSample(abs, 'examples');
-    await prisma.exampleImage.create({
-      data: {
-        orgId,
-        guideFixtureId: guideFixture.id,
-        storageKey: key,
-        caption: ex.caption,
-        bestInClass: ex.bestInClass,
-      },
-    });
-    exampleCount++;
-    console.log(`  example: TCC WALL BAY 1 -> ${key} (${bytes} B)`);
   }
 
+  // 4) Tasks · sample sales · compliance flags for a few showcase stores.
+  await seedManagerWorkspace({
+    orgId,
+    campaignId,
+    stores,
+    fixtureByName,
+    fixtureNameByProductSku,
+    productBySku,
+    productInfoBySku,
+  });
+
   console.log(
-    `\nDone (create guide). ${GUIDE_FIXTURES.length} fixtures, ${GUIDE_PRODUCTS.length} products, ${placed} placements, 1 guide sheet (${merchCount} merchandised, ${exampleCount} examples).`,
+    `\nDone (create guide). ${GUIDE_FIXTURES.length} fixtures, ${myerProducts.length} products, ${placed} placements, ${sheetCount} guide sheets (${merchCount} merchandised, ${exampleCount} examples).`,
   );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STORE-MANAGER workspace — tasks, sample sales, and compliance flags.
+// ───────────────────────────────────────────────────────────────────────────
+// Seeds a realistic manager workload on a FEW showcase stores (not all 32):
+//   - Task rows (UPLOAD_PHOTO / LOG_SALES / GENERAL), a mix of seen/unseen.
+//   - SalesEntry rows on ~2 stores so their money map shows REAL logged sales
+//     (illustrative:false) while every other store keeps the illustrative
+//     placement fallback.
+//   - FixtureCapture rows on ~3 stores for floor-map variety: some needsPhoto
+//     todos, a few scored PASS/NEEDS_REVIEW/FAIL. Most fixtures stay un-captured
+//     (so they read as "todo" by default).
+// Everything upserts on a deterministic id / natural key, so re-runs are safe.
+// ═══════════════════════════════════════════════════════════════════════════
+async function seedManagerWorkspace(ctx: {
+  orgId: string;
+  campaignId: string;
+  stores: { id: string; name: string }[];
+  fixtureByName: Map<string, string>;
+  fixtureNameByProductSku: Map<string, string>;
+  productBySku: Map<string, string>;
+  productInfoBySku: Map<string, MyerProduct>;
+}): Promise<void> {
+  const {
+    orgId,
+    campaignId,
+    stores,
+    fixtureByName,
+    fixtureNameByProductSku,
+    productBySku,
+    productInfoBySku,
+  } = ctx;
+
+  const byName = (name: string) => stores.find((s) => s.name === name);
+  // Showcase stores: the org's first store + a fixed, recognisable set.
+  const firstStore = stores[0];
+  const showcaseNames = [
+    firstStore?.name,
+    'Chadstone Myer',
+    'Melbourne City Myer',
+    'Sydney City Myer',
+    'Bondi Myer',
+  ].filter((n): n is string => Boolean(n));
+  // De-dup while keeping order (first store might already be in the list).
+  const showcaseStores = [...new Set(showcaseNames)]
+    .map((n) => byName(n))
+    .filter((s): s is { id: string; name: string } => Boolean(s));
+
+  // --- Tasks ---------------------------------------------------------------
+  // A small, realistic backlog per showcase store. Deterministic id
+  // `seed-task-<storeRef>-<n>` so re-runs upsert in place.
+  type TaskSpec = {
+    n: number;
+    kind: TaskKind;
+    title: string;
+    body?: string;
+    fixtureKey?: string;
+    seen: boolean;
+  };
+  const taskSpecs: TaskSpec[] = [
+    { n: 1, kind: TaskKind.UPLOAD_PHOTO, title: 'Upload Storefront photo', body: 'We need an updated storefront shot for Sale 3.', fixtureKey: 'storefront', seen: false },
+    { n: 2, kind: TaskKind.UPLOAD_PHOTO, title: 'Upload VM Table 1 photo', body: 'Photograph the Le Connoisseur promo table once it is built.', fixtureKey: 'vm_table', seen: true },
+    { n: 3, kind: TaskKind.LOG_SALES, title: 'Log week 1 sales', body: 'Log units sold for the Baccarat ranges for week 1 of Sale 3.', seen: false },
+    { n: 4, kind: TaskKind.GENERAL, title: 'Confirm GWP stock', body: 'Confirm the free knife-block GWP is in stock at the door buster stack.', seen: true },
+  ];
+  let taskCount = 0;
+  for (const store of showcaseStores) {
+    for (const t of taskSpecs) {
+      const id = `seed-task-${store.id}-${t.n}`;
+      const data = {
+        orgId,
+        storeId: store.id,
+        campaignId,
+        kind: t.kind,
+        status: TaskStatus.OPEN,
+        title: t.title,
+        body: t.body ?? null,
+        fixtureKey: t.fixtureKey ?? null,
+        seenAt: t.seen ? new Date('2026-06-02T09:00:00Z') : null,
+      };
+      await prisma.task.upsert({ where: { id }, update: data, create: { id, ...data } });
+      taskCount++;
+    }
+  }
+  console.log(`  tasks: ${taskCount} across ${showcaseStores.length} stores`);
+
+  // --- Sample sales (SalesEntry) -------------------------------------------
+  // For 1–2 stores, log REAL sales against a broad subset of merchandised
+  // products. NOTE: the money map flips a whole store to "real" once it has ANY
+  // SalesEntry, so we log across MANY products (every Nth sku) to avoid zeroing
+  // the rest of that store's tiles. units 2..40 deterministic by sku; unitPrice
+  // = salePrice ?? rrp ?? 0; fixtureId = the product's guide-fixture.
+  const salesStores = [firstStore?.name, 'Chadstone Myer']
+    .filter((n): n is string => Boolean(n))
+    .map((n) => byName(n))
+    .filter((s): s is { id: string; name: string } => Boolean(s));
+  const merchSkus = [...fixtureNameByProductSku.keys()];
+  let salesCount = 0;
+  for (const store of salesStores) {
+    // ~70% of merchandised products get a sales row (deterministic by sku).
+    const subset = merchSkus.filter((sku) => unitHash(`${store.name}|sale|${sku}`) < 0.7);
+    for (const sku of subset) {
+      const info = productInfoBySku.get(sku);
+      const productId = productBySku.get(sku);
+      const fixtureName = fixtureNameByProductSku.get(sku);
+      if (!info || !productId || !fixtureName) continue;
+      const fixtureId = fixtureByName.get(fixtureName) ?? null;
+      const units = 2 + Math.floor(unitHash(`${store.name}|units|${sku}`) * 39); // 2..40
+      const unitPrice = info.salePrice ?? info.rrp ?? 0;
+      const revenue = Math.round(units * unitPrice * 100) / 100;
+      await prisma.salesEntry.upsert({
+        where: { storeId_campaignId_productId: { storeId: store.id, campaignId, productId } },
+        update: { fixtureId, units, unitPrice, revenue },
+        create: { orgId, storeId: store.id, campaignId, productId, fixtureId, units, unitPrice, revenue },
+      });
+      salesCount++;
+    }
+  }
+  console.log(
+    `  sales: ${salesCount} entries across ${salesStores.map((s) => s.name).join(', ') || 'none'} (real money map)`,
+  );
+
+  // --- Compliance flags (FixtureCapture) -----------------------------------
+  // For ~3 stores, seed a handful of captures across applicable fixtures to give
+  // the floor map variety. A few needsPhoto todos (no photo), and 2–3 scored
+  // verdicts (PASS / NEEDS_REVIEW / FAIL). Most fixtures stay un-captured.
+  const captureStores = [firstStore?.name, 'Chadstone Myer', 'Bondi Myer']
+    .filter((n): n is string => Boolean(n))
+    .map((n) => byName(n))
+    .filter((s): s is { id: string; name: string } => Boolean(s));
+  const captureFixtureNames = ['VM TABLE 1', 'VM TABLE 2', 'VM TABLE 3', 'TCC WALL BAY 1', 'COOKSET BULKSTACK', 'ELECTRICAL STAND 1'];
+  const verdictCycle = [
+    { needsPhoto: true, verdict: null as CaptureVerdict | null, notes: null as string | null },
+    { needsPhoto: false, verdict: CaptureVerdict.PASS, notes: 'Matches the guide: full facings, tickets in acrylics, ranges at eye level.' },
+    { needsPhoto: false, verdict: CaptureVerdict.NEEDS_REVIEW, notes: 'Close, but the sale tickets are missing on two facings — please review.' },
+    { needsPhoto: false, verdict: CaptureVerdict.FAIL, notes: 'Table is under-stocked vs the guide and the GWP signage is absent.' },
+  ];
+  const capturePromises: Promise<unknown>[] = [];
+  for (const store of captureStores) {
+    captureFixtureNames.forEach((fixtureName, i) => {
+      const fixtureId = fixtureByName.get(fixtureName);
+      if (!fixtureId) return;
+      // Stagger which verdict each store/fixture gets so the map has variety.
+      const cell = verdictCycle[(i + store.name.length) % verdictCycle.length];
+      capturePromises.push(
+        prisma.fixtureCapture.upsert({
+          where: { storeId_campaignId_fixtureId: { storeId: store.id, campaignId, fixtureId } },
+          update: {
+            needsPhoto: cell.needsPhoto,
+            storageKey: cell.verdict ? `captures/${store.id}/${campaignId}/${fixtureId}.png` : null,
+            uploadedAt: cell.verdict ? new Date('2026-06-02T10:00:00Z') : null,
+            verdict: cell.verdict,
+            aiNotes: cell.notes,
+            confidence: cell.verdict ? 0.82 : null,
+            modelId: cell.verdict ? 'stub' : null,
+            scoredAt: cell.verdict ? new Date('2026-06-02T10:01:00Z') : null,
+          },
+          create: {
+            orgId,
+            storeId: store.id,
+            campaignId,
+            fixtureId,
+            needsPhoto: cell.needsPhoto,
+            storageKey: cell.verdict ? `captures/${store.id}/${campaignId}/${fixtureId}.png` : null,
+            uploadedAt: cell.verdict ? new Date('2026-06-02T10:00:00Z') : null,
+            verdict: cell.verdict,
+            aiNotes: cell.notes,
+            confidence: cell.verdict ? 0.82 : null,
+            modelId: cell.verdict ? 'stub' : null,
+            scoredAt: cell.verdict ? new Date('2026-06-02T10:01:00Z') : null,
+          },
+        }),
+      );
+    });
+  }
+  await Promise.all(capturePromises);
+  console.log(`  captures: ${capturePromises.length} across ${captureStores.map((s) => s.name).join(', ') || 'none'}`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AMBIENTE project — a tradeshow stand setup, seeded end-to-end.
+// ───────────────────────────────────────────────────────────────────────────
+// A TRADESHOW project (vs Myer's RETAIL) with its own venue (one "store"), its
+// own guide (Campaign), six booth fixtures laid out on the 1000x640 canvas like
+// a real stand, a GuideFixture sheet per fixture with VM setup notes + a "what
+// good looks like" reference image, and a few FixtureCaptures (todo + scored) so
+// the setup-status visualization has data. Everything upserts on deterministic
+// ids / natural keys, so re-runs converge. Reuses storeSample()/sample() above
+// for reference imagery (same StorageService key layout → signed URLs resolve).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Reference imagery for the booth guide sheets — reused sample assets from the
+// POC samples dir (the same store the TCC WALL BAY 1 examples come from). One
+// per fixture for variety; placeholder/reused imagery is fine for the demo as
+// long as the signed URL resolves. Falls back gracefully if an asset is missing.
+const AMBIENTE_REFERENCE_SAMPLES = [
+  'directive-01.png',
+  'directive-02.png',
+  'directive-03.png',
+  'directive-04.png',
+  'msp2img-07.png',
+  'msp2img-08.png',
+];
+
+// The six booth fixtures. kind ∈ bay|table|stand|window. department is null —
+// these are tradeshow fixtures, not Myer departments. Deterministic ids so the
+// fixture library upsert (on orgId+name) is stable across re-runs.
+const AMBIENTE_FIXTURES: {
+  id: string;
+  name: string;
+  kind: string;
+  notes: string;
+  // booth geometry on the 1000x640 canvas (x,y top-left; w,h px).
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}[] = [
+  {
+    id: 'seed-fixture-ambiente-wall-left',
+    name: 'Ambiente · Wall Left',
+    kind: 'window',
+    notes: [
+      'BACK-LEFT WALL — the brand statement wall, first thing visitors read on approach.',
+      '1. Hang the SS26 hero graphic centred, top edge at 2.2m; logo lock-up top-left.',
+      '2. Spotlight wash from the truss: two heads at 30°, no hot spots on the print.',
+      '3. Keep the wall product-free — this is pure brand. No shelves, no tickets.',
+    ].join('\n'),
+    x: 24,
+    y: 70,
+    w: 120,
+    h: 480,
+  },
+  {
+    id: 'seed-fixture-ambiente-wall-right',
+    name: 'Ambiente · Wall Right',
+    kind: 'bay',
+    notes: [
+      'BACK WALL (RIGHT RUN) — the merchandised range wall behind the stand.',
+      '1. Four shelves, evenly spaced; newest SS26 range at eye level (shelf 2 from top).',
+      '2. Full-front facings, labels forward; RRP tickets in acrylics, left-aligned.',
+      '3. Backlight the top shelf only; leave a 200mm clear margin each end.',
+    ].join('\n'),
+    x: 170,
+    y: 24,
+    w: 540,
+    h: 70,
+  },
+  {
+    id: 'seed-fixture-ambiente-hero-table',
+    name: 'Ambiente · Hero Table',
+    kind: 'table',
+    notes: [
+      'HERO TABLE — centre of the stand, the showpiece every photo is taken around.',
+      '1. One hero range only, built in a pyramid; tallest piece dead-centre.',
+      '2. Single A5 story card on a riser at the back edge — no loose tickets on the cloth.',
+      '3. Black table cloth, steamed, breaking just above the floor; nothing stored beneath.',
+    ].join('\n'),
+    x: 410,
+    y: 250,
+    w: 180,
+    h: 130,
+  },
+  {
+    id: 'seed-fixture-ambiente-display-bay-1',
+    name: 'Ambiente · Display Bay 1',
+    kind: 'bay',
+    notes: [
+      'DISPLAY BAY 1 (LEFT) — supporting range bay, left of the hero table.',
+      '1. Three shelves; group by collection, one collection per shelf.',
+      '2. Props minimal — let the product read; one small plant top-right only.',
+      '3. Sale/launch tickets in acrylics, fronted, aligned to the shelf edge.',
+    ].join('\n'),
+    x: 250,
+    y: 430,
+    w: 150,
+    h: 110,
+  },
+  {
+    id: 'seed-fixture-ambiente-display-bay-2',
+    name: 'Ambiente · Display Bay 2',
+    kind: 'bay',
+    notes: [
+      'DISPLAY BAY 2 (RIGHT) — supporting range bay, right of the hero table.',
+      '1. Mirror Bay 1: three shelves, collection per shelf, full-front facings.',
+      '2. Keep the two bays visually balanced — same shelf heights, same ticket style.',
+      '3. Restock from the back; never leave a gap at the front of a shelf.',
+    ].join('\n'),
+    x: 600,
+    y: 430,
+    w: 150,
+    h: 110,
+  },
+  {
+    id: 'seed-fixture-ambiente-demo-counter',
+    name: 'Ambiente · Demo Counter',
+    kind: 'stand',
+    notes: [
+      'DEMO COUNTER — front of stand, where the live demo + sign-ups happen.',
+      '1. Face the aisle; leave 900mm clear behind for the demonstrator.',
+      '2. One demo set out, clean and reset between demos; tablet for lead capture on the right.',
+      '3. Stash boxes and consumables in the locked under-counter — nothing visible to visitors.',
+    ].join('\n'),
+    x: 410,
+    y: 560,
+    w: 180,
+    h: 64,
+  },
+];
+
+async function seedAmbiente(ctx: { orgId: string }): Promise<void> {
+  const { orgId } = ctx;
+  console.log('\nSeeding AMBIENTE (tradeshow project · venue · guide · booth)…');
+
+  // --- Project (TRADESHOW) -------------------------------------------------
+  const project = await prisma.project.upsert({
+    where: { id: AMBIENTE_PROJECT_ID },
+    update: { orgId, name: 'Ambiente', slug: 'ambiente', kind: ProjectKind.TRADESHOW },
+    create: {
+      id: AMBIENTE_PROJECT_ID,
+      orgId,
+      name: 'Ambiente',
+      slug: 'ambiente',
+      kind: ProjectKind.TRADESHOW,
+    },
+  });
+  console.log(`  project: Ambiente (${project.id}, TRADESHOW)`);
+
+  // --- Venue (one "store" — the booth) -------------------------------------
+  const venue = await prisma.store.upsert({
+    where: { id: AMBIENTE_VENUE_STORE_ID },
+    update: {
+      orgId,
+      projectId: project.id,
+      name: 'Ambiente Stand',
+      brand: 'Tradeshow',
+      externalRef: AMBIENTE_VENUE_REF,
+    },
+    create: {
+      id: AMBIENTE_VENUE_STORE_ID,
+      orgId,
+      projectId: project.id,
+      name: 'Ambiente Stand',
+      brand: 'Tradeshow',
+      externalRef: AMBIENTE_VENUE_REF,
+    },
+  });
+  console.log(`  venue: ${venue.name} (${venue.id})`);
+
+  // --- Guide campaign ------------------------------------------------------
+  const campaign = await prisma.campaign.upsert({
+    where: { orgId_key: { orgId, key: AMBIENTE_CAMPAIGN_KEY } },
+    update: {
+      projectId: project.id,
+      name: 'Ambiente Stand — SS26',
+      status: CampaignStatus.ACTIVE,
+      startsAt: new Date('2026-02-06T00:00:00Z'),
+      endsAt: new Date('2026-02-10T23:59:59Z'),
+    },
+    create: {
+      orgId,
+      projectId: project.id,
+      key: AMBIENTE_CAMPAIGN_KEY,
+      name: 'Ambiente Stand — SS26',
+      status: CampaignStatus.ACTIVE,
+      startsAt: new Date('2026-02-06T00:00:00Z'),
+      endsAt: new Date('2026-02-10T23:59:59Z'),
+    },
+  });
+  console.log(`  campaign: ${campaign.key} — "${campaign.name}" (${campaign.status})`);
+
+  // --- Booth fixtures (library) + placements + guide sheets ----------------
+  const fixtureIds: string[] = [];
+  let placed = 0;
+  let sheets = 0;
+  for (let i = 0; i < AMBIENTE_FIXTURES.length; i++) {
+    const f = AMBIENTE_FIXTURES[i];
+    // Fixture library (upsert on orgId+name; department null — not a Myer dept).
+    const fixture = await prisma.fixture.upsert({
+      where: { orgId_name: { orgId, name: f.name } },
+      update: { kind: f.kind, department: null },
+      create: { id: f.id, orgId, name: f.name, kind: f.kind, department: null },
+    });
+    fixtureIds.push(fixture.id);
+
+    // Placement on the booth canvas (1000x640).
+    await prisma.placement.upsert({
+      where: {
+        storeId_campaignId_fixtureId: {
+          storeId: venue.id,
+          campaignId: campaign.id,
+          fixtureId: fixture.id,
+        },
+      },
+      update: {
+        label: f.name.replace('Ambiente · ', ''),
+        x: f.x,
+        y: f.y,
+        w: f.w,
+        h: f.h,
+        rotation: 0,
+        applicable: true,
+        order: i,
+      },
+      create: {
+        orgId,
+        storeId: venue.id,
+        campaignId: campaign.id,
+        fixtureId: fixture.id,
+        label: f.name.replace('Ambiente · ', ''),
+        x: f.x,
+        y: f.y,
+        w: f.w,
+        h: f.h,
+        rotation: 0,
+        applicable: true,
+        order: i,
+      },
+    });
+    placed++;
+
+    // Guide sheet (VM setup notes for this wall/bay/table).
+    const guideFixture = await prisma.guideFixture.upsert({
+      where: { campaignId_fixtureId: { campaignId: campaign.id, fixtureId: fixture.id } },
+      update: { notes: f.notes, order: i },
+      create: { orgId, campaignId: campaign.id, fixtureId: fixture.id, notes: f.notes, order: i },
+    });
+    sheets++;
+
+    // Reference "what good looks like" image — reuse the same StorageService
+    // mechanism the TCC WALL BAY 1 sheet uses (storeSample → examples/ key), so
+    // the signed URL resolves. Cycle the available sample assets for variety.
+    await prisma.exampleImage.deleteMany({ where: { guideFixtureId: guideFixture.id } });
+    const sampleName = AMBIENTE_REFERENCE_SAMPLES[i % AMBIENTE_REFERENCE_SAMPLES.length];
+    const abs = sample(sampleName);
+    if (abs) {
+      const { key } = await storeSample(abs, 'examples');
+      await prisma.exampleImage.create({
+        data: {
+          orgId,
+          guideFixtureId: guideFixture.id,
+          storageKey: key,
+          caption: `${f.name.replace('Ambiente · ', '')} — what good looks like at the stand.`,
+          bestInClass: true,
+        },
+      });
+    } else {
+      console.warn(`  ! reference sample missing, skipping example for ${f.name}: ${sampleName}`);
+    }
+  }
+  console.log(
+    `  booth: ${fixtureIds.length} fixtures, ${placed} placements, ${sheets} guide sheets (each with a reference image)`,
+  );
+
+  // --- FixtureCaptures (setup-status data) ---------------------------------
+  // Across the six fixtures: ~3 todo (needsPhoto, no photo, no verdict) and ~3
+  // scored (PASS / NEEDS_REVIEW). storageKey on scored rows reuses a sample
+  // placeholder so the verify view has a thumbnail; modelId 'stub'. Deterministic
+  // upsert on (storeId, campaignId, fixtureId).
+  const captureSampleAbs = sample('msp2img-02.png'); // reused placeholder thumbnail
+  let scoredKey: string | null = null;
+  if (captureSampleAbs) {
+    scoredKey = (await storeSample(captureSampleAbs, 'captures')).key;
+  }
+  const captureCells: {
+    needsPhoto: boolean;
+    verdict: CaptureVerdict | null;
+    aiNotes: string | null;
+  }[] = [
+    { needsPhoto: true, verdict: null, aiNotes: null }, // Wall Left — todo
+    {
+      needsPhoto: false,
+      verdict: CaptureVerdict.PASS,
+      aiNotes: 'Range wall reads clean: even shelves, full facings, tickets fronted in acrylics.',
+    }, // Wall Right — scored PASS
+    {
+      needsPhoto: false,
+      verdict: CaptureVerdict.NEEDS_REVIEW,
+      aiNotes: 'Hero pyramid is slightly off-centre and the story card is leaning — please review.',
+    }, // Hero Table — scored NEEDS_REVIEW
+    { needsPhoto: true, verdict: null, aiNotes: null }, // Display Bay 1 — todo
+    {
+      needsPhoto: false,
+      verdict: CaptureVerdict.PASS,
+      aiNotes: 'Bay 2 mirrors Bay 1 well — matched shelf heights, balanced facings, no front gaps.',
+    }, // Display Bay 2 — scored PASS
+    { needsPhoto: true, verdict: null, aiNotes: null }, // Demo Counter — todo
+  ];
+  let captureCount = 0;
+  for (let i = 0; i < fixtureIds.length; i++) {
+    const cell = captureCells[i];
+    const scored = cell.verdict !== null;
+    const data = {
+      needsPhoto: cell.needsPhoto,
+      storageKey: scored ? scoredKey : null,
+      uploadedAt: scored ? new Date('2026-02-05T09:00:00Z') : null,
+      verdict: cell.verdict,
+      aiNotes: cell.aiNotes,
+      confidence: scored ? 0.84 : null,
+      modelId: scored ? 'stub' : null,
+      scoredAt: scored ? new Date('2026-02-05T09:01:00Z') : null,
+    };
+    await prisma.fixtureCapture.upsert({
+      where: {
+        storeId_campaignId_fixtureId: {
+          storeId: venue.id,
+          campaignId: campaign.id,
+          fixtureId: fixtureIds[i],
+        },
+      },
+      update: data,
+      create: { orgId, storeId: venue.id, campaignId: campaign.id, fixtureId: fixtureIds[i], ...data },
+    });
+    captureCount++;
+  }
+  const todo = captureCells.filter((c) => c.verdict === null).length;
+  console.log(
+    `  captures: ${captureCount} (${todo} todo, ${captureCount - todo} scored PASS/NEEDS_REVIEW)`,
+  );
+  console.log(`\nDone (ambiente). 1 venue, 1 campaign, ${placed} placements, ${sheets} guide sheets.`);
 }
 
 main()
