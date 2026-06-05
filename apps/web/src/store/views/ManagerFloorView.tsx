@@ -6,6 +6,7 @@ import { Spinner } from '@wally/ui';
 import type { FixtureCompliance, PlacedFixture } from '@wally/sdk';
 
 import { api } from '../../lib/api';
+import { ErrorState } from '../../components/states';
 import { useManagerStore } from '../ManagerStoreContext';
 
 const PLAN_W = 1000;
@@ -50,6 +51,18 @@ export function ManagerFloorView() {
     return (
       <div className="grid h-64 place-items-center">
         <Spinner className="text-2xl text-steel" />
+      </div>
+    );
+  }
+  if (homeQ.isError || planQ.isError) {
+    const q = homeQ.isError ? homeQ : planQ;
+    return (
+      <div className="px-4 py-6">
+        <ErrorState
+          error={q.error}
+          onRetry={() => void q.refetch()}
+          title="Couldn't load your floor plan"
+        />
       </div>
     );
   }

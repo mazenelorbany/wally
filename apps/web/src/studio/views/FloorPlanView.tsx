@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Map, Plus, Trash2, X } from 'lucide-react';
-import { Badge, Button, Spinner } from '@wally/ui';
+import { Badge, Button, Dialog, DialogContent, Spinner } from '@wally/ui';
 
 import { EmptyState, ErrorState } from '../../components/states';
 import { useFixtures, useFloorPlan, usePlacementMove } from '../lib/hooks';
@@ -11,6 +11,7 @@ import { useProject } from '../ProjectContext';
 import { sqk } from '../lib/queryKeys';
 import { studio } from '../lib/sdk';
 import { api } from '../../lib/api';
+import { useToast } from '../../lib/toast';
 import { fixtureKindMeta } from '../lib/fixtureKind';
 import { FloorPlanCanvas } from '../components/FloorPlanCanvas';
 import { FixtureDetailPanel } from '../components/FixtureDetailPanel';
@@ -28,6 +29,7 @@ export function FloorPlanView() {
   }>();
 
   const navigate = useNavigate();
+  const toast = useToast();
   const qc = useQueryClient();
   const planQ = useFloorPlan(campaignId, storeId);
   const move = usePlacementMove(campaignId, storeId);
@@ -92,9 +94,9 @@ export function FloorPlanView() {
       if (id && id !== storeId) navigate(`/studio/${campaignId}/store/${id}`);
     },
     onPublish: () => {
-      // No-op for the demo; wired to the notify pipeline later.
-      // eslint-disable-next-line no-alert
-      window.alert('Publish & notify stores — coming soon.');
+      // Publish/notify pipeline is a separate build; until then give honest,
+      // app-native feedback instead of a browser alert.
+      toast.info('Publish & notify stores — coming soon.');
     },
   });
 
@@ -142,9 +144,9 @@ export function FloorPlanView() {
   const applicable = plan.placements.filter((p) => p.applicable).length;
 
   return (
-    <div className="grid h-full grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px]">
-      {/* Canvas column */}
-      <div className="min-w-0 overflow-y-auto px-6 py-6">
+    <>
+      {/* Canvas — full width; the fixture sheet opens as a popup on click */}
+      <div className="h-full overflow-y-auto px-6 py-6">
         <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-[11px] uppercase tracking-brand text-steel">
@@ -225,46 +227,28 @@ export function FloorPlanView() {
         )}
       </div>
 
-      {/* Detail rail */}
-      <div className="hidden min-h-0 lg:block">
-        {selected ? (
-          <FixtureDetailPanel
-            campaignId={campaignId}
-            fixtureId={selected.fixtureId}
-            onClose={() => setSelectedId(undefined)}
-          />
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2 border-l border-mist/60 bg-surface/30 px-8 text-center">
-            <Map className="h-6 w-6 text-mist" aria-hidden="true" />
-            <p className="font-display text-sm font-medium text-graphite">
-              Select a fixture
-            </p>
-            <p className="max-w-[16rem] text-xs text-steel">
-              Click any box on the floor plan to see its VM notes, reference
-              images, and merchandise.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Mobile: slide-over overlay */}
-      {selected ? (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div
-            className="absolute inset-0 bg-ink/40 backdrop-blur-[1px]"
-            onClick={() => setSelectedId(undefined)}
-            aria-hidden="true"
-          />
-          <div className="absolute inset-y-0 right-0 w-[min(26rem,90vw)] animate-fade-up">
+      {/* The fixture's whole instruction sheet (notes, references, planogram)
+          opens in one roomy popup when you click a fixture. */}
+      <Dialog
+        open={Boolean(selected) && !building}
+        onOpenChange={(o) => {
+          if (!o) setSelectedId(undefined);
+        }}
+      >
+        <DialogContent
+          hideClose
+          className="flex h-[min(88vh,860px)] w-[min(1040px,95vw)] max-w-none flex-col overflow-hidden p-0"
+        >
+          {selected ? (
             <FixtureDetailPanel
               campaignId={campaignId}
               fixtureId={selected.fixtureId}
               onClose={() => setSelectedId(undefined)}
             />
-          </div>
-        </div>
-      ) : null}
-    </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

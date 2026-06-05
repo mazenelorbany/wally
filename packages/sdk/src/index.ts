@@ -8,6 +8,12 @@
 import type {
   ScoreResult,
   StoreScore,
+  StoreDto,
+  OrgDto,
+  UserDto,
+  Rubric,
+  Criterion,
+  RollupRule,
   ComplianceTurnaround,
   ComplianceTrendPoint,
   BestInClassItem,
@@ -180,6 +186,42 @@ export interface CreateProjectBody {
   kind: ProjectKind;
 }
 
+/** Body for creating a campaign (the guide period). */
+export interface CreateCampaignBody {
+  key: string;
+  name: string;
+  startsAt?: string;
+  endsAt?: string;
+}
+
+/** A campaign after create/activate (subset; the list adds storeCount). */
+export interface CampaignBrief {
+  id: string;
+  key: string;
+  name: string;
+  status: string;
+}
+
+/** Body for adding a store to the roster. */
+export interface CreateStoreBody {
+  name: string;
+  brand: string;
+  externalRef?: string;
+  region?: string;
+  areaManager?: string;
+  storeType?: string;
+}
+
+/** Body for patching a store — any field; null clears it. */
+export type UpdateStoreBody = Partial<{
+  name: string;
+  brand: string;
+  externalRef: string | null;
+  region: string | null;
+  areaManager: string | null;
+  storeType: string | null;
+}>;
+
 /** Optional filters for the merchandising catalog. */
 export interface ProductFilters {
   search?: string;
@@ -197,6 +239,29 @@ export interface CreateTaskBody {
   body?: string;
   fixtureKey?: string;
   dueAt?: string;
+}
+
+/** Body for inviting a teammate (admin user management). */
+export interface InviteUserBody {
+  email: string;
+  name?: string;
+  role: Role;
+  storeId?: string;
+}
+
+/** Body for patching a user — role, store assignment, or (de)activation. */
+export interface UpdateUserBody {
+  role?: Role;
+  storeId?: string | null;
+  disabled?: boolean;
+}
+
+/** Body for publishing a new rubric version for one fixture. */
+export interface PublishRubricBody {
+  fixtureKey: string;
+  criteria: Criterion[];
+  rollupRule?: RollupRule;
+  referenceKey?: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -240,6 +305,10 @@ export interface WallyClient {
     captureSnapshot(campaignId: string): Promise<ComplianceTrendPoint>;
     /** Best-in-class execution photos to showcase to other stores. */
     bestInClass(campaignId: string): Promise<BestInClassItem[]>;
+    /** Create a campaign (starts DRAFT). ADMIN. */
+    create(body: CreateCampaignBody): Promise<CampaignBrief>;
+    /** Promote a campaign to ACTIVE (closes the prior active one). ADMIN. */
+    activate(campaignId: string): Promise<CampaignBrief>;
   };
   /** Toggle the best-in-class flag on a store execution photo. */
   photos: {
@@ -250,6 +319,24 @@ export interface WallyClient {
   };
   stores: {
     storeScore(id: string, campaignId: string): Promise<StoreScore>;
+    /** The org's store roster (admin directory). */
+    list(): Promise<StoreDto[]>;
+    /** Add a store. ADMIN. */
+    create(body: CreateStoreBody): Promise<StoreDto>;
+    /** Patch a store's profile + segmentation dims. ADMIN. */
+    update(id: string, body: UpdateStoreBody): Promise<StoreDto>;
+  };
+  /** The current tenant's settings. */
+  org: {
+    get(): Promise<OrgDto>;
+    /** Update org name / slug. ADMIN. */
+    update(body: { name?: string; slug?: string }): Promise<OrgDto>;
+  };
+  /** Admin: rubric authoring (append-only, versioned per campaign+fixture). */
+  rubrics: {
+    list(campaignId: string): Promise<Rubric[]>;
+    /** Publish a new rubric version for one fixture. ADMIN. */
+    publish(campaignId: string, body: PublishRubricBody): Promise<Rubric>;
   };
   submissions: {
     /** The signed-in store manager's current checklist (store + active campaign). */
@@ -360,9 +447,15 @@ export interface WallyClient {
     markTasksSeen(storeId?: string): Promise<void>;
     fixtures(storeId?: string): Promise<ManagerFixture[]>;
     products(storeId?: string): Promise<ProductDto[]>;
-    salesLog(storeId?: string): Promise<SalesLog>;
-    /** Set the units sold for one product (idempotent upsert). */
-    logSale(productId: string, units: number, storeId?: string): Promise<void>;
+    /** Sales for one day (defaults to today). `date` is 'YYYY-MM-DD'. */
+    salesLog(storeId?: string, date?: string): Promise<SalesLog>;
+    /** Set the units sold for one product on a day (idempotent upsert). */
+    logSale(
+      productId: string,
+      units: number,
+      storeId?: string,
+      date?: string,
+    ): Promise<void>;
     /** Per-fixture compliance status for the floor map (photo wanted / scored). */
     compliance(storeId?: string): Promise<FixtureCompliance[]>;
     /** One fixture's compliance sheet: reference, notes, my photo, verdict. */
@@ -380,6 +473,12 @@ export interface WallyClient {
   /** ADMIN — assign a task to a store's manager. */
   adminTasks: {
     create(storeId: string, body: CreateTaskBody): Promise<TaskDto>;
+  };
+  /** Admin: user & role management. */
+  adminUsers: {
+    list(): Promise<UserDto[]>;
+    invite(body: InviteUserBody): Promise<UserDto>;
+    update(id: string, body: UpdateUserBody): Promise<UserDto>;
   };
 }
 
@@ -525,6 +624,11 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         get<BestInClassItem[]>(
           `campaigns/${encodeURIComponent(campaignId)}/best-in-class`,
         ),
+      create: (body) => post<CampaignBrief>("campaigns", body),
+      activate: (campaignId) =>
+        post<CampaignBrief>(
+          `campaigns/${encodeURIComponent(campaignId)}/activate`,
+        ),
     },
     photos: {
       setBestInClass: (photoId, value) =>
@@ -537,6 +641,23 @@ export function createClient(opts: CreateClientOptions): WallyClient {
       storeScore: (id, campaignId) =>
         get<StoreScore>(
           `stores/${encodeURIComponent(id)}/store-score?campaignId=${encodeURIComponent(campaignId)}`,
+        ),
+      list: () => get<StoreDto[]>("stores"),
+      create: (body) => post<StoreDto>("stores", body),
+      update: (id, body) =>
+        patch<StoreDto>(`stores/${encodeURIComponent(id)}`, body),
+    },
+    org: {
+      get: () => get<OrgDto>("org"),
+      update: (body) => patch<OrgDto>("org", body),
+    },
+    rubrics: {
+      list: (campaignId) =>
+        get<Rubric[]>(`campaigns/${encodeURIComponent(campaignId)}/rubrics`),
+      publish: (campaignId, body) =>
+        post<Rubric>(
+          `campaigns/${encodeURIComponent(campaignId)}/rubrics`,
+          body,
         ),
     },
     submissions: {
@@ -667,12 +788,12 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         get<ManagerFixture[]>(`manager/fixtures${query({ storeId })}`),
       products: (storeId) =>
         get<ProductDto[]>(`manager/products${query({ storeId })}`),
-      salesLog: (storeId) =>
-        get<SalesLog>(`manager/sales${query({ storeId })}`),
-      logSale: (productId, units, storeId) =>
+      salesLog: (storeId, date) =>
+        get<SalesLog>(`manager/sales${query({ storeId, date })}`),
+      logSale: (productId, units, storeId, date) =>
         put<void>(
           `manager/sales/${encodeURIComponent(productId)}${query({ storeId })}`,
-          { units },
+          { units, ...(date ? { date } : {}) },
         ),
       compliance: (storeId) =>
         get<FixtureCompliance[]>(`manager/compliance${query({ storeId })}`),
@@ -696,6 +817,12 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           `admin/stores/${encodeURIComponent(storeId)}/tasks`,
           body,
         ),
+    },
+    adminUsers: {
+      list: () => get<UserDto[]>("admin/users"),
+      invite: (body) => post<UserDto>("admin/users/invite", body),
+      update: (id, body) =>
+        patch<UserDto>(`admin/users/${encodeURIComponent(id)}`, body),
     },
   };
 }

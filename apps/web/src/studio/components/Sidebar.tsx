@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Home,
   Store,
@@ -12,6 +12,9 @@ import {
   Coins,
   BarChart3,
   Trophy,
+  Layers,
+  Users,
+  ClipboardList,
   LogOut,
   Settings,
   ChevronDown,
@@ -36,6 +39,8 @@ interface NavItem {
 interface NavGroup {
   title: string;
   items: NavItem[];
+  /** Only shown to ADMINs (operate-the-product surfaces). */
+  adminOnly?: boolean;
 }
 
 // Grouped like Flagship's Navigation panel: Operations vs Analytics.
@@ -89,11 +94,43 @@ const GROUPS: NavGroup[] = [
       },
     ],
   },
+  {
+    title: 'Admin',
+    adminOnly: true,
+    items: [
+      { label: 'Campaigns', icon: Layers, to: () => '/studio/campaigns' },
+      {
+        label: 'Store directory',
+        icon: Store,
+        to: () => '/studio/store-directory',
+      },
+      { label: 'Users', icon: Users, to: () => '/studio/users' },
+      { label: 'Rubrics', icon: ClipboardList, to: () => '/studio/rubrics' },
+    ],
+  },
 ];
 
 /** The studio's primary navigation — grouped, labeled, comprehensive. */
 export function Sidebar() {
-  const params = useParams<{ campaignId?: string; storeId?: string }>();
+  const location = useLocation();
+  const { user } = useSession();
+  const isAdmin = user?.role === 'ADMIN';
+
+  // The Sidebar renders ABOVE the floor-plan route, so useParams() never sees
+  // :campaignId/:storeId — which made "Floor Plan" always fall back to
+  // /studio/stores (identical to "Stores"). Derive the ids from the path, and
+  // remember the last floor plan so the nav can jump back to it from anywhere.
+  const m = location.pathname.match(/^\/studio\/([^/]+)\/store\/([^/]+)/);
+  const current = m ? { campaignId: m[1], storeId: m[2] } : null;
+  const [last, setLast] = React.useState<{
+    campaignId?: string;
+    storeId?: string;
+  }>({});
+  React.useEffect(() => {
+    if (current) setLast({ campaignId: current.campaignId, storeId: current.storeId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+  const navParams = current ?? last;
 
   return (
     <nav
@@ -114,14 +151,14 @@ export function Sidebar() {
 
       <ProjectSwitcher />
 
-      {GROUPS.map((group) => (
+      {GROUPS.filter((group) => !group.adminOnly || isAdmin).map((group) => (
         <div key={group.title}>
           <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-brand text-steel">
             {group.title}
           </p>
           <div className="flex flex-col gap-0.5">
             {group.items.map((item) => (
-              <NavRow key={item.label} item={item} params={params} />
+              <NavRow key={item.label} item={item} params={navParams} />
             ))}
           </div>
         </div>

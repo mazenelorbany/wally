@@ -8,6 +8,7 @@ import './styles/index.css';
 import '@wally/ui/styles.css';
 
 import { router } from './router';
+import { ToastProvider } from './lib/toast';
 import {
   installConnectivityListeners,
   useCaptureQueue,
@@ -42,7 +43,9 @@ if (!rootEl) throw new Error('Root element #root not found');
 createRoot(rootEl).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <ToastProvider>
+        <RouterProvider router={router} />
+      </ToastProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

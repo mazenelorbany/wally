@@ -13,6 +13,7 @@ import { Spinner } from '@wally/ui';
 import type { SalesFixtureGroup, SalesLine } from '@wally/sdk';
 
 import { api } from '../../lib/api';
+import { ErrorState } from '../../components/states';
 import { useManagerStore } from '../ManagerStoreContext';
 
 const money = (n: number) =>
@@ -87,6 +88,17 @@ export function SalesLogView() {
     return (
       <div className="grid h-64 place-items-center">
         <Spinner className="text-2xl text-steel" />
+      </div>
+    );
+  }
+  if (salesQ.isError) {
+    return (
+      <div className="px-4 py-6">
+        <ErrorState
+          error={salesQ.error}
+          onRetry={() => void salesQ.refetch()}
+          title="Couldn't load the sales log"
+        />
       </div>
     );
   }

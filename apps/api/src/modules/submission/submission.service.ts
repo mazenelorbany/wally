@@ -560,6 +560,7 @@ export class SubmissionService {
         kind: 'score',
         score: {
           ...score,
+          submissionId: submission?.id ?? null,
           region: meta.region ?? null,
           areaManager: meta.areaManager ?? null,
           storeType: meta.storeType ?? null,

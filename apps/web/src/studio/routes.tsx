@@ -22,6 +22,10 @@ import { MoneyMapView } from './views/MoneyMapView';
 import { DashboardView } from './views/DashboardView';
 import { LeaderboardView } from './views/LeaderboardView';
 import { InsightsView } from './views/InsightsView';
+import { CampaignsView } from './views/CampaignsView';
+import { StoreDirectoryView } from './views/StoreDirectoryView';
+import { UsersView } from './views/UsersView';
+import { RubricsView } from './views/RubricsView';
 import { ProjectsView } from './views/ProjectsView';
 import { SettingsPage } from '../components/SettingsPage';
 
@@ -45,6 +49,10 @@ export const studioRoutes: RouteObject = {
     { path: 'leaderboard', element: <LeaderboardView /> },
     { path: 'insights', element: <InsightsView /> },
     { path: 'settings', element: <SettingsPage /> },
+    { path: 'campaigns', element: <CampaignsView /> },
+    { path: 'store-directory', element: <StoreDirectoryView /> },
+    { path: 'users', element: <UsersView /> },
+    { path: 'rubrics', element: <RubricsView /> },
     { path: ':campaignId/store/:storeId', element: <FloorPlanView /> },
     // Unknown studio sub-path → back to the studio home.
     { path: '*', element: <Navigate to="/studio" replace /> },

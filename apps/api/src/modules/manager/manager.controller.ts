@@ -30,8 +30,10 @@ import { ZodValidationPipe } from '../org/zod-validation.pipe';
 
 import {
   LogSaleSchema,
+  SalesQuerySchema,
   StoreScopeSchema,
   type LogSaleInput,
+  type SalesQueryInput,
   type StoreScopeInput,
 } from './manager.dto';
 import { ManagerService } from './manager.service';
@@ -116,9 +118,9 @@ export class ManagerController {
   @Get('sales')
   sales(
     @CurrentUser() user: SessionUser,
-    @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
+    @Query(new ZodValidationPipe(SalesQuerySchema)) q: SalesQueryInput,
   ): Promise<SalesLog> {
-    return this.manager.sales(user, q.storeId);
+    return this.manager.sales(user, q.storeId, q.date);
   }
 
   @Put('sales/:productId')
@@ -130,7 +132,7 @@ export class ManagerController {
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
     @Body(new ZodValidationPipe(LogSaleSchema)) body: LogSaleInput,
   ): Promise<void> {
-    return this.manager.logSale(user, productId, body.units, q.storeId);
+    return this.manager.logSale(user, productId, body.units, q.storeId, body.date);
   }
 
   // ----- compliance loop ----------------------------------------------------

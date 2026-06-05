@@ -24,8 +24,9 @@ import { GoogleStrategy } from './strategies/google.strategy';
  *     authenticated by default and must opt out with @Public(). The auth
  *     endpoints that have to be reachable without a session (magic-link
  *     request/consume, google start/callback, dev-login, logout) carry it.
- *   - RolesGuard is opt-in — applied per route with @UseGuards(RolesGuard)
- *     alongside @Roles(...). It's exported so the resource modules can use it.
+ *   - RolesGuard is ALSO registered globally (APP_GUARD), right after
+ *     SessionGuard. It no-ops on routes with no @Roles(...), so it only
+ *     enforces RBAC where a route opted in — making @Roles(...) real.
  *
  * Google OAuth is optional. The strategy + its env-dependent constructor are
  * only registered when both credentials are present (googleOAuthConfigured),
@@ -45,6 +46,10 @@ import { GoogleStrategy } from './strategies/google.strategy';
     NoViewerGuard,
     // Authenticate every route by default; @Public() opts specific ones out.
     { provide: APP_GUARD, useClass: SessionGuard },
+    // Enforce @Roles(...) everywhere. Registered AFTER SessionGuard so req.user
+    // is populated; it's a no-op on routes that declare no @Roles, so this only
+    // tightens the routes that already opted into RBAC (previously decorative).
+    { provide: APP_GUARD, useClass: RolesGuard },
     // GoogleStrategy's constructor throws when its credentials are missing, so
     // only register it once they're actually configured — otherwise the whole
     // process would crash on boot in a magic-link-only deployment.

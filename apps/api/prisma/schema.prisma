@@ -77,10 +77,11 @@ model User {
   orgId     String
   email     String   @unique
   name      String?
-  role      Role     @default(REVIEWER)
-  googleId  String?  @unique
-  storeId   String?  // store managers belong to a store (set via magic-link)
-  createdAt DateTime @default(now())
+  role       Role     @default(REVIEWER)
+  googleId   String?  @unique
+  storeId    String?  // store managers belong to a store (set via magic-link)
+  disabledAt DateTime? // deactivated by an admin — blocked from resolving a session
+  createdAt  DateTime @default(now())
 
   org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
   store    Store?    @relation(fields: [storeId], references: [id], onDelete: SetNull)
@@ -569,6 +570,7 @@ model SalesEntry {
   units      Int      @default(0)
   unitPrice  Float    @default(0) // price snapshot at log time
   revenue    Float    @default(0) // units × unitPrice, stored for fast rollups
+  soldOn     DateTime @default(now()) @db.Date // the sale DAY (date-only); one entry per product per day
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -577,8 +579,8 @@ model SalesEntry {
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  @@unique([storeId, campaignId, productId])
-  @@index([storeId, campaignId])
+  @@unique([storeId, campaignId, productId, soldOn])
+  @@index([storeId, campaignId, soldOn])
   @@index([campaignId, fixtureId])
 }
 

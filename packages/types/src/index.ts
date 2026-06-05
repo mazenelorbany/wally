@@ -81,6 +81,9 @@ export interface StoreScore {
   notApplicable: string[];
   fixtures: FixtureOutcome[];
   rubricVersions: string[];
+  /** The store's submission id for this campaign — needed to deep-link a
+   *  fixture into the reviewer page (`/console/fixture/:photoId?submission=`). */
+  submissionId?: string | null;
   /** Segmentation dimensions (null until set on the store). */
   region?: string | null;
   areaManager?: string | null;
@@ -136,6 +139,24 @@ export interface BestInClassItem {
   overall?: Overall;
 }
 
+/** The current tenant (org settings). */
+export interface OrgDto {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+/** A store in the org's roster (admin store-directory management). */
+export interface StoreDto {
+  id: string;
+  name: string;
+  brand: string;
+  externalRef?: string | null;
+  region?: string | null;
+  areaManager?: string | null;
+  storeType?: string | null;
+}
+
 export type Role = "ADMIN" | "REVIEWER" | "STORE_MANAGER" | "VIEWER";
 export interface SessionUser {
   id: string;
@@ -145,6 +166,18 @@ export interface SessionUser {
   orgId: string;
   /** Set for STORE_MANAGER users — the store whose checklist they capture. */
   storeId?: string | null;
+}
+
+/** A teammate in the org (admin user-management directory). */
+export interface UserDto {
+  id: string;
+  email: string;
+  name?: string | null;
+  role: Role;
+  storeId?: string | null;
+  storeName?: string | null;
+  /** Deactivated by an admin — blocked from signing in. */
+  disabled: boolean;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -400,6 +433,8 @@ export interface SalesLog {
   storeName: string;
   campaignId: string;
   campaignKey: string;
+  /** The day this log is for ('YYYY-MM-DD', UTC). */
+  soldOn: string;
   totalUnits: number;
   totalRevenue: number;
   groups: SalesFixtureGroup[];

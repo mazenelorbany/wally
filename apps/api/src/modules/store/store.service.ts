@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
-import type { CreateStoreInput } from './store.dto';
+import type { CreateStoreInput, UpdateStoreInput } from './store.dto';
 
 @Injectable()
 export class StoreService {
@@ -31,8 +31,21 @@ export class StoreService {
         name: input.name,
         brand: input.brand,
         externalRef: input.externalRef ?? null,
+        region: input.region ?? null,
+        areaManager: input.areaManager ?? null,
+        storeType: input.storeType ?? null,
       },
     });
+  }
+
+  /** Patch a store's profile + segmentation dims (org-scoped). */
+  async update(orgId: string, storeId: string, input: UpdateStoreInput) {
+    const res = await this.prisma.store.updateMany({
+      where: { id: storeId, orgId },
+      data: input,
+    });
+    if (res.count === 0) throw new NotFoundException('store not found');
+    return this.get(orgId, storeId);
   }
 
   /**

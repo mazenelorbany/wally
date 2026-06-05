@@ -1,9 +1,15 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, LogOut, Mail, ShieldCheck, UserRound } from 'lucide-react';
-import { Button, Card } from '@wally/ui';
+import { Button, Card, Spinner } from '@wally/ui';
 
+import { api, errorMessage } from '../lib/api';
 import { useLogout, useSession } from '../lib/auth';
+import { useToast } from '../lib/toast';
+
+const fieldCls =
+  'w-full rounded-md border border-mist/70 bg-paper px-3 py-2 text-sm text-ink focus:border-graphite focus:outline-none';
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: 'Admin',
@@ -42,6 +48,8 @@ export function SettingsPage() {
         />
       </Card>
 
+      {user?.role === 'ADMIN' ? <OrgSettings /> : null}
+
       <h2 className="mb-2 mt-6 text-[11px] uppercase tracking-brand text-steel">
         Notifications
       </h2>
@@ -79,6 +87,88 @@ export function SettingsPage() {
         Sign out
       </Button>
     </div>
+  );
+}
+
+/** ADMIN-only: rename the organisation / change its slug. */
+function OrgSettings() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const orgQ = useQuery({ queryKey: ['org'], queryFn: () => api.org.get() });
+  const [name, setName] = React.useState('');
+  const [slug, setSlug] = React.useState('');
+
+  React.useEffect(() => {
+    if (orgQ.data) {
+      setName(orgQ.data.name);
+      setSlug(orgQ.data.slug);
+    }
+  }, [orgQ.data]);
+
+  const save = useMutation({
+    mutationFn: () => api.org.update({ name: name.trim(), slug: slug.trim() }),
+    onSuccess: (o) => {
+      void qc.invalidateQueries({ queryKey: ['org'] });
+      setName(o.name);
+      setSlug(o.slug);
+      toast.success('Organisation updated');
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const dirty =
+    orgQ.data &&
+    (name.trim() !== orgQ.data.name || slug.trim() !== orgQ.data.slug);
+
+  return (
+    <>
+      <h2 className="mb-2 mt-6 text-[11px] uppercase tracking-brand text-steel">
+        Organisation
+      </h2>
+      <Card className="space-y-3 p-4">
+        {orgQ.isLoading ? (
+          <div className="grid h-16 place-items-center">
+            <Spinner className="text-lg text-steel" />
+          </div>
+        ) : (
+          <>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-graphite">
+                Name
+              </span>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={120}
+                className={fieldCls}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-graphite">
+                Slug
+              </span>
+              <input
+                value={slug}
+                onChange={(e) => setSlug(e.target.value)}
+                maxLength={60}
+                className={fieldCls}
+              />
+            </label>
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                disabled={
+                  !dirty || !name.trim() || !slug.trim() || save.isPending
+                }
+                onClick={() => save.mutate()}
+              >
+                {save.isPending ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </>
+        )}
+      </Card>
+    </>
   );
 }
 

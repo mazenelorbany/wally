@@ -12,13 +12,18 @@ import {
 import { Button, Card, Spinner } from '@wally/ui';
 import type { ProjectDto, ProjectKind } from '@wally/sdk';
 
-import { api } from '../../lib/api';
+import { api, errorMessage } from '../../lib/api';
+import { useSession } from '../../lib/auth';
+import { useToast } from '../../lib/toast';
 import { useProject } from '../ProjectContext';
 
 export function ProjectsView() {
   const { projects, isLoading, setProjectId } = useProject();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const toast = useToast();
+  const { user } = useSession();
+  const isAdmin = user?.role === 'ADMIN';
   const [creating, setCreating] = React.useState(false);
 
   const open = (p: ProjectDto) => {
@@ -33,9 +38,11 @@ export function ProjectsView() {
       void qc.invalidateQueries({ queryKey: ['studio', 'projects'] });
       setCreating(false);
       setProjectId(p.id);
+      toast.success(`Project “${p.name}” created`);
       // A fresh tradeshow stand starts in the layout builder.
       navigate('/studio');
     },
+    onError: (e) => toast.error(errorMessage(e)),
   });
 
   return (
@@ -51,9 +58,11 @@ export function ProjectsView() {
             tradeshow stand.
           </p>
         </div>
-        <Button onClick={() => setCreating((v) => !v)} variant={creating ? 'outline' : undefined}>
-          {creating ? 'Cancel' : (<><Plus className="h-4 w-4" /> New project</>)}
-        </Button>
+        {isAdmin ? (
+          <Button onClick={() => setCreating((v) => !v)} variant={creating ? 'outline' : undefined}>
+            {creating ? 'Cancel' : (<><Plus className="h-4 w-4" /> New project</>)}
+          </Button>
+        ) : null}
       </header>
 
       {creating ? <NewProjectForm onCreate={create.mutate} pending={create.isPending} /> : null}

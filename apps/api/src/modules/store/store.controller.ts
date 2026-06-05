@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -14,7 +15,12 @@ import { Roles } from '../auth/roles.decorator';
 import { SessionGuard } from '../auth/session.guard';
 import { ZodValidationPipe } from '../org/zod-validation.pipe';
 
-import { CreateStoreSchema, type CreateStoreInput } from './store.dto';
+import {
+  CreateStoreSchema,
+  type CreateStoreInput,
+  UpdateStoreSchema,
+  type UpdateStoreInput,
+} from './store.dto';
 import { StoreService } from './store.service';
 
 @Controller('stores')
@@ -39,6 +45,16 @@ export class StoreController {
   @Get(':id')
   get(@CurrentUser() user: SessionUser, @Param('id') id: string) {
     return this.stores.get(user.orgId, id);
+  }
+
+  @Patch(':id')
+  @Roles('ADMIN')
+  update(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateStoreSchema)) dto: UpdateStoreInput,
+  ) {
+    return this.stores.update(user.orgId, id, dto);
   }
 
   /** The fixture checklist for a store, optionally filtered to one campaign. */

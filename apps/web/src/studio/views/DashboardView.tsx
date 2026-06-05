@@ -13,6 +13,7 @@ import { Spinner } from '@wally/ui';
 import type { StoreBand, StoreScore } from '@wally/types';
 
 import { api } from '../../lib/api';
+import { ErrorState } from '../../components/states';
 import { useProject } from '../ProjectContext';
 
 // Band → label + icon (icon + word, never colour alone — colour-blind safe).
@@ -43,6 +44,17 @@ export function DashboardView() {
     return (
       <div className="grid h-64 place-items-center">
         <Spinner className="text-2xl text-steel" />
+      </div>
+    );
+  }
+  if (queueQ.isError) {
+    return (
+      <div className="px-6 py-8">
+        <ErrorState
+          error={queueQ.error}
+          onRetry={() => void queueQ.refetch()}
+          title="Couldn't load the dashboard"
+        />
       </div>
     );
   }

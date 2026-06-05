@@ -384,8 +384,13 @@ export class ManagerService {
    * becomes a group of SalesLines (current units pulled from SalesEntry). Only
    * fixtures with ≥1 merchandised product are included.
    */
-  async sales(user: SessionUser, storeId?: string): Promise<SalesLog> {
+  async sales(
+    user: SessionUser,
+    storeId?: string,
+    date?: string,
+  ): Promise<SalesLog> {
     const { store, campaign } = await this.resolveContext(user, storeId);
+    const soldOn = dayUtc(date);
 
     const placements = await this.prisma.placement.findMany({
       where: {
@@ -414,9 +419,9 @@ export class ManagerService {
     const merchByFixture = new Map<string, (typeof guideFixtures)[number]['merchandise']>();
     for (const gf of guideFixtures) merchByFixture.set(gf.fixtureId, gf.merchandise);
 
-    // Current logged units per product for this store × campaign.
+    // Logged units per product for this store × campaign ON THE SELECTED DAY.
     const entries = await this.prisma.salesEntry.findMany({
-      where: { storeId: store.id, campaignId: campaign.id },
+      where: { storeId: store.id, campaignId: campaign.id, soldOn },
       select: { productId: true, units: true },
     });
     const unitsByProduct = new Map<string, number>();
@@ -477,6 +482,7 @@ export class ManagerService {
       storeName: store.name,
       campaignId: campaign.id,
       campaignKey: campaign.key,
+      soldOn: toDateStr(soldOn),
       totalUnits,
       totalRevenue,
       groups,
@@ -494,8 +500,10 @@ export class ManagerService {
     productId: string,
     units: number,
     storeId?: string,
+    date?: string,
   ): Promise<void> {
     const { store, campaign } = await this.resolveContext(user, storeId);
+    const soldOn = dayUtc(date);
 
     const product = await this.prisma.product.findFirst({
       where: { id: productId, orgId: user.orgId },
@@ -520,10 +528,11 @@ export class ManagerService {
 
     await this.prisma.salesEntry.upsert({
       where: {
-        storeId_campaignId_productId: {
+        storeId_campaignId_productId_soldOn: {
           storeId: store.id,
           campaignId: campaign.id,
           productId: product.id,
+          soldOn,
         },
       },
       create: {
@@ -532,6 +541,7 @@ export class ManagerService {
         campaignId: campaign.id,
         productId: product.id,
         fixtureId,
+        soldOn,
         units,
         unitPrice,
         revenue,
@@ -878,6 +888,19 @@ export class ManagerService {
 
 const TASK_KINDS: readonly TaskKind[] = ['UPLOAD_PHOTO', 'LOG_SALES', 'GENERAL'];
 const TASK_STATUSES: readonly TaskStatusDto[] = ['OPEN', 'DONE'];
+
+/** Normalise a 'YYYY-MM-DD' (or today) to a UTC midnight Date for the @db.Date
+ *  `soldOn` column, so sales are keyed by day regardless of time-of-day/zone. */
+function dayUtc(date?: string): Date {
+  if (date) return new Date(`${date}T00:00:00.000Z`);
+  const n = new Date();
+  return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
+}
+
+/** A Date → 'YYYY-MM-DD' (UTC). */
+function toDateStr(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
 
 /** Map a Task row to the shared TaskDto, dates → ISO strings, null preserved. */
 export function toTaskDto(t: Task): TaskDto {

@@ -118,7 +118,11 @@ function FixtureLedger({ store }: { store: StoreScore }) {
         ) : (
           <ul className="divide-y divide-mist/50">
             {store.fixtures.map((f) => (
-              <FixtureRow key={f.fixture} fixture={f} />
+              <FixtureRow
+                key={f.fixture}
+                fixture={f}
+                submissionId={store.submissionId ?? undefined}
+              />
             ))}
           </ul>
         )}
@@ -127,8 +131,14 @@ function FixtureLedger({ store }: { store: StoreScore }) {
   );
 }
 
-function FixtureRow({ fixture }: { fixture: FixtureOutcome }) {
-  const canOpen = fixture.status === 'scored' && fixture.photoId;
+function FixtureRow({
+  fixture,
+  submissionId,
+}: {
+  fixture: FixtureOutcome;
+  submissionId?: string;
+}) {
+  const canOpen = fixture.status === 'scored' && fixture.photoId && submissionId;
   const inner = (
     <div className="flex items-center gap-3 px-4 py-3">
       <div className="min-w-0 flex-1">
@@ -149,7 +159,7 @@ function FixtureRow({ fixture }: { fixture: FixtureOutcome }) {
     return (
       <li>
         <Link
-          to={`/console/fixture/${encodeURIComponent(fixture.photoId as string)}`}
+          to={`/console/fixture/${encodeURIComponent(fixture.photoId as string)}?submission=${encodeURIComponent(submissionId as string)}`}
           className="tap block bg-paper hover:bg-surface/60"
         >
           {inner}

@@ -12,6 +12,7 @@ import { Button, Spinner } from '@wally/ui';
 import type { TaskDto, TaskKind } from '@wally/sdk';
 
 import { api } from '../../lib/api';
+import { ErrorState } from '../../components/states';
 import { useManagerStore } from '../ManagerStoreContext';
 
 const KIND_META: Record<
@@ -56,6 +57,17 @@ export function TasksView() {
     return (
       <div className="grid h-64 place-items-center">
         <Spinner className="text-2xl text-steel" />
+      </div>
+    );
+  }
+  if (tasksQ.isError) {
+    return (
+      <div className="px-4 py-6">
+        <ErrorState
+          error={tasksQ.error}
+          onRetry={() => void tasksQ.refetch()}
+          title="Couldn't load your tasks"
+        />
       </div>
     );
   }

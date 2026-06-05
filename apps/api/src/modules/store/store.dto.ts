@@ -7,7 +7,25 @@ export const CreateStoreSchema = z
     // brand taxonomy lives in the merchandising data, not enforced here.
     brand: z.string().min(1).max(120),
     externalRef: z.string().max(120).optional(),
+    // Segmentation dimensions (analytics filters).
+    region: z.string().max(80).optional(),
+    areaManager: z.string().max(120).optional(),
+    storeType: z.string().max(80).optional(),
   })
   .strict();
 
 export type CreateStoreInput = z.infer<typeof CreateStoreSchema>;
+
+// Patch a store — every field optional; null clears the column.
+export const UpdateStoreSchema = z
+  .object({
+    name: z.string().min(1).max(120).optional(),
+    brand: z.string().min(1).max(120).optional(),
+    externalRef: z.string().max(120).nullable().optional(),
+    region: z.string().max(80).nullable().optional(),
+    areaManager: z.string().max(120).nullable().optional(),
+    storeType: z.string().max(80).nullable().optional(),
+  })
+  .strict();
+
+export type UpdateStoreInput = z.infer<typeof UpdateStoreSchema>;

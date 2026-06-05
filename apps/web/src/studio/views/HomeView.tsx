@@ -59,7 +59,6 @@ const PILLARS: Pillar[] = [
     desc: 'Guide rollout across the estate at a glance.',
     icon: LayoutDashboard,
     to: '/studio/dashboard',
-    comingSoon: true,
   },
 ];
 

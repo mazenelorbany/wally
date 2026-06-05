@@ -17,6 +17,7 @@ import type { Fixture, FixtureKind } from '@wally/types';
 
 import { EmptyState, ErrorState, Skeleton } from '../../components/states';
 import { errorMessage } from '../../lib/api';
+import { useSession } from '../../lib/auth';
 import {
   useAddFixtureProduct,
   useArchiveFixture,
@@ -56,6 +57,8 @@ export function FixturesView() {
     null,
   );
   const [managing, setManaging] = React.useState<Fixture | null>(null);
+  const { user } = useSession();
+  const isAdmin = user?.role === 'ADMIN';
 
   return (
     <div className="px-6 py-6">
@@ -71,10 +74,12 @@ export function FixturesView() {
             The reusable fixtures your guides place on store floor plans.
           </p>
         </div>
-        <Button size="sm" onClick={() => setAddOpen(true)}>
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          Add fixture
-        </Button>
+        {isAdmin ? (
+          <Button size="sm" onClick={() => setAddOpen(true)}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Add fixture
+          </Button>
+        ) : null}
       </header>
 
       {fixturesQ.isLoading ? (
@@ -118,24 +123,26 @@ export function FixturesView() {
                     {meta.label}
                   </Badge>
                 </div>
-                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                  <button
-                    type="button"
-                    onClick={() => setManaging(f)}
-                    aria-label={`Manage default products for ${f.name}`}
-                    className="rounded-md p-1.5 text-steel hover:bg-surface hover:text-ink focus:opacity-100 focus:outline-none"
-                  >
-                    <Package className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPendingDelete(f)}
-                    aria-label={`Remove ${f.name}`}
-                    className="rounded-md p-1.5 text-steel hover:bg-surface hover:text-fail focus:opacity-100 focus:outline-none"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
+                {isAdmin ? (
+                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => setManaging(f)}
+                      aria-label={`Manage default products for ${f.name}`}
+                      className="rounded-md p-1.5 text-steel hover:bg-surface hover:text-ink focus:opacity-100 focus:outline-none"
+                    >
+                      <Package className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingDelete(f)}
+                      aria-label={`Remove ${f.name}`}
+                      className="rounded-md p-1.5 text-steel hover:bg-surface hover:text-fail focus:opacity-100 focus:outline-none"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : null}
               </Card>
             );
           })}

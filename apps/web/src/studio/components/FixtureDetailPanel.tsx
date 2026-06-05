@@ -1,14 +1,6 @@
 import * as React from 'react';
 import { ImageIcon, Plus, Search, Star, Trash2, X } from 'lucide-react';
-import {
-  Badge,
-  Button,
-  cn,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  Spinner,
-} from '@wally/ui';
+import { Badge, Button, cn, Spinner } from '@wally/ui';
 
 import { ErrorState } from '../../components/states';
 import { errorMessage } from '../../lib/api';
@@ -67,9 +59,8 @@ export function FixtureDetailPanel({
 
   return (
     <aside
-      role="dialog"
       aria-label="Fixture instructions"
-      className="flex h-full w-full flex-col border-l border-mist/60 bg-paper shadow-lift"
+      className="flex h-full w-full flex-col bg-paper"
     >
       {/* Header */}
       <header className="flex items-start justify-between gap-3 border-b border-mist/60 px-5 py-4">
@@ -188,7 +179,6 @@ export function FixtureDetailPanel({
               campaignId={campaignId}
               fixtureId={fixtureId}
               guideFixtureId={detail.guideFixtureId}
-              fixtureName={detail.fixtureName}
               merchandise={detail.merchandise}
             />
           </div>
@@ -207,13 +197,11 @@ function MerchandiseSection({
   campaignId,
   fixtureId,
   guideFixtureId,
-  fixtureName,
   merchandise,
 }: {
   campaignId: string;
   fixtureId: string;
   guideFixtureId: string;
-  fixtureName: string;
   merchandise: import('@wally/types').MerchandiseRow[];
 }) {
   const [adding, setAdding] = React.useState(false);
@@ -235,30 +223,33 @@ function MerchandiseSection({
 
   const total = merchandise.reduce((n, r) => n + r.products.length, 0);
 
+  // Drag-and-drop layout editor — inline in this sheet (the sheet itself is the
+  // popup), so notes + references + planogram all live in one place.
+  if (editing) {
+    return (
+      <section>
+        <div className="mb-2.5 flex items-center justify-between gap-2">
+          <h3 className="text-[11px] font-medium uppercase tracking-brand text-steel">
+            Merchandise{total ? ` · ${total}` : ''}
+          </h3>
+          <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
+            Done
+          </Button>
+        </div>
+        <PlanogramEditor
+          large
+          campaignId={campaignId}
+          fixtureId={fixtureId}
+          guideFixtureId={guideFixtureId}
+          merchandise={merchandise}
+          onDone={() => setEditing(false)}
+        />
+      </section>
+    );
+  }
+
   return (
     <section>
-      {/* Full drag-and-drop layout editor — a roomy modal, not the cramped rail */}
-      <Dialog open={editing} onOpenChange={setEditing}>
-        <DialogContent className="block max-h-[88vh] w-[min(980px,94vw)] max-w-none overflow-hidden p-0">
-          <div className="flex items-center justify-between border-b border-mist/60 px-5 py-3.5">
-            <DialogTitle>
-              {fixtureName}
-              <span className="ml-2 text-sm font-normal text-steel">· Planogram</span>
-            </DialogTitle>
-          </div>
-          <div className="max-h-[calc(88vh-3.5rem)] overflow-y-auto px-5 py-4">
-            <PlanogramEditor
-              large
-              campaignId={campaignId}
-              fixtureId={fixtureId}
-              guideFixtureId={guideFixtureId}
-              merchandise={merchandise}
-              onDone={() => setEditing(false)}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <div className="mb-2.5 flex items-center justify-between gap-2">
         <h3 className="text-[11px] font-medium uppercase tracking-brand text-steel">
           Merchandise{total ? ` · ${total}` : ''}

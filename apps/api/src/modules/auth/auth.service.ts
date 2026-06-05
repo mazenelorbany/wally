@@ -76,6 +76,8 @@ export class AuthService {
         .catch(() => undefined);
       return null;
     }
+    // Deactivated by an admin — session is dead even if not yet expired.
+    if (session.user.disabledAt) return null;
     return toSessionUser(session.user);
   }
 
