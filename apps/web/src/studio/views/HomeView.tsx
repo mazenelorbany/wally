@@ -118,16 +118,16 @@ export function HomeView() {
               <Link
                 key={s.storeId}
                 to={`/studio/${campaignId}/store/${s.storeId}`}
-                className="group flex flex-col rounded-lg border border-mist/70 bg-paper p-5 shadow-card transition-shadow duration-base ease-out hover:shadow-lift"
+                className="group flex flex-col rounded-lg border border-mist/70 bg-paper p-5 shadow-card transition-[transform,box-shadow,border-color] duration-base ease-out hover:-translate-y-0.5 hover:border-gold/40 hover:shadow-lift active:translate-y-0 active:scale-[0.99]"
               >
                 <div className="flex items-center justify-between">
                   <span
                     aria-hidden="true"
-                    className="grid h-10 w-10 place-items-center rounded-md bg-surface text-graphite"
+                    className="grid h-10 w-10 place-items-center rounded-md bg-surface text-graphite transition-colors group-hover:bg-gold/10 group-hover:text-gold-deep"
                   >
                     <StoreIcon className="h-5 w-5" />
                   </span>
-                  <ArrowRight className="h-4 w-4 text-mist transition-colors group-hover:text-graphite" />
+                  <ArrowRight className="h-4 w-4 text-mist transition-colors group-hover:text-gold-deep" />
                 </div>
                 <h3 className="mt-4 font-display text-base font-semibold tracking-tight text-ink">
                   {s.storeName}

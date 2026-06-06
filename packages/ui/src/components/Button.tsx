@@ -3,25 +3,34 @@ import * as React from "react";
 import { cn } from "../lib/cn";
 import { Spinner } from "./Spinner";
 
-type Variant = "primary" | "secondary" | "ghost" | "signal" | "outline";
+type Variant =
+  | "primary"
+  | "secondary"
+  | "ghost"
+  | "signal"
+  | "outline"
+  | "gold";
 type Size = "sm" | "md" | "lg" | "icon";
 
 const variants: Record<Variant, string> = {
-  // Ink on paper — the calm default CTA.
+  // Ink on paper — the calm default CTA. Gold focus ring brands the moment.
   primary:
-    "bg-ink text-paper hover:bg-graphite focus-visible:ring-ink/40",
+    "bg-ink text-paper hover:bg-graphite focus-visible:ring-gold/55",
   // Quiet surface fill.
   secondary:
-    "bg-surface text-ink hover:bg-mist/40 focus-visible:ring-steel/30",
+    "bg-surface text-ink hover:bg-mist/40 focus-visible:ring-gold/45",
   // No chrome until hover.
   ghost:
-    "bg-transparent text-graphite hover:bg-surface focus-visible:ring-steel/30",
+    "bg-transparent text-graphite hover:bg-surface focus-visible:ring-gold/45",
   // The one accent — destructive / stop. Reserve for genuine stop actions.
   signal:
-    "bg-signal text-paper hover:bg-signal/90 focus-visible:ring-signal/40",
+    "bg-signal text-paper hover:bg-signal/90 focus-visible:ring-signal/45",
   // Hairline outline.
   outline:
-    "border border-mist bg-transparent text-ink hover:bg-surface focus-visible:ring-steel/30",
+    "border border-mist bg-transparent text-ink hover:border-steel hover:bg-surface focus-visible:ring-gold/45",
+  // The brand accent — premium gold for a headline CTA (not a "stop").
+  gold:
+    "bg-gold text-chrome shadow-card hover:bg-gold-bright focus-visible:ring-gold/55",
 };
 
 const sizes: Record<Size, string> = {
@@ -65,7 +74,10 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       disabled={disabled || loading}
       className={cn(
         "inline-flex items-center justify-center gap-2 rounded-md font-sans font-medium",
-        "transition-colors duration-base ease-standard",
+        // Specific properties (never `all`); ease-out + a subtle press so the
+        // button feels like it heard you (emil craft).
+        "transition-[transform,background-color,border-color,box-shadow,color] duration-base ease-out",
+        "active:scale-[0.97]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
         "disabled:pointer-events-none disabled:opacity-50",
         variants[variant],

@@ -80,7 +80,7 @@ export function TopBar({
 
       <div className="ml-auto flex items-center gap-2">
         <Button
-          variant="primary"
+          variant="gold"
           size="md"
           onClick={onPublish}
           loading={publishing}

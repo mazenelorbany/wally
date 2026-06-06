@@ -1,21 +1,24 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  CalendarClock,
   CheckCircle2,
   CircleDashed,
+  Clock,
   FileText,
   Megaphone,
   Paperclip,
   Pin,
   PinOff,
   Plus,
+  Radio,
   Send,
   Trash2,
   Users,
   X,
 } from 'lucide-react';
 import { Button, Card, Spinner } from '@wally/ui';
-import type { BulletinDto } from '@wally/sdk';
+import type { BulletinDto, BulletinScheduleState } from '@wally/sdk';
 
 import { api, errorMessage } from '../../lib/api';
 import { useSetStudioTopBar } from '../components/StudioContext';
@@ -23,6 +26,47 @@ import { useProject } from '../ProjectContext';
 
 const fmtDate = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : null;
+
+const fmtDateTime = (iso?: string | null) =>
+  iso
+    ? new Date(iso).toLocaleString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : null;
+
+// Schedule-state badge — colour-blind-safe (distinct icon + label + tone, not
+// colour alone). Managers never see out-of-window bulletins; admin sees all
+// three so a mis-dated memo is findable.
+const SCHEDULE_BADGE: Record<
+  BulletinScheduleState,
+  { label: string; Icon: typeof Radio; cls: string }
+> = {
+  scheduled: {
+    label: 'Scheduled',
+    Icon: CalendarClock,
+    cls: 'border-amber-300 bg-amber-50 text-amber-700',
+  },
+  live: { label: 'Live', Icon: Radio, cls: 'border-pass/40 bg-pass/10 text-pass' },
+  expired: {
+    label: 'Expired',
+    Icon: Clock,
+    cls: 'border-mist bg-surface text-steel',
+  },
+};
+
+function ScheduleBadge({ state }: { state: BulletinScheduleState }) {
+  const { label, Icon, cls } = SCHEDULE_BADGE[state];
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-brand ${cls}`}
+    >
+      <Icon className="h-3 w-3" /> {label}
+    </span>
+  );
+}
 
 export function BulletinsView() {
   const { project, projectId } = useProject();
@@ -103,10 +147,20 @@ function BulletinCard({
 }) {
   const qc = useQueryClient();
   const [showAcks, setShowAcks] = React.useState(false);
+  const replaceInputRef = React.useRef<HTMLInputElement>(null);
 
   const patch = useMutation({
-    mutationFn: (body: { pinned?: boolean; publish?: boolean }) =>
-      api.bulletins.update(b.id, body),
+    mutationFn: ({
+      body,
+      file,
+    }: {
+      body: {
+        pinned?: boolean;
+        publish?: boolean;
+        removeAttachment?: boolean;
+      };
+      file?: File;
+    }) => api.bulletins.update(b.id, body, file),
     onSuccess: onChanged,
   });
   const remove = useMutation({
@@ -128,12 +182,14 @@ function BulletinCard({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              {b.pinned ? <Pin className="h-3.5 w-3.5 text-signal" /> : null}
+              {b.pinned ? <Pin className="h-3.5 w-3.5 text-gold-deep" /> : null}
               <h2 className="font-display text-base font-semibold text-ink">{b.title}</h2>
               {draft ? (
                 <span className="rounded-full border border-mist/70 bg-surface px-2 py-0.5 text-[10px] font-medium uppercase tracking-brand text-steel">
                   Draft
                 </span>
+              ) : b.scheduleState ? (
+                <ScheduleBadge state={b.scheduleState} />
               ) : null}
             </div>
             {(b.startsAt || b.endsAt) ? (
@@ -146,13 +202,13 @@ function BulletinCard({
           <div className="flex shrink-0 items-center gap-0.5">
             <IconAction
               label={b.pinned ? 'Unpin' : 'Pin'}
-              onClick={() => patch.mutate({ pinned: !b.pinned })}
+              onClick={() => patch.mutate({ body: { pinned: !b.pinned } })}
             >
               {b.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
             </IconAction>
             <IconAction
               label={draft ? 'Publish' : 'Unpublish'}
-              onClick={() => patch.mutate({ publish: draft })}
+              onClick={() => patch.mutate({ body: { publish: draft } })}
             >
               {draft ? <Send className="h-4 w-4" /> : <CircleDashed className="h-4 w-4" />}
             </IconAction>
@@ -174,16 +230,52 @@ function BulletinCard({
           </p>
         ) : null}
 
-        {b.attachmentUrl ? (
-          <a
-            href={b.attachmentUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-mist/70 bg-surface px-2.5 py-1.5 text-xs font-medium text-graphite hover:border-steel hover:text-ink"
+        {/* Attachment: view, replace, remove — or attach if none. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {b.attachmentUrl ? (
+            <a
+              href={b.attachmentUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-mist/70 bg-surface px-2.5 py-1.5 text-xs font-medium text-graphite hover:border-steel hover:text-ink"
+            >
+              <FileText className="h-3.5 w-3.5" /> {b.attachmentName ?? 'Attachment'}
+            </a>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => replaceInputRef.current?.click()}
+            disabled={patch.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md border border-mist/70 bg-surface px-2.5 py-1.5 text-xs text-graphite hover:border-steel hover:text-ink disabled:opacity-60"
           >
-            <FileText className="h-3.5 w-3.5" /> {b.attachmentName ?? 'Attachment'}
-          </a>
-        ) : null}
+            <Paperclip className="h-3.5 w-3.5" />
+            {b.attachmentUrl ? 'Replace' : 'Attach PDF/image'}
+          </button>
+          {b.attachmentUrl ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Remove this attachment?'))
+                  patch.mutate({ body: { removeAttachment: true } });
+              }}
+              disabled={patch.isPending}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-steel hover:text-signal disabled:opacity-60"
+            >
+              <X className="h-3.5 w-3.5" /> Remove
+            </button>
+          ) : null}
+          <input
+            ref={replaceInputRef}
+            type="file"
+            accept="application/pdf,image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) patch.mutate({ body: {}, file });
+              e.target.value = '';
+            }}
+          />
+        </div>
       </div>
 
       {/* Acknowledgement rollup */}
@@ -210,18 +302,35 @@ function BulletinCard({
         <div className="border-t border-mist/50 px-5 py-3">
           {acksQ.isLoading ? (
             <Spinner className="text-base text-steel" />
+          ) : (acksQ.data ?? []).length === 0 ? (
+            <p className="text-xs text-steel">
+              No store managers assigned to this project's stores yet.
+            </p>
           ) : (
-            <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+            <ul className="space-y-1.5">
               {(acksQ.data ?? []).map((a) => (
-                <li key={a.storeId} className="flex items-center gap-1.5 text-xs">
+                <li
+                  key={a.userId ?? a.storeId}
+                  className="flex items-center gap-2 text-xs"
+                >
                   {a.acknowledged ? (
                     <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-pass" />
                   ) : (
                     <CircleDashed className="h-3.5 w-3.5 shrink-0 text-mist" />
                   )}
-                  <span className={`truncate ${a.acknowledged ? 'text-ink' : 'text-steel'}`}>
-                    {a.storeName}
+                  <span
+                    className={`min-w-0 flex-1 truncate ${
+                      a.acknowledged ? 'text-ink' : 'text-steel'
+                    }`}
+                  >
+                    {a.userName ?? a.userEmail ?? 'Manager'}
+                    <span className="text-steel"> · {a.storeName}</span>
                   </span>
+                  {a.acknowledged && a.acknowledgedAt ? (
+                    <span className="shrink-0 tabular-nums text-[11px] text-steel">
+                      {fmtDateTime(a.acknowledgedAt)}
+                    </span>
+                  ) : null}
                 </li>
               ))}
             </ul>

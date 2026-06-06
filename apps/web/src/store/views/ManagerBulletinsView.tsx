@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CheckCircle2, FileText, Megaphone, Pin } from 'lucide-react';
+import { Check, CheckCircle2, FileText, Megaphone, Pin, Undo2 } from 'lucide-react';
 import { Button, Card, Spinner } from '@wally/ui';
 import type { BulletinDto } from '@wally/sdk';
 
@@ -21,12 +21,17 @@ export function ManagerBulletinsView() {
     queryFn: () => api.bulletins.mine(storeId),
   });
 
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ['manager', 'bulletins', storeId] });
+    void qc.invalidateQueries({ queryKey: ['manager', 'home', storeId] });
+  };
   const ack = useMutation({
     mutationFn: (id: string) => api.bulletins.acknowledge(id, storeId),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['manager', 'bulletins', storeId] });
-      void qc.invalidateQueries({ queryKey: ['manager', 'home', storeId] });
-    },
+    onSuccess: invalidate,
+  });
+  const unack = useMutation({
+    mutationFn: (id: string) => api.bulletins.unacknowledge(id, storeId),
+    onSuccess: invalidate,
   });
 
   if (bulletinsQ.isLoading) {
@@ -62,7 +67,9 @@ export function ManagerBulletinsView() {
               key={b.id}
               bulletin={b}
               acking={ack.isPending && ack.variables === b.id}
+              unacking={unack.isPending && unack.variables === b.id}
               onAck={() => ack.mutate(b.id)}
+              onUnack={() => unack.mutate(b.id)}
             />
           ))}
         </div>
@@ -74,16 +81,20 @@ export function ManagerBulletinsView() {
 function BulletinCard({
   bulletin: b,
   acking,
+  unacking,
   onAck,
+  onUnack,
 }: {
   bulletin: BulletinDto;
   acking: boolean;
+  unacking: boolean;
   onAck: () => void;
+  onUnack: () => void;
 }) {
   return (
     <Card className={`p-5 ${b.acknowledged ? '' : 'border-signal/40'}`}>
       <div className="flex items-start gap-2">
-        {b.pinned ? <Pin className="mt-1 h-3.5 w-3.5 shrink-0 text-signal" /> : null}
+        {b.pinned ? <Pin className="mt-1 h-3.5 w-3.5 shrink-0 text-gold-deep" /> : null}
         <div className="min-w-0 flex-1">
           <h2 className="font-display text-base font-semibold text-ink">{b.title}</h2>
           {b.startsAt || b.endsAt ? (
@@ -121,13 +132,23 @@ function BulletinCard({
         </a>
       ) : null}
 
-      {!b.acknowledged ? (
-        <div className="mt-4 border-t border-mist/40 pt-3">
+      <div className="mt-4 border-t border-mist/40 pt-3">
+        {!b.acknowledged ? (
           <Button size="sm" className="w-full" onClick={onAck} loading={acking}>
             <Check className="h-4 w-4" /> I've read this
           </Button>
-        </div>
-      ) : null}
+        ) : (
+          <button
+            type="button"
+            onClick={onUnack}
+            disabled={unacking}
+            className="inline-flex items-center gap-1.5 text-xs text-steel hover:text-ink disabled:opacity-60"
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+            {unacking ? 'Undoing…' : 'Acknowledged in error? Undo'}
+          </button>
+        )}
+      </div>
     </Card>
   );
 }

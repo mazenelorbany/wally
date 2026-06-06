@@ -77,7 +77,11 @@ export function ManagerHome() {
         <Link to="/store/guide" className="block p-5 transition-colors hover:bg-surface/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <span className="grid h-9 w-9 place-items-center rounded-lg bg-ink text-paper">
+              <span
+                className={`grid h-9 w-9 place-items-center rounded-lg ${
+                  captureDone ? 'bg-ink text-paper' : 'bg-gold/15 text-gold-deep'
+                }`}
+              >
                 {captureDone ? (
                   <CheckCircle2 className="h-5 w-5" />
                 ) : (
@@ -99,7 +103,9 @@ export function ManagerHome() {
           </div>
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-mist/40">
             <div
-              className="h-full rounded-full bg-ink transition-[width] duration-500"
+              className={`h-full rounded-full transition-[width] duration-500 ${
+                captureDone ? 'bg-graphite' : 'bg-gold'
+              }`}
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -120,6 +126,7 @@ export function ManagerHome() {
           to="/store/sales"
           icon={Receipt}
           label="Sales today"
+          valueTone="gold"
           value={money(h.sales.today.totalRevenue)}
           sub={`${h.sales.today.totalUnits.toLocaleString()} units · ${money(
             h.sales.campaignToDate.totalRevenue,
@@ -180,6 +187,7 @@ function StatTile({
   value,
   sub,
   accent,
+  valueTone,
 }: {
   to: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -187,17 +195,23 @@ function StatTile({
   value: string;
   sub: string;
   accent?: boolean;
+  /** Tint the headline figure with the brand gold (e.g. money). */
+  valueTone?: 'gold';
 }) {
   return (
     <Link
       to={to}
-      className="rounded-xl border border-mist/60 bg-paper p-4 transition-shadow hover:shadow-card"
+      className="rounded-xl border border-mist/60 bg-paper p-4 transition-[transform,box-shadow,border-color] duration-base ease-out hover:-translate-y-0.5 hover:shadow-lift active:translate-y-0 active:scale-[0.99]"
     >
       <div className="flex items-center justify-between">
         <span className="text-[10px] uppercase tracking-brand text-steel">{label}</span>
         <Icon className="h-4 w-4 text-mist" />
       </div>
-      <p className="mt-2 font-display text-2xl font-semibold tracking-tight text-ink">
+      <p
+        className={`mt-2 font-display text-2xl font-semibold tracking-tight ${
+          valueTone === 'gold' ? 'text-gold-deep' : 'text-ink'
+        }`}
+      >
         {value}
       </p>
       <p className={`mt-0.5 text-xs ${accent ? 'font-medium text-signal' : 'text-steel'}`}>

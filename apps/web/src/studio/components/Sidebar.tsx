@@ -27,6 +27,7 @@ import {
 import { cn } from '@wally/ui';
 
 import { useLogout, useSession } from '../../lib/auth';
+import { Wordmark } from '../../components/Brand';
 import { useProject } from '../ProjectContext';
 
 interface NavItem {
@@ -139,25 +140,17 @@ export function Sidebar() {
   return (
     <nav
       aria-label="Studio navigation"
-      className="flex w-56 shrink-0 flex-col gap-5 overflow-y-auto border-r border-mist/60 bg-surface/40 px-3 py-5"
+      className="flex w-56 shrink-0 flex-col gap-5 overflow-y-auto border-r border-black/40 bg-chrome px-3 py-5 text-chrome-ink"
     >
-      <div className="flex items-center gap-2 px-2">
-        <span
-          aria-hidden="true"
-          className="grid h-7 w-7 place-items-center rounded-md bg-ink text-paper"
-        >
-          <span className="font-display text-sm font-bold">W</span>
-        </span>
-        <span className="font-display text-sm font-semibold tracking-tight text-ink">
-          Wally<span className="text-fail">.</span>
-        </span>
+      <div className="px-2">
+        <Wordmark tone="dark" />
       </div>
 
       <ProjectSwitcher />
 
       {GROUPS.filter((group) => !group.adminOnly || isAdmin).map((group) => (
         <div key={group.title}>
-          <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-brand text-steel">
+          <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-brand text-chrome-muted">
             {group.title}
           </p>
           <div className="flex flex-col gap-0.5">
@@ -194,9 +187,9 @@ function ProjectSwitcher() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 rounded-md border border-mist/70 bg-paper px-2.5 py-2 text-left hover:border-steel"
+        className="flex w-full items-center gap-2 rounded-md border border-chrome-line bg-chrome-raised px-2.5 py-2 text-left transition-colors hover:border-gold/50"
       >
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded bg-ink/90 text-paper">
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded bg-gold/15 text-gold-bright">
           {project?.kind === 'TRADESHOW' ? (
             <TradeshowIcon className="h-3.5 w-3.5" />
           ) : (
@@ -204,18 +197,18 @@ function ProjectSwitcher() {
           )}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold text-ink">
+          <span className="block truncate text-sm font-semibold text-chrome-ink">
             {project?.name ?? 'Projects'}
           </span>
-          <span className="block text-[10px] uppercase tracking-brand text-steel">
+          <span className="block text-[10px] uppercase tracking-brand text-chrome-muted">
             {project ? (project.kind === 'TRADESHOW' ? 'Tradeshow' : 'Retail') : '—'}
           </span>
         </span>
-        <ChevronDown className="h-4 w-4 shrink-0 text-steel" />
+        <ChevronDown className="h-4 w-4 shrink-0 text-chrome-muted" />
       </button>
 
       {open ? (
-        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 overflow-hidden rounded-md border border-mist/70 bg-paper shadow-lift">
+        <div className="menu-in absolute left-0 right-0 top-[calc(100%+4px)] z-20 overflow-hidden rounded-md border border-chrome-line bg-chrome shadow-lift">
           {projects.map((p) => (
             <button
               key={p.id}
@@ -226,11 +219,13 @@ function ProjectSwitcher() {
                 navigate('/studio');
               }}
               className={cn(
-                'flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-surface',
-                p.id === project?.id ? 'bg-surface/60 font-medium text-ink' : 'text-graphite',
+                'flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm transition-colors hover:bg-chrome-raised',
+                p.id === project?.id
+                  ? 'bg-chrome-raised font-medium text-chrome-ink'
+                  : 'text-chrome-muted hover:text-chrome-ink',
               )}
             >
-              <span className="grid h-5 w-5 shrink-0 place-items-center rounded bg-mist/40 text-graphite">
+              <span className="grid h-5 w-5 shrink-0 place-items-center rounded bg-chrome-raised text-gold-bright">
                 {p.kind === 'TRADESHOW' ? (
                   <TradeshowIcon className="h-3 w-3" />
                 ) : (
@@ -238,7 +233,7 @@ function ProjectSwitcher() {
                 )}
               </span>
               <span className="min-w-0 flex-1 truncate">{p.name}</span>
-              <span className="shrink-0 text-[10px] text-steel">{p.venueCount}</span>
+              <span className="shrink-0 text-[10px] text-chrome-muted">{p.venueCount}</span>
             </button>
           ))}
           <button
@@ -247,7 +242,7 @@ function ProjectSwitcher() {
               setOpen(false);
               navigate('/studio/projects');
             }}
-            className="flex w-full items-center gap-2 border-t border-mist/60 px-2.5 py-2 text-left text-xs font-medium text-steel hover:bg-surface hover:text-ink"
+            className="flex w-full items-center gap-2 border-t border-chrome-line px-2.5 py-2 text-left text-xs font-medium text-chrome-muted transition-colors hover:bg-chrome-raised hover:text-chrome-ink"
           >
             <FolderKanban className="h-3.5 w-3.5" /> All projects
           </button>
@@ -269,18 +264,18 @@ function SidebarAccount() {
   };
 
   return (
-    <div className="mt-auto border-t border-mist/60 pt-3">
+    <div className="mt-auto border-t border-chrome-line pt-3">
       <div className="px-2 pb-2">
-        <p className="truncate text-sm font-medium text-ink">
+        <p className="truncate text-sm font-medium text-chrome-ink">
           {user?.name ?? user?.email ?? 'Signed in'}
         </p>
-        <p className="text-[10px] uppercase tracking-brand text-steel">
+        <p className="text-[10px] uppercase tracking-brand text-gold">
           {user?.role === 'ADMIN' ? 'Admin' : 'Reviewer'}
         </p>
       </div>
       <Link
         to="/studio/settings"
-        className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-graphite transition-colors hover:bg-paper hover:text-ink"
+        className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-chrome-muted transition-colors hover:bg-chrome-raised hover:text-chrome-ink"
       >
         <Settings className="h-[18px] w-[18px]" />
         Settings
@@ -288,7 +283,7 @@ function SidebarAccount() {
       <button
         type="button"
         onClick={signOut}
-        className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-steel transition-colors hover:bg-paper hover:text-signal"
+        className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-chrome-muted transition-colors hover:bg-chrome-raised hover:text-chrome-ink"
       >
         <LogOut className="h-[18px] w-[18px]" />
         Sign out
@@ -307,13 +302,25 @@ function NavRow({
   const Icon = item.icon;
   const to = item.to(params);
   const base =
-    'group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors';
-  const inner = (
+    'group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors duration-base ease-out';
+  const inner = (active: boolean) => (
     <>
-      <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+      {active ? (
+        <span
+          aria-hidden="true"
+          className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-gold-bright"
+        />
+      ) : null}
+      <Icon
+        className={cn(
+          'h-[18px] w-[18px] shrink-0 transition-colors',
+          active ? 'text-gold-bright' : 'text-chrome-muted group-hover:text-chrome-ink',
+        )}
+        aria-hidden="true"
+      />
       <span className="flex-1 truncate">{item.label}</span>
       {item.soon ? (
-        <span className="rounded-full border border-mist/70 px-1.5 py-px text-[9px] font-medium uppercase tracking-brand text-steel">
+        <span className="rounded-full border border-chrome-line px-1.5 py-px text-[9px] font-medium uppercase tracking-brand text-chrome-muted">
           Soon
         </span>
       ) : null}
@@ -324,9 +331,9 @@ function NavRow({
     return (
       <a
         href={to}
-        className={cn(base, 'text-steel hover:bg-paper hover:text-graphite')}
+        className={cn(base, 'text-chrome-muted hover:bg-chrome-raised/70 hover:text-chrome-ink')}
       >
-        {inner}
+        {inner(false)}
       </a>
     );
   }
@@ -338,12 +345,12 @@ function NavRow({
         cn(
           base,
           isActive
-            ? 'bg-paper font-medium text-ink shadow-card'
-            : 'text-graphite hover:bg-paper hover:text-ink',
+            ? 'bg-chrome-raised font-medium text-chrome-ink'
+            : 'text-chrome-muted hover:bg-chrome-raised/70 hover:text-chrome-ink',
         )
       }
     >
-      {inner}
+      {({ isActive }) => inner(isActive)}
     </NavLink>
   );
 }

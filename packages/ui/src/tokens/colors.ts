@@ -1,11 +1,17 @@
 // =============================================================================
 // TCC brand colour tokens — the single source of truth for @wally/ui.
 //
-// Warm monochrome paper-to-ink scale + ONE signal red. Pass/warn hues exist
-// but are NEVER load-bearing on their own: every verdict in the UI also carries
-// an icon + a text label (see `verdictMeta` below). The GRB CEO is colour blind
-// and sees red, so red is reserved for genuine "stop" signals and is always
-// paired with the cross-circle icon + the word it stands for.
+// The Custom Chef™ brand: a warm near-black, polished steel greys, a premium
+// GOLD accent (Black Samurai / Emperor / Kiyoshi gold; #FFCC00 on the live
+// site), and a deep Japanese-steel RED. So the system is warm-monochrome paper
+// → ink for the data CANVAS, premium dark CHROME for the rails, GOLD as the
+// brand accent, and RED reserved for "stop".
+//
+// Colour is never load-bearing alone: every verdict also carries an icon + a
+// text label (see `verdictMeta`). The GRB CEO is colour blind and sees red, so
+// red means genuine "stop" and is always paired with the cross-circle icon +
+// the word. Gold is colour-blind-safe (distinct from the red/green verdict
+// hues) and so does the brand-accent work the lone red used to overreach into.
 //
 // These hexes are mirrored as CSS custom properties in ./../styles.css and as
 // named Tailwind colours in ../../tailwind-preset.cjs. Keep all three in sync.
@@ -14,7 +20,7 @@
 /** Raw brand hexes. Use the semantic Tailwind tokens in components; reach for
  *  these only when an inline style or canvas/SVG fill needs a literal value. */
 export const palette = {
-  /** Warm monochrome — lightest surface, the "page". */
+  /** Warm monochrome — lightest surface, the "page" (the data canvas). */
   paper: "#FBFBF9",
   /** One step up from paper — cards, rails, raised surfaces. */
   surface: "#F3F2EE",
@@ -27,8 +33,26 @@ export const palette = {
   /** Hairlines, dividers, disabled strokes. */
   mist: "#BEBDB6",
 
-  /** The ONE accent. Stop / critical / brand emphasis. */
-  signal: "#B23A2E",
+  /** The premium brand GOLD — active nav, brand mark, focus, emphasis, CTAs. */
+  gold: "#C99A2E",
+  /** Brighter gold for accents/glow on the dark chrome. */
+  goldBright: "#E8BA45",
+  /** Deep gold for gold-on-light text that must stay legible. */
+  goldDeep: "#9A7720",
+
+  /** Premium dark CHROME — the rails (sidebar / login / brand surfaces). */
+  chrome: "#16140E",
+  /** Raised within chrome — hover / active row backgrounds. */
+  chromeRaised: "#221F16",
+  /** Hairlines / dividers on chrome. */
+  chromeLine: "#322E20",
+  /** Primary text on chrome — warm cream. */
+  chromeInk: "#F4F1E8",
+  /** Muted text on chrome — labels, inactive nav. */
+  chromeMuted: "#9E998B",
+
+  /** The "stop" accent — deep Japanese-steel red. Critical / fail only. */
+  signal: "#A6342A",
 
   /** Reinforcement hues — only ever shown alongside an icon + label. */
   pass: "#3E7C5A",

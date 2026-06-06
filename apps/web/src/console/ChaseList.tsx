@@ -38,7 +38,7 @@ export function ChaseList({ stores }: { stores: StoreScore[] }) {
                   <span className="truncate text-sm font-medium text-ink">
                     {store.storeName}
                   </span>
-                  <span className="shrink-0 text-xs tabular-nums text-signal">
+                  <span className="shrink-0 text-xs tabular-nums text-steel">
                     {missing} missing
                   </span>
                 </div>

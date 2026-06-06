@@ -8,7 +8,8 @@
  * tailwind-preset.cjs, so changing a value here re-themes every utility class
  * (bg-paper, text-signal, ease-spring, font-display, …) at once.
  *
- * TCC brand: warm monochrome paper→ink + ONE signal red. Pass green / warn
+ * TCC brand: warm monochrome paper→ink CANVAS, premium dark CHROME for the
+ * rails, a GOLD brand accent, and RED reserved for "stop". Pass green / warn
  * amber exist only as reinforcement behind an icon + label (colour-blind safe).
  * Type: Century Gothic → Questrial (loaded) → Futura, geometric.
  * ========================================================================== */
@@ -18,7 +19,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Questrial&display=swap");
 
 :root {
-  /* --- Warm monochrome scale ------------------------------------------- */
+  /* --- Warm monochrome scale (the data canvas) ------------------------- */
   --wally-paper: #fbfbf9;     /* page */
   --wally-surface: #f3f2ee;   /* cards, rails */
   --wally-ink: #0e0e0d;       /* primary text */
@@ -26,8 +27,20 @@
   --wally-steel: #7e7d77;     /* labels, captions, metadata */
   --wally-mist: #bebdb6;      /* hairlines, dividers, disabled */
 
-  /* --- The one accent -------------------------------------------------- */
-  --wally-signal: #b23a2e;    /* stop / critical / brand emphasis */
+  /* --- Brand GOLD accent ----------------------------------------------- */
+  --wally-gold: #c99a2e;        /* active nav, brand mark, focus, emphasis */
+  --wally-gold-bright: #e8ba45; /* accents / glow on dark chrome */
+  --wally-gold-deep: #9a7720;   /* gold-on-light text that must stay legible */
+
+  /* --- Premium dark CHROME (the rails) --------------------------------- */
+  --wally-chrome: #16140e;        /* sidebar / login / brand surfaces */
+  --wally-chrome-raised: #221f16; /* hover / active rows in chrome */
+  --wally-chrome-line: #322e20;   /* hairlines on chrome */
+  --wally-chrome-ink: #f4f1e8;    /* primary text on chrome (warm cream) */
+  --wally-chrome-muted: #9e998b;  /* muted text on chrome */
+
+  /* --- The "stop" accent ----------------------------------------------- */
+  --wally-signal: #a6342a;    /* stop / critical / fail only */
 
   /* --- Reinforcement hues (never hue-alone) ---------------------------- */
   --wally-pass: #3e7c5a;      /* pass / perfect */

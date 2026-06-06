@@ -30,7 +30,7 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Warm monochrome scale.
+        // Warm monochrome scale (the data canvas).
         paper: tone("--wally-paper", "#FBFBF9"),
         surface: tone("--wally-surface", "#F3F2EE"),
         ink: tone("--wally-ink", "#0E0E0D"),
@@ -38,8 +38,26 @@ module.exports = {
         steel: tone("--wally-steel", "#7E7D77"),
         mist: tone("--wally-mist", "#BEBDB6"),
 
-        // The one accent.
-        signal: tone("--wally-signal", "#B23A2E"),
+        // Brand GOLD accent (colour-blind-safe). `gold` for fills/borders/
+        // active marks; `gold-bright` for glow on chrome; `gold-deep` for
+        // gold text on light that must stay legible.
+        gold: {
+          DEFAULT: v("--wally-gold", "#C99A2E"),
+          bright: v("--wally-gold-bright", "#E8BA45"),
+          deep: v("--wally-gold-deep", "#9A7720"),
+        },
+
+        // Premium dark CHROME (sidebars / login / brand surfaces).
+        chrome: {
+          DEFAULT: v("--wally-chrome", "#16140E"),
+          raised: v("--wally-chrome-raised", "#221F16"),
+          line: v("--wally-chrome-line", "#322E20"),
+          ink: v("--wally-chrome-ink", "#F4F1E8"),
+          muted: v("--wally-chrome-muted", "#9E998B"),
+        },
+
+        // The "stop" accent.
+        signal: tone("--wally-signal", "#A6342A"),
 
         // Reinforcement hues — never used hue-alone in components.
         pass: tone("--wally-pass", "#3E7C5A"),
@@ -128,6 +146,9 @@ module.exports = {
         // Calm, low elevation — editorial, not glossy.
         card: "0 1px 2px rgba(14, 14, 13, 0.04), 0 1px 1px rgba(14, 14, 13, 0.03)",
         raised: "0 6px 24px -8px rgba(14, 14, 13, 0.18)",
+        lift: "0 10px 30px -12px rgba(14, 14, 13, 0.22)",
+        // Soft gold halo for the brand mark + key active/primary affordances.
+        glow: "0 0 0 1px rgba(201, 154, 46, 0.35), 0 8px 24px -10px rgba(201, 154, 46, 0.45)",
       },
     },
   },

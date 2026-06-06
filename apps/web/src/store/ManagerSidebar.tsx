@@ -16,6 +16,7 @@ import {
 
 import { api } from '../lib/api';
 import { useLogout, useSession } from '../lib/auth';
+import { Wordmark } from '../components/Brand';
 import { useManagerStore } from './ManagerStoreContext';
 
 interface NavItem {
@@ -57,22 +58,14 @@ export function ManagerSidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav
       aria-label="Store navigation"
-      className="flex h-full w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-mist/60 bg-surface/40 px-3 py-5"
+      className="flex h-full w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-black/40 bg-chrome px-3 py-5 text-chrome-ink"
     >
-      <div className="flex items-center gap-2 px-2">
-        <span
-          aria-hidden="true"
-          className="grid h-7 w-7 place-items-center rounded-md bg-ink text-paper"
-        >
-          <span className="font-display text-sm font-bold">W</span>
-        </span>
-        <span className="font-display text-sm font-semibold tracking-tight text-ink">
-          Wally<span className="text-fail">.</span>
-        </span>
+      <div className="px-2">
+        <Wordmark tone="dark" />
       </div>
 
       <div>
-        <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-brand text-steel">
+        <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-brand text-chrome-muted">
           Your store
         </p>
         <div className="flex flex-col gap-0.5">
@@ -84,20 +77,36 @@ export function ManagerSidebar({ onNavigate }: { onNavigate?: () => void }) {
               onClick={onNavigate}
               className={({ isActive }) =>
                 [
-                  'group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors',
+                  'group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors duration-base ease-out',
                   isActive
-                    ? 'bg-paper font-medium text-ink shadow-card'
-                    : 'text-graphite hover:bg-paper hover:text-ink',
+                    ? 'bg-chrome-raised font-medium text-chrome-ink'
+                    : 'text-chrome-muted hover:bg-chrome-raised/70 hover:text-chrome-ink',
                 ].join(' ')
               }
             >
-              <item.icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-              <span className="flex-1 truncate">{item.label}</span>
-              {item.badge ? (
-                <span className="grid h-4 min-w-4 place-items-center rounded-full bg-signal px-1 text-[10px] font-semibold leading-none text-paper">
-                  {item.badge}
-                </span>
-              ) : null}
+              {({ isActive }) => (
+                <>
+                  {isActive ? (
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-gold-bright"
+                    />
+                  ) : null}
+                  <item.icon
+                    className={[
+                      'h-[18px] w-[18px] shrink-0 transition-colors',
+                      isActive ? 'text-gold-bright' : 'text-chrome-muted group-hover:text-chrome-ink',
+                    ].join(' ')}
+                    aria-hidden="true"
+                  />
+                  <span className="flex-1 truncate">{item.label}</span>
+                  {item.badge ? (
+                    <span className="grid h-4 min-w-4 place-items-center rounded-full bg-gold px-1 text-[10px] font-semibold leading-none text-chrome">
+                      {item.badge}
+                    </span>
+                  ) : null}
+                </>
+              )}
             </NavLink>
           ))}
         </div>
@@ -119,16 +128,16 @@ function ManagerAccount() {
   };
 
   return (
-    <div className="mt-auto border-t border-mist/60 pt-3">
+    <div className="mt-auto border-t border-chrome-line pt-3">
       <div className="px-2 pb-2">
-        <p className="truncate text-sm font-medium text-ink">
+        <p className="truncate text-sm font-medium text-chrome-ink">
           {user?.name ?? user?.email ?? 'Signed in'}
         </p>
-        <p className="text-[10px] uppercase tracking-brand text-steel">Store manager</p>
+        <p className="text-[10px] uppercase tracking-brand text-gold">Store manager</p>
       </div>
       <Link
         to="/store/settings"
-        className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-graphite transition-colors hover:bg-paper hover:text-ink"
+        className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-chrome-muted transition-colors hover:bg-chrome-raised hover:text-chrome-ink"
       >
         <Settings className="h-[18px] w-[18px]" />
         Settings
@@ -136,7 +145,7 @@ function ManagerAccount() {
       <button
         type="button"
         onClick={signOut}
-        className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-steel transition-colors hover:bg-paper hover:text-signal"
+        className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-chrome-muted transition-colors hover:bg-chrome-raised hover:text-chrome-ink"
       >
         <LogOut className="h-[18px] w-[18px]" />
         Sign out

@@ -111,7 +111,7 @@ function ManagerTopBar({ onMenu }: { onMenu: () => void }) {
       >
         <Bell className="h-[18px] w-[18px]" />
         {unseen > 0 ? (
-          <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-signal px-1 text-[10px] font-semibold leading-none text-paper">
+          <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-gold px-1 text-[10px] font-semibold leading-none text-chrome">
             {unseen}
           </span>
         ) : null}

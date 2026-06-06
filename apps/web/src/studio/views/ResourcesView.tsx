@@ -318,7 +318,7 @@ function ResourceCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            {r.pinned ? <Pin className="h-3.5 w-3.5 shrink-0 text-signal" /> : null}
+            {r.pinned ? <Pin className="h-3.5 w-3.5 shrink-0 text-gold-deep" /> : null}
             <h3 className="truncate font-display text-base font-semibold text-ink">{r.title}</h3>
           </div>
           <p className="mt-0.5 text-[11px] uppercase tracking-brand text-steel">

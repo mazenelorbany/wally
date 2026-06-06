@@ -29,9 +29,19 @@
     --steel: 126 125 119;        /* #7E7D77 */
     --mist: 190 189 182;         /* #BEBDB6 */
 
-    --signal: 178 58 46;         /* #B23A2E */
+    --signal: 166 52 42;         /* #A6342A — deepened, STOP only */
     --pass: 62 124 90;           /* #3E7C5A */
     --warn: 201 137 47;          /* #C9892F */
+
+    /* Brand GOLD accent (colour-blind-safe) + premium dark CHROME. */
+    --gold: 201 154 46;          /* #C99A2E */
+    --gold-bright: 232 186 69;   /* #E8BA45 */
+    --gold-deep: 154 119 32;     /* #9A7720 */
+    --chrome: 22 20 14;          /* #16140E */
+    --chrome-raised: 34 31 22;   /* #221F16 */
+    --chrome-line: 50 46 32;     /* #322E20 */
+    --chrome-ink: 244 241 232;   /* #F4F1E8 */
+    --chrome-muted: 158 153 139; /* #9E998B */
 
     --hairline: 14 14 13;        /* used at low alpha for borders */
     --radius: 0.75rem;
@@ -66,7 +76,7 @@
     font-weight: 600;
   }
 
-  /* Form fields — quiet focus ring in signal red, never hue-only (also a glow). */
+  /* Form fields — quiet branded focus ring in GOLD (red is reserved for stop). */
   input,
   select,
   textarea,
@@ -77,8 +87,8 @@
   select:focus-visible,
   textarea:focus-visible {
     outline: none;
-    border-color: rgb(var(--signal) / 0.6);
-    box-shadow: 0 0 0 3px rgb(var(--signal) / 0.14);
+    border-color: rgb(var(--gold) / 0.7);
+    box-shadow: 0 0 0 3px rgb(var(--gold) / 0.18);
   }
 
   ::-webkit-scrollbar { width: 11px; height: 11px; }
@@ -110,10 +120,17 @@
       border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
     cursor: pointer;
   }
-  @media (hover: hover) and (pointer: fine) {
-    .tap:active:not(:disabled) { transform: scale(0.975); }
-  }
+  /* Press feedback fires on EVERY pointer — touch users (the mobile-first field
+   * capture flow) need the tap confirmation most, since there's no hover. */
+  .tap:active:not(:disabled) { transform: scale(0.975); }
   .tap:disabled { cursor: not-allowed; opacity: 0.5; }
+
+  /* Menu / popover entrance — drops from the trigger (origin top), a 140ms
+   * fade + rise. Never from scale(0). */
+  .menu-in {
+    transform-origin: top;
+    animation: wally-menu 140ms var(--ease-out) both;
+  }
 
   /* Field — composable input shell. */
   .field {
@@ -143,6 +160,11 @@
 @keyframes wally-stagger {
   from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes wally-menu {
+  from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+  to { opacity: 1; transform: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

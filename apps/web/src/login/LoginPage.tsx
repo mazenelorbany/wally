@@ -45,14 +45,19 @@ export function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-dvh place-items-center bg-paper px-4 py-10">
-      <div className="w-full max-w-sm">
+    <div className="relative grid min-h-dvh place-items-center overflow-hidden bg-chrome px-4 py-10">
+      {/* a faint gold aura behind the lockup — premium, never load-bearing */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-[28%] h-72 w-72 -translate-x-1/2 rounded-full bg-gold/10 blur-3xl"
+      />
+      <div className="relative w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
-          <Wordmark className="scale-110" withTagline />
-          <h1 className="mt-6 font-display text-xl font-semibold tracking-tight text-ink">
+          <Wordmark className="scale-110" withTagline tone="dark" />
+          <h1 className="mt-6 font-display text-xl font-semibold tracking-tight text-chrome-ink">
             Sign in
           </h1>
-          <p className="mt-1 text-sm text-steel">
+          <p className="mt-1 text-sm text-chrome-muted">
             We send a one-time link to your work email — no password to remember.
           </p>
         </div>
@@ -110,6 +115,7 @@ export function LoginPage() {
               <Button
                 type="submit"
                 size="lg"
+                variant="gold"
                 className="mt-1 w-full"
                 loading={requestLink.isPending}
               >
@@ -122,7 +128,7 @@ export function LoginPage() {
 
         {DEV ? (
           <div className="mt-6">
-            <p className="mb-2 text-center text-[11px] uppercase tracking-brand text-steel">
+            <p className="mb-2 text-center text-[11px] uppercase tracking-brand text-chrome-muted">
               Dev shortcut
             </p>
             <div className="grid grid-cols-3 gap-2">
@@ -132,10 +138,10 @@ export function LoginPage() {
                   type="button"
                   onClick={() => devLogin.mutate(r.role)}
                   disabled={devLogin.isPending}
-                  className="tap rounded-md border border-mist bg-surface/60 px-2 py-2.5 text-center hover:border-steel disabled:opacity-50"
+                  className="tap rounded-md border border-chrome-line bg-chrome-raised px-2 py-2.5 text-center transition-colors hover:border-gold/50 disabled:opacity-50"
                 >
-                  <span className="block text-xs font-medium text-ink">{r.label}</span>
-                  <span className="mt-0.5 block text-[10px] text-steel">{r.blurb}</span>
+                  <span className="block text-xs font-medium text-chrome-ink">{r.label}</span>
+                  <span className="mt-0.5 block text-[10px] text-chrome-muted">{r.blurb}</span>
                 </button>
               ))}
             </div>

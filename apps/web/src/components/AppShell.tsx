@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Camera, ClipboardList, LogOut, Settings, WifiOff } from 'lucide-react';
-import { Button } from '@wally/ui';
+import { ClipboardList, LogOut, Settings, WifiOff } from 'lucide-react';
 
 import { useLogout, useSession } from '../lib/auth';
 import { useCaptureQueue } from '../lib/captureQueue';
@@ -15,7 +14,6 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { to: '/capture', label: 'Capture', icon: Camera, roles: ['STORE_MANAGER', 'ADMIN'] },
   { to: '/console', label: 'Console', icon: ClipboardList, roles: ['REVIEWER', 'ADMIN'] },
 ];
 
@@ -53,10 +51,10 @@ export function AppShell() {
   return (
     <div className="flex min-h-dvh flex-col bg-paper">
       <OfflineRibbon />
-      <header className="sticky top-0 z-30 border-b border-mist/60 bg-paper/85 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-black/40 bg-chrome text-chrome-ink">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-4 px-4 sm:px-6">
           <Link to="/" className="shrink-0" aria-label="Wally home">
-            <Wordmark />
+            <Wordmark tone="dark" />
           </Link>
 
           {items.length > 1 ? (
@@ -67,15 +65,21 @@ export function AppShell() {
                   to={n.to}
                   className={({ isActive }) =>
                     [
-                      'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                      'group inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-base ease-out',
                       isActive
-                        ? 'bg-surface text-ink'
-                        : 'text-steel hover:bg-surface/70 hover:text-graphite',
+                        ? 'bg-chrome-raised text-chrome-ink'
+                        : 'text-chrome-muted hover:bg-chrome-raised/70 hover:text-chrome-ink',
                     ].join(' ')
                   }
                 >
-                  <n.icon className="h-4 w-4" />
-                  {n.label}
+                  {({ isActive }) => (
+                    <>
+                      <n.icon
+                        className={`h-4 w-4 ${isActive ? 'text-gold-bright' : ''}`}
+                      />
+                      {n.label}
+                    </>
+                  )}
                 </NavLink>
               ))}
             </nav>
@@ -84,8 +88,10 @@ export function AppShell() {
           <div className="ml-auto flex items-center gap-3">
             {user ? (
               <div className="hidden text-right leading-tight sm:block">
-                <p className="text-sm font-medium text-ink">{user.name ?? user.email}</p>
-                <p className="text-[11px] uppercase tracking-brand text-steel">
+                <p className="text-sm font-medium text-chrome-ink">
+                  {user.name ?? user.email}
+                </p>
+                <p className="text-[11px] uppercase tracking-brand text-gold">
                   {roleLabel(user.role)}
                 </p>
               </div>
@@ -93,20 +99,20 @@ export function AppShell() {
             <Link
               to="/settings"
               aria-label="Settings"
-              className="grid h-9 w-9 place-items-center rounded-md text-steel hover:bg-surface hover:text-graphite"
+              className="grid h-9 w-9 place-items-center rounded-md text-chrome-muted transition-colors hover:bg-chrome-raised hover:text-chrome-ink"
             >
               <Settings className="h-4 w-4" />
             </Link>
-            <Button
-              variant="ghost"
-              size="sm"
+            <button
+              type="button"
               onClick={onSignOut}
-              loading={logout.isPending}
+              disabled={logout.isPending}
               aria-label="Sign out"
+              className="inline-flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-chrome-muted transition-colors hover:bg-chrome-raised hover:text-chrome-ink disabled:opacity-50"
             >
               <LogOut className="h-4 w-4" />
               <span className="hidden sm:inline">Sign out</span>
-            </Button>
+            </button>
           </div>
         </div>
       </header>
