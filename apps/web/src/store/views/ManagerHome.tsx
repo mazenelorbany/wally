@@ -119,9 +119,11 @@ export function ManagerHome() {
         <StatTile
           to="/store/sales"
           icon={Receipt}
-          label="Sales logged"
-          value={money(h.sales.totalRevenue)}
-          sub={`${h.sales.totalUnits.toLocaleString()} units`}
+          label="Sales today"
+          value={money(h.sales.today.totalRevenue)}
+          sub={`${h.sales.today.totalUnits.toLocaleString()} units · ${money(
+            h.sales.campaignToDate.totalRevenue,
+          )} to date`}
         />
       </div>
 
@@ -146,7 +148,7 @@ export function ManagerHome() {
                   to="/store/tasks"
                   className="flex items-center gap-3 rounded-lg border border-mist/60 bg-paper px-3.5 py-3 hover:border-steel"
                 >
-                  {t.seenAt ? null : (
+                  {t.seen ? null : (
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-signal" />
                   )}
                   <div className="min-w-0 flex-1">

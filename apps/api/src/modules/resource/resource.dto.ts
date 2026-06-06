@@ -9,6 +9,7 @@ export const CreateResourceSchema = z.object({
   title: z.string().trim().min(1).max(300),
   description: z.string().max(10_000).optional(),
   category: z.string().trim().max(120).optional(),
+  subtopic: z.string().trim().max(120).optional(),
   url: z.string().trim().url().max(2000).optional(),
   pinned: boolish.optional(),
 });
@@ -20,6 +21,7 @@ export const UpdateResourceSchema = z
     title: z.string().trim().min(1).max(300).optional(),
     description: z.string().max(10_000).optional(),
     category: z.string().trim().max(120).optional(),
+    subtopic: z.string().trim().max(120).optional(),
     url: z.string().trim().url().max(2000).nullable().optional(),
     pinned: z.boolean().optional(),
   })

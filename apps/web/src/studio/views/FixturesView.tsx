@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Boxes, Package, Plus, Search, Trash2 } from 'lucide-react';
+import { Boxes, Plus, Search, Trash2 } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -101,11 +101,8 @@ export function FixturesView() {
           {fixtures.map((f) => {
             const meta = fixtureKindMeta(f.kind);
             const Icon = meta.icon;
-            return (
-              <Card
-                key={f.id}
-                className="group relative flex items-start gap-3 p-4 transition-shadow duration-base ease-out hover:shadow-lift"
-              >
+            const inner = (
+              <>
                 <span
                   aria-hidden="true"
                   className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-surface text-graphite"
@@ -123,25 +120,40 @@ export function FixturesView() {
                     {meta.label}
                   </Badge>
                 </div>
+                {/* leave room for the corner delete button on admin cards */}
+                {isAdmin ? <span className="w-6 shrink-0" aria-hidden="true" /> : null}
+              </>
+            );
+            return (
+              <Card
+                key={f.id}
+                className="group relative p-0 transition-shadow duration-base ease-out hover:shadow-lift"
+              >
                 {isAdmin ? (
-                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                    <button
-                      type="button"
-                      onClick={() => setManaging(f)}
-                      aria-label={`Manage default products for ${f.name}`}
-                      className="rounded-md p-1.5 text-steel hover:bg-surface hover:text-ink focus:opacity-100 focus:outline-none"
-                    >
-                      <Package className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingDelete(f)}
-                      aria-label={`Remove ${f.name}`}
-                      className="rounded-md p-1.5 text-steel hover:bg-surface hover:text-fail focus:opacity-100 focus:outline-none"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
+                  // The whole card opens the fixture (manage its default products).
+                  <button
+                    type="button"
+                    onClick={() => setManaging(f)}
+                    aria-label={`Open ${f.name} — manage default products`}
+                    className="flex w-full items-start gap-3 rounded-[inherit] p-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
+                  >
+                    {inner}
+                  </button>
+                ) : (
+                  <div className="flex items-start gap-3 p-4">{inner}</div>
+                )}
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPendingDelete(f);
+                    }}
+                    aria-label={`Remove ${f.name}`}
+                    className="absolute right-2 top-2 z-10 rounded-md p-1.5 text-steel opacity-0 transition-opacity hover:bg-surface hover:text-fail focus:opacity-100 focus:outline-none group-hover:opacity-100"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 ) : null}
               </Card>
             );

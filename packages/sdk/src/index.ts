@@ -34,9 +34,12 @@ import type {
   ProjectVenue,
   ManagerHome,
   ManagerFixture,
+  ManagerPreferences,
   SalesLog,
   TaskDto,
+  AdminTaskDto,
   TaskKind,
+  TaskStatus,
   FixtureCompliance,
   FixtureComplianceDetail,
   BulletinDto,
@@ -91,6 +94,14 @@ export interface CampaignSummary {
   key: string;
   name: string;
   status: string;
+  /** Window config — advisory; rendered in the list + Insights header. */
+  startsAt: string | null;
+  endsAt: string | null;
+  createdAt: string;
+  /** Lifecycle audit timestamps (when it went live / was closed / archived). */
+  activatedAt: string | null;
+  closedAt: string | null;
+  archivedAt: string | null;
   storeCount: number;
 }
 
@@ -210,6 +221,17 @@ export interface CreateCampaignBody {
   endsAt?: string;
 }
 
+/**
+ * Body for editing a campaign. `key` is immutable (the stable per-org handle),
+ * so it's intentionally absent. Dates are tri-state: omit = unchanged,
+ * `null` = clear, a value = set.
+ */
+export interface UpdateCampaignBody {
+  name?: string;
+  startsAt?: string | null;
+  endsAt?: string | null;
+}
+
 /** A campaign after create/activate (subset; the list adds storeCount). */
 export interface CampaignBrief {
   id: string;
@@ -255,6 +277,31 @@ export interface CreateTaskBody {
   body?: string;
   fixtureKey?: string;
   dueAt?: string;
+  /** Optionally narrow the task to one manager (else store-wide). */
+  assignedToId?: string;
+}
+
+/** Body for an admin assigning one task to MANY stores at once. */
+export interface BulkCreateTaskBody {
+  storeIds: string[];
+  kind: TaskKind;
+  title: string;
+  body?: string;
+  fixtureKey?: string;
+  dueAt?: string;
+}
+
+/** Body for an admin editing a task (title / body / due date / status). */
+export interface UpdateTaskBody {
+  title?: string;
+  body?: string | null;
+  dueAt?: string | null;
+  status?: TaskStatus;
+}
+
+/** Body for a manager patching their own notification preferences. */
+export interface UpdateManagerPreferencesBody {
+  notifyOnNewTask?: boolean;
 }
 
 /** Body for creating a bulletin (the file is sent separately as multipart). */
@@ -282,7 +329,10 @@ export interface UpdateBulletinBody {
 export interface CreateResourceBody {
   title: string;
   description?: string;
+  /** Topic (top-level grouping). */
   category?: string;
+  /** Sub-topic within the topic. */
+  subtopic?: string;
   /** External link; omit when uploading a file instead. */
   url?: string;
   pinned?: boolean;
@@ -293,6 +343,7 @@ export interface UpdateResourceBody {
   title?: string;
   description?: string;
   category?: string;
+  subtopic?: string;
   url?: string | null;
   pinned?: boolean;
 }
@@ -363,8 +414,18 @@ export interface WallyClient {
     bestInClass(campaignId: string): Promise<BestInClassItem[]>;
     /** Create a campaign (starts DRAFT). ADMIN. */
     create(body: CreateCampaignBody): Promise<CampaignBrief>;
-    /** Promote a campaign to ACTIVE (closes the prior active one). ADMIN. */
+    /** Edit a campaign's name / window (key is immutable). ADMIN. */
+    update(campaignId: string, body: UpdateCampaignBody): Promise<CampaignBrief>;
+    /** Promote a campaign to ACTIVE (closes the same project's active one). ADMIN. */
     activate(campaignId: string): Promise<CampaignBrief>;
+    /** Close an ACTIVE campaign (ACTIVE → CLOSED). ADMIN. */
+    close(campaignId: string): Promise<CampaignBrief>;
+    /** Reopen a CLOSED campaign (CLOSED → ACTIVE). ADMIN. */
+    reopen(campaignId: string): Promise<CampaignBrief>;
+    /** Soft-archive a campaign (hides it from the list). ADMIN. */
+    archive(campaignId: string): Promise<CampaignBrief>;
+    /** Hard-delete a campaign — only when it has no history (else 409). ADMIN. */
+    remove(campaignId: string): Promise<void>;
   };
   /** Toggle the best-in-class flag on a store execution photo. */
   photos: {
@@ -503,9 +564,17 @@ export interface WallyClient {
   manager: {
     home(storeId?: string): Promise<ManagerHome>;
     tasks(storeId?: string): Promise<TaskDto[]>;
-    completeTask(taskId: string): Promise<void>;
-    /** Mark every open task as seen (clears the notification badge). */
+    completeTask(taskId: string, storeId?: string): Promise<void>;
+    /** Reopen a completed task (DONE → OPEN) — recover a mis-tapped completion. */
+    reopenTask(taskId: string, storeId?: string): Promise<void>;
+    /** Mark every open task as seen for me (clears MY notification badge). */
     markTasksSeen(storeId?: string): Promise<void>;
+    /** My own notification preferences. */
+    preferences(): Promise<ManagerPreferences>;
+    /** Patch my notification preferences. */
+    updatePreferences(
+      body: UpdateManagerPreferencesBody,
+    ): Promise<ManagerPreferences>;
     fixtures(storeId?: string): Promise<ManagerFixture[]>;
     products(storeId?: string): Promise<ProductDto[]>;
     /** Sales for one day (defaults to today). `date` is 'YYYY-MM-DD'. */
@@ -531,9 +600,15 @@ export interface WallyClient {
       storeId?: string,
     ): Promise<FixtureComplianceDetail>;
   };
-  /** ADMIN — assign a task to a store's manager. */
+  /** ADMIN — assign / list / edit / cancel store tasks. */
   adminTasks: {
     create(storeId: string, body: CreateTaskBody): Promise<TaskDto>;
+    /** Assign one task to many stores at once (the bulk "assign to all"). */
+    bulkCreate(body: BulkCreateTaskBody): Promise<{ created: number }>;
+    /** The org's tasks (optionally one store) for the Studio task view. */
+    list(storeId?: string): Promise<AdminTaskDto[]>;
+    update(id: string, body: UpdateTaskBody): Promise<TaskDto>;
+    remove(id: string): Promise<void>;
   };
   /** Admin: user & role management. */
   adminUsers: {
@@ -714,10 +789,29 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           `campaigns/${encodeURIComponent(campaignId)}/best-in-class`,
         ),
       create: (body) => post<CampaignBrief>("campaigns", body),
+      update: (campaignId, body) =>
+        patch<CampaignBrief>(
+          `campaigns/${encodeURIComponent(campaignId)}`,
+          body,
+        ),
       activate: (campaignId) =>
         post<CampaignBrief>(
           `campaigns/${encodeURIComponent(campaignId)}/activate`,
         ),
+      close: (campaignId) =>
+        post<CampaignBrief>(
+          `campaigns/${encodeURIComponent(campaignId)}/close`,
+        ),
+      reopen: (campaignId) =>
+        post<CampaignBrief>(
+          `campaigns/${encodeURIComponent(campaignId)}/reopen`,
+        ),
+      archive: (campaignId) =>
+        post<CampaignBrief>(
+          `campaigns/${encodeURIComponent(campaignId)}/archive`,
+        ),
+      remove: (campaignId) =>
+        del<void>(`campaigns/${encodeURIComponent(campaignId)}`),
     },
     photos: {
       setBestInClass: (photoId, value) =>
@@ -873,10 +967,19 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         get<ManagerHome>(`manager/home${query({ storeId })}`),
       tasks: (storeId) =>
         get<TaskDto[]>(`manager/tasks${query({ storeId })}`),
-      completeTask: (taskId) =>
-        post<void>(`manager/tasks/${encodeURIComponent(taskId)}/complete`),
+      completeTask: (taskId, storeId) =>
+        post<void>(
+          `manager/tasks/${encodeURIComponent(taskId)}/complete${query({ storeId })}`,
+        ),
+      reopenTask: (taskId, storeId) =>
+        post<void>(
+          `manager/tasks/${encodeURIComponent(taskId)}/reopen${query({ storeId })}`,
+        ),
       markTasksSeen: (storeId) =>
         post<void>(`manager/tasks/seen${query({ storeId })}`),
+      preferences: () => get<ManagerPreferences>("manager/preferences"),
+      updatePreferences: (body) =>
+        patch<ManagerPreferences>("manager/preferences", body),
       fixtures: (storeId) =>
         get<ManagerFixture[]>(`manager/fixtures${query({ storeId })}`),
       products: (storeId) =>
@@ -910,6 +1013,13 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           `admin/stores/${encodeURIComponent(storeId)}/tasks`,
           body,
         ),
+      bulkCreate: (body) =>
+        post<{ created: number }>("admin/tasks/bulk", body),
+      list: (storeId) =>
+        get<AdminTaskDto[]>(`admin/tasks${query({ storeId })}`),
+      update: (id, body) =>
+        patch<TaskDto>(`admin/tasks/${encodeURIComponent(id)}`, body),
+      remove: (id) => del<void>(`admin/tasks/${encodeURIComponent(id)}`),
     },
     adminUsers: {
       list: () => get<UserDto[]>("admin/users"),
@@ -957,6 +1067,7 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         if (body.description !== undefined)
           form.append("description", body.description);
         if (body.category !== undefined) form.append("category", body.category);
+        if (body.subtopic !== undefined) form.append("subtopic", body.subtopic);
         if (body.url) form.append("url", body.url);
         if (body.pinned !== undefined) form.append("pinned", String(body.pinned));
         if (file) form.append("file", file);
@@ -988,10 +1099,12 @@ export type {
   MoneyFixture,
   ManagerHome,
   ManagerFixture,
+  ManagerPreferences,
   SalesLog,
   SalesLine,
   SalesFixtureGroup,
   TaskDto,
+  AdminTaskDto,
   TaskKind,
   TaskStatus,
   FixtureCompliance,

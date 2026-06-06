@@ -15,6 +15,7 @@ import { StorageService } from '../storage/storage.service';
 // no read receipts. Each item is either an external link OR an uploaded file.
 // =============================================================================
 
+// (topic = category, sub-topic = subtopic; see schema.prisma Resource model)
 @Injectable()
 export class ResourceService {
   constructor(
@@ -22,13 +23,14 @@ export class ResourceService {
     private readonly storage: StorageService,
   ) {}
 
-  /** The whole library for the org: pinned first, then by category, then order. */
+  /** The library for the org: pinned first, then topic → sub-topic → order. */
   async list(orgId: string): Promise<ResourceDto[]> {
     const resources = await this.prisma.resource.findMany({
       where: { orgId },
       orderBy: [
         { pinned: 'desc' },
         { category: 'asc' },
+        { subtopic: 'asc' },
         { order: 'asc' },
         { createdAt: 'desc' },
       ],
@@ -43,6 +45,7 @@ export class ResourceService {
       title: string;
       description?: string;
       category?: string;
+      subtopic?: string;
       url?: string;
       pinned?: boolean;
     },
@@ -66,6 +69,7 @@ export class ResourceService {
         title: dto.title,
         description: dto.description ?? '',
         category: dto.category?.trim() || 'General',
+        subtopic: dto.subtopic?.trim() ?? '',
         url: dto.url ?? null,
         attachmentKey,
         attachmentName,
@@ -83,6 +87,7 @@ export class ResourceService {
       title?: string;
       description?: string;
       category?: string;
+      subtopic?: string;
       url?: string | null;
       pinned?: boolean;
     },
@@ -98,6 +103,7 @@ export class ResourceService {
     if (dto.title !== undefined) data.title = dto.title;
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.category !== undefined) data.category = dto.category.trim() || 'General';
+    if (dto.subtopic !== undefined) data.subtopic = dto.subtopic.trim();
     if (dto.url !== undefined) data.url = dto.url;
     if (dto.pinned !== undefined) data.pinned = dto.pinned;
 
@@ -127,6 +133,7 @@ export class ResourceService {
       title: r.title,
       description: r.description,
       category: r.category,
+      subtopic: r.subtopic,
       url: r.url ?? null,
       attachmentUrl: r.attachmentKey
         ? this.storage.signedGetUrl(r.attachmentKey)

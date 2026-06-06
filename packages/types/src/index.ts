@@ -375,10 +375,38 @@ export interface TaskDto {
   /** For UPLOAD_PHOTO: the fixture whose photo is wanted. */
   fixtureKey?: string | null;
   dueAt?: string | null;
-  /** When the manager first opened it — null means unread (badge). */
-  seenAt?: string | null;
+  /**
+   * Whether the CURRENT viewer has seen this task (per-user, from TaskRead).
+   * `false` means it's unread for them — the dot/badge. Computed for the
+   * requesting user, so a co-manager's read state never leaks across.
+   */
+  seen?: boolean;
   completedAt?: string | null;
+  /** Who completed it (display name), when DONE. */
+  completedByName?: string | null;
+  /** The individual manager it's assigned to (display name), if narrowed. */
+  assignedToName?: string | null;
   createdAt: string;
+}
+
+/** Body for an admin editing a task (title / body / due date / status). */
+export interface UpdateTaskBody {
+  title?: string;
+  body?: string | null;
+  dueAt?: string | null;
+  status?: TaskStatus;
+}
+
+/** One row of the admin's task list (a store task with its store name). */
+export interface AdminTaskDto extends TaskDto {
+  storeId: string;
+  storeName: string;
+}
+
+/** The store manager's own notification preferences. */
+export interface ManagerPreferences {
+  /** Alert (badge) on newly-assigned tasks. */
+  notifyOnNewTask: boolean;
 }
 
 /**
@@ -394,10 +422,23 @@ export interface ManagerHome {
   campaignName: string;
   department?: Department | null;
   openTasks: number;
-  /** Tasks the manager hasn't opened yet — the red bell count. */
+  /** Tasks THIS manager hasn't opened yet (per-user) — the red bell count. */
   unseenTasks: number;
+  /** OPEN tasks whose dueAt is in the past — the overdue count. */
+  overdueTasks: number;
   checklist: { total: number; done: number };
-  sales: { totalRevenue: number; totalUnits: number; loggedProducts: number };
+  /**
+   * Sales snapshot for the manager home tile. `today` matches what the linked
+   * Sales Log opens to (the current UTC day), `campaignToDate` is the running
+   * campaign total — the tile shows both, clearly labelled, so neither figure is
+   * ambiguous against the day-scoped log. `loggedProducts` is the DISTINCT count
+   * of products with logged units campaign-to-date.
+   */
+  sales: {
+    today: { totalRevenue: number; totalUnits: number };
+    campaignToDate: { totalRevenue: number; totalUnits: number };
+    loggedProducts: number;
+  };
   tasks: TaskDto[];
 }
 
@@ -569,13 +610,15 @@ export interface BulletinAckRow {
 /* RESOURCES — the org's training & reference library (org-wide, no receipts)   */
 /* -------------------------------------------------------------------------- */
 
-/** A training/reference item: a category-grouped link OR uploaded file. */
+/** A training/reference item: a topic/sub-topic-filed link OR uploaded file. */
 export interface ResourceDto {
   id: string;
   title: string;
   description: string;
-  /** Free-text grouping (e.g. "VM Standards", "Product Knowledge", "Safety"). */
+  /** TOPIC — the top-level grouping (e.g. "VM Standards", "Product Knowledge"). */
   category: string;
+  /** SUB-TOPIC within the topic (e.g. "Knife wall", "Cookware"). "" = none. */
+  subtopic: string;
   /** External link (video, doc, brand site) — set when this is a link resource. */
   url?: string | null;
   /** Signed, time-limited URL to the uploaded file (never the raw key). */

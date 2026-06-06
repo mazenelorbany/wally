@@ -726,11 +726,13 @@ async function seedResources(ctx: {
     id: string;
     title: string;
     description: string;
-    category: string;
+    category: string; // topic
+    subtopic?: string;
     url: string;
     pinned?: boolean;
     order?: number;
   }[] = [
+    // ── VM Standards ────────────────────────────────────────────────────────
     {
       id: 'seed-resource-vm-guide',
       title: 'MSP2 2026 — full VM guide',
@@ -746,15 +748,35 @@ async function seedResources(ctx: {
       description:
         'How the TCC knife wall must be built: magnets across the top, loose knives facing the cabinet, A7 sharps warning in the 2nd cabinet far-left.',
       category: 'VM Standards',
+      subtopic: 'Knife wall',
       url: 'https://www.baccarat.com.au/',
-      order: 1,
     },
+    {
+      id: 'seed-resource-vm-tables-standard',
+      title: 'VM table layouts — Le Con / NOOK / iD3',
+      description:
+        'The three hero promo tables for this sale: which range leads each table, build order, and the end-cap placement.',
+      category: 'VM Standards',
+      subtopic: 'VM tables',
+      url: 'https://www.baccarat.com.au/',
+    },
+    {
+      id: 'seed-resource-ticketing-standard',
+      title: 'Ticketing & pricing standard',
+      description:
+        'RRP vs sale ticketing across the floor, acrylic stands, and the no-mixed-pricing rule between sale phases.',
+      category: 'VM Standards',
+      subtopic: 'Ticketing',
+      url: 'https://www.baccarat.com.au/',
+    },
+    // ── Product Knowledge ───────────────────────────────────────────────────
     {
       id: 'seed-resource-id3',
       title: 'Baccarat iD3 knife range — overview',
       description:
         'Product knowledge for the new iD3 range: materials, the blocks in the range, and the headline selling points for customers.',
       category: 'Product Knowledge',
+      subtopic: 'Knives',
       url: 'https://www.baccarat.com.au/',
     },
     {
@@ -763,14 +785,26 @@ async function seedResources(ctx: {
       description:
         'The hero cookware range for this sale. Construction, the pieces in the set, and care instructions to share with customers.',
       category: 'Product Knowledge',
+      subtopic: 'Cookware',
       url: 'https://www.baccarat.com.au/',
     },
+    {
+      id: 'seed-resource-electricals',
+      title: 'Electrical range — KitchenAid & appliances',
+      description:
+        'Key talking points for the electrical stands: the KA range, what is on promotion, and the demo do’s and don’ts.',
+      category: 'Product Knowledge',
+      subtopic: 'Electricals',
+      url: 'https://www.baccarat.com.au/',
+    },
+    // ── How-to ──────────────────────────────────────────────────────────────
     {
       id: 'seed-resource-acrylic-tickets',
       title: 'How to set an acrylic RRP ticket',
       description:
         'Step-by-step: white RRP A7 ticket in the acrylic in front of the block; sale ticket slipped in front of the RRP when on promotion.',
       category: 'How-to',
+      subtopic: 'Ticketing',
       url: 'https://www.baccarat.com.au/',
     },
     {
@@ -779,22 +813,36 @@ async function seedResources(ctx: {
       description:
         'A walk-through of building the full TCC wall from empty bays to a finished, ticketed display.',
       category: 'How-to',
+      subtopic: 'Knife wall',
       url: 'https://www.baccarat.com.au/',
     },
+    // ── Safety ──────────────────────────────────────────────────────────────
     {
       id: 'seed-resource-sharps-safety',
       title: 'A7 sharps warning — display & handling',
       description:
         'Where the sharps warning goes, and safe handling of loose knives on the floor. Required reading before you set the knife wall.',
       category: 'Safety',
+      subtopic: 'Knife handling',
       url: 'https://www.baccarat.com.au/',
     },
+    // ── Onboarding ──────────────────────────────────────────────────────────
     {
       id: 'seed-resource-onboarding',
       title: 'New store manager — first-week checklist',
       description:
         'Everything a new manager needs in week one: logging in, reading bulletins, the floor map, logging sales, and the photo-compliance cadence.',
       category: 'Onboarding',
+      subtopic: 'Week one',
+      url: 'https://www.baccarat.com.au/',
+    },
+    {
+      id: 'seed-resource-systems',
+      title: 'Wally systems walkthrough',
+      description:
+        'How to use Wally day to day: the floor map photo-compliance loop, logging sales by product, tasks, and bulletins.',
+      category: 'Onboarding',
+      subtopic: 'Systems',
       url: 'https://www.baccarat.com.au/',
     },
   ];
@@ -806,6 +854,7 @@ async function seedResources(ctx: {
       title: r.title,
       description: r.description,
       category: r.category,
+      subtopic: r.subtopic ?? '',
       url: r.url,
       pinned: r.pinned ?? false,
       order: r.order ?? 0,
@@ -1323,8 +1372,11 @@ async function seedManagerWorkspace(ctx: {
         title: t.title,
         body: t.body ?? null,
         fixtureKey: t.fixtureKey ?? null,
-        seenAt: t.seen ? new Date('2026-06-02T09:00:00Z') : null,
       };
+      // The "seen" badge is now per-user (TaskRead), so it can't be seeded as a
+      // shared column. A fresh manager sees every seeded task as unread — the
+      // honest default — and reading clears their own badge only.
+      void t.seen;
       await prisma.task.upsert({ where: { id }, update: data, create: { id, ...data } });
       taskCount++;
     }

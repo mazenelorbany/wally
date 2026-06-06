@@ -1,8 +1,11 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ChevronLeft,
+  ChevronRight,
   ExternalLink,
   FileText,
+  FolderOpen,
   GraduationCap,
   Link as LinkIcon,
   Paperclip,
@@ -21,10 +24,58 @@ import { api, errorMessage } from '../../lib/api';
 import { useSetStudioTopBar } from '../components/StudioContext';
 import { useProject } from '../ProjectContext';
 
+const SUGGESTED_TOPICS = [
+  'VM Standards',
+  'Product Knowledge',
+  'How-to',
+  'Safety',
+  'Brand',
+  'Onboarding',
+];
+
+interface TopicSummary {
+  topic: string;
+  count: number;
+  subtopics: string[];
+}
+
+function buildTopics(resources: ResourceDto[]): TopicSummary[] {
+  const map = new Map<string, { count: number; subs: Set<string> }>();
+  for (const r of resources) {
+    const e = map.get(r.category) ?? { count: 0, subs: new Set<string>() };
+    e.count += 1;
+    if (r.subtopic) e.subs.add(r.subtopic);
+    map.set(r.category, e);
+  }
+  return [...map.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([topic, e]) => ({
+      topic,
+      count: e.count,
+      subtopics: [...e.subs].sort((a, b) => a.localeCompare(b)),
+    }));
+}
+
+/** Group a topic's resources into sub-topic → items ("" bucket first). */
+function bySubtopic(resources: ResourceDto[]) {
+  const map = new Map<string, ResourceDto[]>();
+  for (const r of resources) {
+    const arr = map.get(r.subtopic) ?? [];
+    arr.push(r);
+    map.set(r.subtopic, arr);
+  }
+  return [...map.entries()].sort((a, b) => {
+    if (a[0] === '') return -1;
+    if (b[0] === '') return 1;
+    return a[0].localeCompare(b[0]);
+  });
+}
+
 export function ResourcesView() {
   const { project } = useProject();
   const qc = useQueryClient();
   const [creating, setCreating] = React.useState(false);
+  const [topic, setTopic] = React.useState<string | null>(null);
 
   useSetStudioTopBar({ guideName: 'Training & Resources', stores: [] });
 
@@ -36,21 +87,88 @@ export function ResourcesView() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ['studio', 'resources'] });
 
   const resources = resourcesQ.data ?? [];
-  const categories = React.useMemo(
+  const topics = React.useMemo(
     () => [...new Set(resources.map((r) => r.category))].sort(),
     [resources],
   );
-  // Group by category, pinned section first (pinned items already sorted to top).
-  const grouped = React.useMemo(() => {
-    const pinned = resources.filter((r) => r.pinned);
-    const byCat = new Map<string, ResourceDto[]>();
-    for (const r of resources.filter((x) => !x.pinned)) {
-      const arr = byCat.get(r.category) ?? [];
-      arr.push(r);
-      byCat.set(r.category, arr);
-    }
-    return { pinned, byCat: [...byCat.entries()].sort((a, b) => a[0].localeCompare(b[0])) };
-  }, [resources]);
+  const subtopics = React.useMemo(
+    () => [...new Set(resources.map((r) => r.subtopic).filter(Boolean))].sort(),
+    [resources],
+  );
+
+  // ── Topic detail (manage one topic) ───────────────────────────────────────
+  if (topic) {
+    const topicResources = resources.filter((r) => r.category === topic);
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-8">
+        <button
+          type="button"
+          onClick={() => {
+            setTopic(null);
+            setCreating(false);
+          }}
+          className="mb-3 inline-flex items-center gap-1 text-xs font-medium text-steel hover:text-ink"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" /> All topics
+        </button>
+        <header className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight text-ink">
+              <GraduationCap className="h-5 w-5 text-graphite" /> {topic}
+            </h1>
+            <p className="mt-1 text-sm text-steel">
+              {topicResources.length} resource{topicResources.length === 1 ? '' : 's'} in this topic.
+            </p>
+          </div>
+          <Button onClick={() => setCreating((v) => !v)} variant={creating ? 'outline' : undefined}>
+            {creating ? 'Cancel' : (<><Plus className="h-4 w-4" /> Add resource</>)}
+          </Button>
+        </header>
+
+        {creating ? (
+          <NewResourceForm
+            topics={topics}
+            subtopics={subtopics}
+            presetTopic={topic}
+            onDone={() => {
+              setCreating(false);
+              void invalidate();
+            }}
+          />
+        ) : null}
+
+        <div className="space-y-6">
+          {bySubtopic(topicResources).map(([subtopic, items]) => (
+            <section key={subtopic || '__none__'}>
+              {subtopic ? (
+                <div className="mb-2.5 flex items-center gap-2.5">
+                  <h2 className="text-xs font-semibold uppercase tracking-brand text-steel">
+                    {subtopic}
+                  </h2>
+                  <div className="h-px flex-1 bg-mist/60" />
+                </div>
+              ) : null}
+              <div className="space-y-3">
+                {items.map((r) => (
+                  <ResourceCard
+                    key={r.id}
+                    resource={r}
+                    topics={topics}
+                    subtopics={subtopics}
+                    onChanged={invalidate}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Topic index ───────────────────────────────────────────────────────────
+  const topicList = buildTopics(resources);
+  const pinned = resources.filter((r) => r.pinned);
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
@@ -63,7 +181,7 @@ export function ResourcesView() {
             <GraduationCap className="h-5 w-5 text-graphite" /> Training &amp; Resources
           </h1>
           <p className="mt-1 text-sm text-steel">
-            The shared library every store draws on — guides, videos, brand docs, how-tos.
+            The shared library every store draws on — organised by topic and sub-topic.
           </p>
         </div>
         <Button onClick={() => setCreating((v) => !v)} variant={creating ? 'outline' : undefined}>
@@ -73,7 +191,8 @@ export function ResourcesView() {
 
       {creating ? (
         <NewResourceForm
-          categories={categories}
+          topics={topics}
+          subtopics={subtopics}
           onDone={() => {
             setCreating(false);
             void invalidate();
@@ -95,61 +214,72 @@ export function ResourcesView() {
         </div>
       ) : (
         <div className="space-y-7">
-          {grouped.pinned.length > 0 ? (
-            <CategorySection
-              label="Pinned"
-              items={grouped.pinned}
-              categories={categories}
-              onChanged={invalidate}
-            />
+          {pinned.length > 0 ? (
+            <section>
+              <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-brand text-steel">
+                Pinned
+              </p>
+              <div className="space-y-3">
+                {pinned.map((r) => (
+                  <ResourceCard
+                    key={r.id}
+                    resource={r}
+                    topics={topics}
+                    subtopics={subtopics}
+                    onChanged={invalidate}
+                  />
+                ))}
+              </div>
+            </section>
           ) : null}
-          {grouped.byCat.map(([cat, items]) => (
-            <CategorySection
-              key={cat}
-              label={cat}
-              items={items}
-              categories={categories}
-              onChanged={invalidate}
-            />
-          ))}
+
+          <section>
+            <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-brand text-steel">
+              Topics
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {topicList.map((t) => (
+                <button
+                  key={t.topic}
+                  type="button"
+                  onClick={() => setTopic(t.topic)}
+                  className="group flex w-full items-start gap-3 rounded-xl border border-mist/70 bg-paper p-4 text-left transition-colors hover:border-steel hover:shadow-card"
+                >
+                  <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-surface text-graphite">
+                    <FolderOpen className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-display text-base font-semibold text-ink">{t.topic}</h3>
+                    <p className="mt-0.5 text-xs text-steel">
+                      {t.count} resource{t.count === 1 ? '' : 's'}
+                      {t.subtopics.length > 0 ? ` · ${t.subtopics.length} sub-topics` : ''}
+                    </p>
+                    {t.subtopics.length > 0 ? (
+                      <p className="mt-1.5 truncate text-xs text-graphite">
+                        {t.subtopics.join(' · ')}
+                      </p>
+                    ) : null}
+                  </div>
+                  <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-mist transition-colors group-hover:text-steel" />
+                </button>
+              ))}
+            </div>
+          </section>
         </div>
       )}
     </div>
   );
 }
 
-function CategorySection({
-  label,
-  items,
-  categories,
-  onChanged,
-}: {
-  label: string;
-  items: ResourceDto[];
-  categories: string[];
-  onChanged: () => void;
-}) {
-  return (
-    <section>
-      <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-brand text-steel">
-        {label}
-      </p>
-      <div className="space-y-3">
-        {items.map((r) => (
-          <ResourceCard key={r.id} resource={r} categories={categories} onChanged={onChanged} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function ResourceCard({
   resource: r,
-  categories,
+  topics,
+  subtopics,
   onChanged,
 }: {
   resource: ResourceDto;
-  categories: string[];
+  topics: string[];
+  subtopics: string[];
   onChanged: () => void;
 }) {
   const [editing, setEditing] = React.useState(false);
@@ -169,7 +299,8 @@ function ResourceCard({
     return (
       <EditResourceForm
         resource={r}
-        categories={categories}
+        topics={topics}
+        subtopics={subtopics}
         onDone={() => {
           setEditing(false);
           onChanged();
@@ -190,8 +321,12 @@ function ResourceCard({
             {r.pinned ? <Pin className="h-3.5 w-3.5 shrink-0 text-signal" /> : null}
             <h3 className="truncate font-display text-base font-semibold text-ink">{r.title}</h3>
           </div>
+          <p className="mt-0.5 text-[11px] uppercase tracking-brand text-steel">
+            {r.category}
+            {r.subtopic ? <span className="text-mist"> · {r.subtopic}</span> : null}
+          </p>
           {r.description ? (
-            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-graphite">
+            <p className="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-graphite">
               {r.description}
             </p>
           ) : null}
@@ -232,25 +367,21 @@ function ResourceCard({
   );
 }
 
-const SUGGESTED_CATEGORIES = [
-  'VM Standards',
-  'Product Knowledge',
-  'How-to',
-  'Safety',
-  'Brand',
-  'Onboarding',
-];
-
 function NewResourceForm({
-  categories,
+  topics,
+  subtopics,
+  presetTopic,
   onDone,
 }: {
-  categories: string[];
+  topics: string[];
+  subtopics: string[];
+  presetTopic?: string;
   onDone: () => void;
 }) {
   const [title, setTitle] = React.useState('');
   const [description, setDescription] = React.useState('');
-  const [category, setCategory] = React.useState('');
+  const [topic, setTopic] = React.useState(presetTopic ?? '');
+  const [subtopic, setSubtopic] = React.useState('');
   const [mode, setMode] = React.useState<'link' | 'file'>('link');
   const [url, setUrl] = React.useState('');
   const [file, setFile] = React.useState<File | null>(null);
@@ -262,7 +393,8 @@ function NewResourceForm({
         {
           title: title.trim(),
           description: description.trim() || undefined,
-          category: category.trim() || undefined,
+          category: topic.trim() || undefined,
+          subtopic: subtopic.trim() || undefined,
           url: mode === 'link' && url.trim() ? url.trim() : undefined,
           pinned,
         },
@@ -271,16 +403,20 @@ function NewResourceForm({
     onSuccess: onDone,
   });
 
-  const datalistId = 'resource-categories';
-  const allCats = [...new Set([...categories, ...SUGGESTED_CATEGORIES])];
+  const topicList = [...new Set([...topics, ...SUGGESTED_TOPICS])];
   const canSave =
     title.trim().length > 0 &&
     (mode === 'link' ? url.trim().length > 0 : Boolean(file));
 
   return (
     <Card className="mb-6 p-5">
-      <datalist id={datalistId}>
-        {allCats.map((c) => (
+      <datalist id="resource-topics">
+        {topicList.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+      <datalist id="resource-subtopics">
+        {subtopics.map((c) => (
           <option key={c} value={c} />
         ))}
       </datalist>
@@ -298,13 +434,32 @@ function NewResourceForm({
         placeholder="What it covers and when to use it (optional)"
         className="field mb-2.5 resize-y"
       />
-      <input
-        list={datalistId}
-        value={category}
-        onChange={(e) => setCategory(e.target.value)}
-        placeholder="Category (e.g. VM Standards)"
-        className="field mb-3"
-      />
+      <div className="mb-3 grid grid-cols-2 gap-2.5">
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium uppercase tracking-brand text-steel">
+            Topic
+          </span>
+          <input
+            list="resource-topics"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="e.g. VM Standards"
+            className="field"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium uppercase tracking-brand text-steel">
+            Sub-topic
+          </span>
+          <input
+            list="resource-subtopics"
+            value={subtopic}
+            onChange={(e) => setSubtopic(e.target.value)}
+            placeholder="e.g. Knife wall (optional)"
+            className="field"
+          />
+        </label>
+      </div>
 
       {/* Link vs file toggle */}
       <div className="mb-3 inline-flex rounded-md border border-mist/70 p-0.5 text-xs">
@@ -380,18 +535,21 @@ function NewResourceForm({
 
 function EditResourceForm({
   resource: r,
-  categories,
+  topics,
+  subtopics,
   onDone,
   onCancel,
 }: {
   resource: ResourceDto;
-  categories: string[];
+  topics: string[];
+  subtopics: string[];
   onDone: () => void;
   onCancel: () => void;
 }) {
   const [title, setTitle] = React.useState(r.title);
   const [description, setDescription] = React.useState(r.description);
-  const [category, setCategory] = React.useState(r.category);
+  const [topic, setTopic] = React.useState(r.category);
+  const [subtopic, setSubtopic] = React.useState(r.subtopic);
   const [url, setUrl] = React.useState(r.url ?? '');
 
   const save = useMutation({
@@ -399,8 +557,8 @@ function EditResourceForm({
       api.resources.update(r.id, {
         title: title.trim(),
         description: description.trim(),
-        category: category.trim() || undefined,
-        // Only resources that were links can edit their URL inline.
+        category: topic.trim() || undefined,
+        subtopic: subtopic.trim(),
         ...(r.url !== null && r.url !== undefined
           ? { url: url.trim() ? url.trim() : null }
           : {}),
@@ -408,13 +566,17 @@ function EditResourceForm({
     onSuccess: onDone,
   });
 
-  const datalistId = 'resource-categories-edit';
-  const allCats = [...new Set([...categories, ...SUGGESTED_CATEGORIES])];
+  const topicList = [...new Set([...topics, ...SUGGESTED_TOPICS])];
 
   return (
     <Card className="p-4">
-      <datalist id={datalistId}>
-        {allCats.map((c) => (
+      <datalist id="resource-topics-edit">
+        {topicList.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+      <datalist id="resource-subtopics-edit">
+        {subtopics.map((c) => (
           <option key={c} value={c} />
         ))}
       </datalist>
@@ -431,13 +593,22 @@ function EditResourceForm({
         placeholder="Description (optional)"
         className="field mb-2.5 resize-y"
       />
-      <input
-        list={datalistId}
-        value={category}
-        onChange={(e) => setCategory(e.target.value)}
-        placeholder="Category"
-        className="field mb-2.5"
-      />
+      <div className="mb-2.5 grid grid-cols-2 gap-2.5">
+        <input
+          list="resource-topics-edit"
+          value={topic}
+          onChange={(e) => setTopic(e.target.value)}
+          placeholder="Topic"
+          className="field"
+        />
+        <input
+          list="resource-subtopics-edit"
+          value={subtopic}
+          onChange={(e) => setSubtopic(e.target.value)}
+          placeholder="Sub-topic (optional)"
+          className="field"
+        />
+      </div>
       {r.url !== null && r.url !== undefined ? (
         <input
           value={url}
