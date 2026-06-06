@@ -27,6 +27,18 @@ export interface Rubric {
   criteria: Criterion[];
   rollupRule: RollupRule;
   referenceKey?: string | null;
+  /**
+   * Signed, time-limited URL to preview the reference image (never the raw key).
+   * Null/absent when no reference is set for this version.
+   */
+  referenceUrl?: string | null;
+  /**
+   * True when this is the live grading version for (campaign, fixtureKey) — the
+   * row the scorer resolves. Exactly one version per pair is active once a
+   * publish/activate has run; legacy/seeded rows are all false (the scorer falls
+   * back to the highest version when none is flagged).
+   */
+  active: boolean;
   /** Stable stamp, e.g. "storefront.MSP2-2026.v1". */
   rubricVersion: string;
 }
@@ -103,9 +115,23 @@ export interface ComplianceTurnaround {
   medianReviewMinutes: number | null;
   /** Reviews that overrode or escalated (i.e. required rework). */
   revisionCount: number;
+  /**
+   * The actionable backlog: NEEDS_REVIEW verdicts that have NO reviewer action
+   * yet. avgReviewMinutes only measures what WAS reviewed, so this is the honest
+   * "still waiting" count that the average hides.
+   */
+  awaitingReview: number;
+  /**
+   * Age in minutes of the oldest still-unreviewed NEEDS_REVIEW verdict (null
+   * when the backlog is empty) — how stale the queue's worst case is.
+   */
+  oldestPendingAgeMinutes: number | null;
   /** Stores with the most revisions, worst first. */
   mostRevised: { storeId: string; storeName: string; revisions: number }[];
 }
+
+/** How a trend point was authored — the nightly cron, or an admin "capture now". */
+export type SnapshotSource = "CRON" | "MANUAL";
 
 /** One day's compliance rollup for a campaign — a point on the trend chart. */
 export interface ComplianceTrendPoint {
@@ -113,6 +139,8 @@ export interface ComplianceTrendPoint {
   dateKey: string;
   /** ISO timestamp the snapshot was captured. */
   capturedAt: string;
+  /** Who wrote this point (CRON canonical; MANUAL = an admin "capture now"). */
+  source: SnapshotSource;
   storeCount: number;
   /** Stores in perfect + good. */
   onTrack: number;
@@ -151,10 +179,24 @@ export interface StoreDto {
   id: string;
   name: string;
   brand: string;
+  /** The project (venue group) this store belongs to; null = unassigned. */
+  projectId?: string | null;
   externalRef?: string | null;
   region?: string | null;
   areaManager?: string | null;
   storeType?: string | null;
+  /** Set when the store has been deactivated/retired; null = active. */
+  closedAt?: string | null;
+}
+
+/**
+ * The org's existing DISTINCT segmentation values (non-null, trimmed, sorted) —
+ * backs the store-directory comboboxes so "NSW" / "N.S.W." / "nsw" converge.
+ */
+export interface StoreSegments {
+  regions: string[];
+  storeTypes: string[];
+  areaManagers: string[];
 }
 
 export type Role = "ADMIN" | "REVIEWER" | "STORE_MANAGER" | "VIEWER";
@@ -178,6 +220,8 @@ export interface UserDto {
   storeName?: string | null;
   /** Deactivated by an admin — blocked from signing in. */
   disabled: boolean;
+  /** ISO timestamp of the last change to this user (role/store/disable edits). */
+  updatedAt: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -255,10 +299,20 @@ export interface ProductDto {
   id: string;
   sku: string;
   name: string;
+  /** Full retail title (from baccarat.com.au) — distinct from the VM label. */
+  webTitle?: string;
   brand?: string;
+  /** Baccarat range: "Le Connoisseur", "Nook", "Iconix"… */
+  range?: string;
   category?: string;
   color?: string;
   imageUrl?: string;
+  /** Recommended retail price. */
+  rrp?: number;
+  /** Current sale/ticket price — the per-unit price the sales log snapshots. */
+  salePrice?: number;
+  /** Set when the product has been archived (soft-deleted); null/absent = active. */
+  archivedAt?: string | null;
 }
 
 /** A product placed on a guide-fixture, carrying its placement (Merchandise) id. */
@@ -409,6 +463,12 @@ export interface ManagerPreferences {
   notifyOnNewTask: boolean;
 }
 
+/** The signed-in user's own account preferences (admin/reviewer Settings). */
+export interface MePreferences {
+  /** Receive the daily "store still owes photos" chase email. */
+  chaseEmails: boolean;
+}
+
 /**
  * The store manager's landing payload: their store, the active campaign, their
  * open work, capture progress, and a sales snapshot. Drives the manager home +
@@ -500,6 +560,22 @@ export type CaptureVerdict = "PASS" | "NEEDS_REVIEW" | "FAIL";
 /** Where a fixture sits in the capture loop. */
 export type ComplianceState = "todo" | "submitted" | "scored";
 
+/** One preserved shot in a fixture's capture history (newest first). */
+export interface CaptureAttempt {
+  id: string;
+  /** Signed thumbnail of this shot's photo. */
+  photoUrl?: string | null;
+  /** The AI verdict scored for this shot (null if it was never scored). */
+  verdict?: CaptureVerdict | null;
+  /** The model's compare notes for this shot. */
+  aiNotes?: string | null;
+  confidence?: number | null;
+  /** When this shot was taken (ISO). */
+  capturedAt: string;
+  /** Who took this shot (name or email), if known. */
+  capturedByName?: string | null;
+}
+
 /** One fixture's compliance status on the manager's floor map. */
 export interface FixtureCompliance {
   fixtureId: string;
@@ -509,7 +585,12 @@ export interface FixtureCompliance {
   /** A photo is wanted this sale (cycle default) or by a reviewer request. */
   needsPhoto: boolean;
   state: ComplianceState;
+  /** The AI's verdict for the current photo. */
   overall?: CaptureVerdict | null;
+  /** A reviewer's human override, if one was set (supersedes `overall`). */
+  overrideVerdict?: CaptureVerdict | null;
+  /** What money-map / floor / UI should show: `overrideVerdict ?? overall`. */
+  effectiveVerdict?: CaptureVerdict | null;
   hasReference: boolean;
   /** Floor-plan geometry, so the visualization can place this fixture. */
   x: number;
@@ -539,6 +620,8 @@ export interface ProjectDto {
   name: string;
   slug: string;
   kind: ProjectKind;
+  /** Set when the project has been archived (soft-deleted); null/absent = active. */
+  archivedAt?: string | null;
   /** The project's active guide campaign (the standard to set up + check against). */
   campaignId?: string | null;
   campaignKey?: string | null;
@@ -564,11 +647,36 @@ export interface FixtureComplianceDetail {
   /** The manager's submitted photo (signed URL). */
   myPhotoUrl?: string | null;
   state: ComplianceState;
+  /** The AI's verdict for the current photo. */
   overall?: CaptureVerdict | null;
   /** The model's compare notes for the manager. */
   aiNotes?: string | null;
   confidence?: number | null;
   scoredAt?: string | null;
+  /** A photo is wanted (cycle default) or has been re-requested by a reviewer. */
+  needsPhoto?: boolean;
+  /** A reviewer's human override, if one was set (supersedes `overall`). */
+  overrideVerdict?: CaptureVerdict | null;
+  /** Optional reviewer rationale captured with the override. */
+  overrideNote?: string | null;
+  /** Who set the override (name or email), and when (ISO). */
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
+  /** Who requested a re-shoot (name or email), and when (ISO). */
+  requestedByName?: string | null;
+  requestedAt?: string | null;
+  /** What money-map / floor / UI should show: `overrideVerdict ?? overall`. */
+  effectiveVerdict?: CaptureVerdict | null;
+  /** Every preserved shot for this fixture, newest first (the capture history). */
+  attempts: CaptureAttempt[];
+}
+
+/** Body for a reviewer overriding a fixture-capture's AI verdict. */
+export interface OverrideCaptureBody {
+  /** The human decision that supersedes the AI verdict. */
+  verdict: CaptureVerdict;
+  /** Optional rationale. */
+  note?: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -591,19 +699,38 @@ export interface BulletinDto {
   /** Null while a draft. */
   publishedAt?: string | null;
   createdAt: string;
-  /** Acknowledgement rollup (admin view): how many stores have acknowledged. */
+  /**
+   * Acknowledgement rollup (admin view): how many of the must-read managers have
+   * acknowledged. The denominator is the store-manager population in the project's
+   * active stores (every manager must read), not the store count.
+   */
   ackCount: number;
   ackTotal: number;
-  /** Whether the signed-in manager's store has acknowledged (manager view). */
+  /** Whether the signed-in manager (this user) has acknowledged (manager view). */
   acknowledged?: boolean;
+  /**
+   * Schedule state derived from startsAt/endsAt vs now (admin annotation):
+   *  - "scheduled": startsAt is in the future (not yet live)
+   *  - "live": within the [startsAt, endsAt] window (or unbounded)
+   *  - "expired": endsAt has passed
+   * Managers only ever see in-window ("live") bulletins; the admin list badges all
+   * three. A draft (no publishedAt) has no schedule state.
+   */
+  scheduleState?: BulletinScheduleState | null;
 }
 
-/** One store's acknowledgement state for a bulletin (the admin ack list). */
+export type BulletinScheduleState = 'scheduled' | 'live' | 'expired';
+
+/** One manager's acknowledgement state for a bulletin (the admin ack roster). */
 export interface BulletinAckRow {
   storeId: string;
   storeName: string;
   acknowledged: boolean;
   acknowledgedAt?: string | null;
+  /** Who acknowledged (the manager), when acknowledged — null while pending. */
+  userId?: string | null;
+  userName?: string | null;
+  userEmail?: string | null;
 }
 
 /* -------------------------------------------------------------------------- */

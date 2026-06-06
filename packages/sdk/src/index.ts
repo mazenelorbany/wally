@@ -9,6 +9,7 @@ import type {
   ScoreResult,
   StoreScore,
   StoreDto,
+  StoreSegments,
   OrgDto,
   UserDto,
   Rubric,
@@ -16,6 +17,7 @@ import type {
   RollupRule,
   ComplianceTurnaround,
   ComplianceTrendPoint,
+  SnapshotSource,
   BestInClassItem,
   SessionUser,
   Role,
@@ -23,6 +25,7 @@ import type {
   FixtureKind,
   FixtureUsage,
   FixtureDefaultProduct,
+  Department,
   FloorPlan,
   PlacedFixture,
   GuideFixtureDetail,
@@ -35,6 +38,7 @@ import type {
   ManagerHome,
   ManagerFixture,
   ManagerPreferences,
+  MePreferences,
   SalesLog,
   TaskDto,
   AdminTaskDto,
@@ -42,8 +46,10 @@ import type {
   TaskStatus,
   FixtureCompliance,
   FixtureComplianceDetail,
+  OverrideCaptureBody,
   BulletinDto,
   BulletinAckRow,
+  BulletinScheduleState,
   ResourceDto,
 } from "@wally/types";
 
@@ -87,6 +93,20 @@ export class ApiError extends Error {
 export interface MagicLinkResponse {
   /** Always true on success; the link itself is delivered out of band (email). */
   sent: boolean;
+}
+
+/**
+ * An OPTIONAL date window for the period-scoped analytics surfaces (queue,
+ * turnaround, trend). `from`/`to` are ISO timestamps; either bound may be
+ * omitted. When the whole window is absent the surface is all-time (the
+ * historical, backward-compatible behaviour) — existing callers pass nothing
+ * and get exactly what they got before.
+ */
+export interface DateWindow {
+  /** Inclusive lower bound (ISO). Omit for "since the beginning". */
+  from?: string;
+  /** Inclusive upper bound (ISO). Omit for "up to now". */
+  to?: string;
 }
 
 export interface CampaignSummary {
@@ -185,6 +205,46 @@ export interface PlacementMoveBody {
   rotation: number;
 }
 
+/**
+ * Body for PATCH /placements/:id — edit a placed fixture. Geometry plus the
+ * editable per-placement fields: `label` (inline rename), `order` (reorder the
+ * manager checklist), and `applicable` ("we don't have this fixture here"). Every
+ * field is optional, but the API requires at least one.
+ */
+export interface UpdatePlacementBody {
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  rotation?: number;
+  label?: string;
+  order?: number;
+  applicable?: boolean;
+}
+
+/** Body for editing a library fixture (rename / re-kind / re-classify). */
+export interface UpdateFixtureBody {
+  name?: string;
+  kind?: FixtureKind;
+  /** Myer department; `null` clears the classification. */
+  department?: Department | null;
+}
+
+/** Body for creating a library fixture. */
+export interface CreateFixtureBody {
+  name: string;
+  kind?: FixtureKind;
+  department?: Department;
+}
+
+/** Result of publishing a guide to its stores (publish & notify). */
+export interface PublishResult {
+  /** ISO timestamp the guide was published. */
+  publishedAt: string;
+  /** How many stores were notified (had a "floor plan ready" task fanned out). */
+  notified: number;
+}
+
 /** One shelf in a planogram-reorder payload: a label + its facings, left→right. */
 export interface PlanogramShelfInput {
   row: string;
@@ -211,6 +271,16 @@ export interface CreatePlacementBody {
 export interface CreateProjectBody {
   name: string;
   kind: ProjectKind;
+}
+
+/**
+ * Body for editing a project — rename and/or change its kind. Both fields are
+ * optional (send only what changed) but the API requires at least one. The
+ * `slug` is immutable (the stable per-org key), so it's intentionally absent.
+ */
+export interface UpdateProjectBody {
+  name?: string;
+  kind?: ProjectKind;
 }
 
 /** Body for creating a campaign (the guide period). */
@@ -244,6 +314,8 @@ export interface CampaignBrief {
 export interface CreateStoreBody {
   name: string;
   brand: string;
+  /** The project (venue group) this store belongs to. Must be in the org. */
+  projectId?: string;
   externalRef?: string;
   region?: string;
   areaManager?: string;
@@ -254,6 +326,8 @@ export interface CreateStoreBody {
 export type UpdateStoreBody = Partial<{
   name: string;
   brand: string;
+  /** Re-home the store to another in-org project, or null to detach it. */
+  projectId: string | null;
   externalRef: string | null;
   region: string | null;
   areaManager: string | null;
@@ -266,6 +340,42 @@ export interface ProductFilters {
   brand?: string;
   category?: string;
   color?: string;
+  /** Include archived (soft-deleted) products in the result. Default: hidden. */
+  includeArchived?: boolean;
+}
+
+/** Body for adding a product to the org catalog. `sku` is the unique key. */
+export interface CreateProductBody {
+  sku: string;
+  name: string;
+  webTitle?: string;
+  brand?: string;
+  range?: string;
+  category?: string;
+  color?: string;
+  imageUrl?: string;
+  /** Recommended retail price (non-negative). */
+  rrp?: number;
+  /** Current sale/ticket price (non-negative) — the sales-log unit price. */
+  salePrice?: number;
+}
+
+/**
+ * Body for editing a product — every field optional (send only what changed).
+ * `sku` is editable but still unique-checked (409 on collision). Text fields
+ * accept `null` to clear the column.
+ */
+export interface UpdateProductBody {
+  sku?: string;
+  name?: string;
+  webTitle?: string | null;
+  brand?: string | null;
+  range?: string | null;
+  category?: string | null;
+  color?: string | null;
+  imageUrl?: string | null;
+  rrp?: number | null;
+  salePrice?: number | null;
 }
 
 /* ---- STORE MANAGER ---- */
@@ -304,6 +414,11 @@ export interface UpdateManagerPreferencesBody {
   notifyOnNewTask?: boolean;
 }
 
+/** Body for the signed-in user patching their own account preferences. */
+export interface UpdateMePreferencesBody {
+  chaseEmails?: boolean;
+}
+
 /** Body for creating a bulletin (the file is sent separately as multipart). */
 export interface CreateBulletinBody {
   title: string;
@@ -315,7 +430,7 @@ export interface CreateBulletinBody {
   publish?: boolean;
 }
 
-/** Body for editing a bulletin. */
+/** Body for editing a bulletin (an optional replacement file is sent as multipart). */
 export interface UpdateBulletinBody {
   title?: string;
   body?: string;
@@ -323,6 +438,8 @@ export interface UpdateBulletinBody {
   endsAt?: string | null;
   pinned?: boolean;
   publish?: boolean;
+  /** Drop the current attachment (ignored when a replacement file is supplied). */
+  removeAttachment?: boolean;
 }
 
 /** Body for creating a resource (an uploaded file is sent separately). */
@@ -368,7 +485,22 @@ export interface PublishRubricBody {
   fixtureKey: string;
   criteria: Criterion[];
   rollupRule?: RollupRule;
-  referenceKey?: string;
+  /**
+   * Reference/standard image key the scorer compares against.
+   *  - OMIT to carry the previous version's reference forward (an edit never
+   *    silently drops it).
+   *  - `null` to explicitly clear it.
+   *  - a string (from `rubrics.uploadReferenceImage`) to set/replace it.
+   */
+  referenceKey?: string | null;
+}
+
+/** Result of uploading a rubric reference image. */
+export interface UploadReferenceImageResult {
+  /** Storage key to hand to `rubrics.publish` as `referenceKey`. */
+  referenceKey: string;
+  /** Signed, time-limited preview URL. */
+  url: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -400,16 +532,29 @@ export interface WallyClient {
   };
   campaigns: {
     list(): Promise<CampaignSummary[]>;
-    /** The reviewer queue: one rolled-up StoreScore per store, attention-first. */
-    queue(campaignId: string): Promise<StoreScore[]>;
+    /**
+     * The reviewer queue: one rolled-up StoreScore per store, attention-first.
+     * Pass an OPTIONAL `window` to score only photos uploaded within it; omit it
+     * (the default) for the all-time, latest-state behaviour.
+     */
+    queue(campaignId: string, window?: DateWindow): Promise<StoreScore[]>;
     /** Every execution image across the campaign's stores (the gallery). */
     gallery(campaignId: string): Promise<GalleryItem[]>;
-    /** Operational turnaround: review speed + rework hot-spots. */
-    turnaround(campaignId: string): Promise<ComplianceTurnaround>;
+    /**
+     * Operational turnaround: review speed + rework hot-spots + the unreviewed
+     * backlog. Pass an OPTIONAL `window` to bound it to reviews in that period;
+     * omit it for all-time.
+     */
+    turnaround(
+      campaignId: string,
+      window?: DateWindow,
+    ): Promise<ComplianceTurnaround>;
     /** Compliance snapshots over time (the trend chart). */
     trend(campaignId: string): Promise<ComplianceTrendPoint[]>;
     /** Capture today's compliance as a snapshot now (ADMIN). */
     captureSnapshot(campaignId: string): Promise<ComplianceTrendPoint>;
+    /** Prune a single trend point by its dateKey ('YYYY-MM-DD'). ADMIN. */
+    deleteTrendPoint(campaignId: string, dateKey: string): Promise<void>;
     /** Best-in-class execution photos to showcase to other stores. */
     bestInClass(campaignId: string): Promise<BestInClassItem[]>;
     /** Create a campaign (starts DRAFT). ADMIN. */
@@ -426,6 +571,11 @@ export interface WallyClient {
     archive(campaignId: string): Promise<CampaignBrief>;
     /** Hard-delete a campaign — only when it has no history (else 409). ADMIN. */
     remove(campaignId: string): Promise<void>;
+    /**
+     * Publish the guide to its stores: stamp the campaign published and fan a
+     * "floor plan ready" task to every store in the project. ADMIN.
+     */
+    publish(campaignId: string): Promise<PublishResult>;
   };
   /** Toggle the best-in-class flag on a store execution photo. */
   photos: {
@@ -441,12 +591,18 @@ export interface WallyClient {
   };
   stores: {
     storeScore(id: string, campaignId: string): Promise<StoreScore>;
-    /** The org's store roster (admin directory). */
+    /** The org's store roster (admin directory) — includes closed stores. */
     list(): Promise<StoreDto[]>;
+    /** The org's existing DISTINCT segmentation values (directory comboboxes). */
+    segments(): Promise<StoreSegments>;
     /** Add a store. ADMIN. */
     create(body: CreateStoreBody): Promise<StoreDto>;
     /** Patch a store's profile + segmentation dims. ADMIN. */
     update(id: string, body: UpdateStoreBody): Promise<StoreDto>;
+    /** Deactivate (retire) a store — stamps closedAt=now. ADMIN. */
+    deactivate(id: string): Promise<StoreDto>;
+    /** Reactivate a closed store — clears closedAt. ADMIN. */
+    reactivate(id: string): Promise<StoreDto>;
   };
   /** The current tenant's settings. */
   org: {
@@ -459,6 +615,23 @@ export interface WallyClient {
     list(campaignId: string): Promise<Rubric[]>;
     /** Publish a new rubric version for one fixture. ADMIN. */
     publish(campaignId: string, body: PublishRubricBody): Promise<Rubric>;
+    /**
+     * Upload a reference/standard image for a rubric; returns the storage key to
+     * pass to `publish` as `referenceKey`, plus a preview URL. ADMIN.
+     */
+    uploadReferenceImage(
+      campaignId: string,
+      file: Blob | File,
+    ): Promise<UploadReferenceImageResult>;
+    /**
+     * Make a specific version the live grading standard for one fixture (= roll
+     * back to / promote an earlier version). ADMIN.
+     */
+    activate(
+      campaignId: string,
+      fixtureKey: string,
+      version: number,
+    ): Promise<Rubric>;
   };
   submissions: {
     /** The signed-in store manager's current checklist (store + active campaign). */
@@ -480,23 +653,45 @@ export interface WallyClient {
   /** CREATE GUIDE — the org's fixture library. */
   fixtures: {
     list(): Promise<Fixture[]>;
-    create(input: { name: string; kind?: FixtureKind }): Promise<Fixture>;
+    create(input: CreateFixtureBody): Promise<Fixture>;
+    /** Edit a library fixture (rename / re-kind / re-classify). P2002 → 409. */
+    update(id: string, body: UpdateFixtureBody): Promise<Fixture>;
     /** Where a fixture is used (stores + guides) — for the delete dialog. */
     usage(id: string): Promise<FixtureUsage>;
     /** Soft-delete: hide from the library, keep placements. */
     archive(id: string): Promise<void>;
     /** Hard-delete: remove the fixture and everything that hangs off it. */
     remove(id: string): Promise<void>;
-    /** The fixture's default product set (its reusable starter list). */
+    /** The fixture's default product set (its reusable starter list / planogram). */
     products: {
       list(fixtureId: string): Promise<FixtureDefaultProduct[]>;
-      add(fixtureId: string, productId: string): Promise<void>;
+      /** Add a product, optionally onto a planogram shelf (`row`). */
+      add(fixtureId: string, productId: string, row?: string): Promise<void>;
       remove(fixtureId: string, fixtureProductId: string): Promise<void>;
+      /**
+       * Persist the whole default-set layout (shelves + order). The body uses the
+       * same shape the planogram editor emits (`merchandiseIds` = the facing ids,
+       * here FixtureProduct ids). Returns the refreshed default set.
+       */
+      reorder(
+        fixtureId: string,
+        body: ReorderPlanogramBody,
+      ): Promise<FixtureDefaultProduct[]>;
     };
   };
   /** CREATE GUIDE — a store's floor plan for a campaign. */
   floorplan: {
     get(campaignId: string, storeId: string): Promise<FloorPlan>;
+    /**
+     * Copy one store's whole floor-plan layout onto another (the target).
+     * Idempotent on (store, campaign, fixture). Returns the target's refreshed
+     * floor plan. ADMIN.
+     */
+    copyLayout(
+      campaignId: string,
+      fromStoreId: string,
+      toStoreId: string,
+    ): Promise<FloorPlan>;
   };
   /** MONEY MAP — a store's floor plan recoloured by fixture revenue. */
   moneyMap: {
@@ -505,6 +700,11 @@ export interface WallyClient {
   /** CREATE GUIDE — move/resize a placed fixture on a floor plan. */
   placements: {
     move(id: string, body: PlacementMoveBody): Promise<void>;
+    /**
+     * Patch a placed fixture — geometry and/or the editable per-placement fields
+     * (`label`, `order`, `applicable`). At least one field must be present.
+     */
+    patch(id: string, body: UpdatePlacementBody): Promise<void>;
     /** Add a fixture to a store's floor plan (layout builder). */
     create(
       campaignId: string,
@@ -516,9 +716,18 @@ export interface WallyClient {
   };
   /** PROJECTS — the admin's top-level containers (retail + tradeshow). */
   projects: {
-    list(): Promise<ProjectDto[]>;
+    /** The org's projects. Archived hidden unless `includeArchived` is set. */
+    list(includeArchived?: boolean): Promise<ProjectDto[]>;
     get(id: string): Promise<ProjectDto>;
     create(body: CreateProjectBody): Promise<ProjectDto>;
+    /** Rename a project / change its kind (slug is immutable). ADMIN. */
+    update(id: string, body: UpdateProjectBody): Promise<ProjectDto>;
+    /** Soft-delete: leave the working list, keep campaigns/stores/bulletins. ADMIN. */
+    archive(id: string): Promise<ProjectDto>;
+    /** Restore an archived project back into the working list. ADMIN. */
+    unarchive(id: string): Promise<ProjectDto>;
+    /** Hard-delete. ADMIN; 409 if it still owns stores/campaigns/bulletins. */
+    remove(id: string): Promise<void>;
     /** The project's venues (stores) — the real venue list, not the queue. */
     venues(id: string): Promise<ProjectVenue[]>;
   };
@@ -550,10 +759,45 @@ export interface WallyClient {
       guideFixtureId: string,
       body: ReorderPlanogramBody,
     ): Promise<GuideFixtureDetail>;
+    /**
+     * Upload a "what good looks like" reference image (optional caption). The
+     * first image added becomes best-in-class. Returns the refreshed sheet.
+     */
+    addExampleImage(
+      guideFixtureId: string,
+      file: Blob | File,
+      caption?: string,
+    ): Promise<GuideFixtureDetail>;
+    /** Edit an example image's caption (empty string clears it). */
+    updateExampleImageCaption(
+      guideFixtureId: string,
+      imageId: string,
+      caption: string,
+    ): Promise<GuideFixtureDetail>;
+    /** Mark an example image best-in-class (unsets its siblings). */
+    setExampleImageBestInClass(
+      guideFixtureId: string,
+      imageId: string,
+    ): Promise<GuideFixtureDetail>;
+    /** Remove an example image. */
+    removeExampleImage(
+      guideFixtureId: string,
+      imageId: string,
+    ): Promise<GuideFixtureDetail>;
   };
   /** CREATE GUIDE — the merchandising catalog. */
   products: {
     list(filters?: ProductFilters): Promise<ProductDto[]>;
+    /** Add a product to the catalog. ADMIN; 409 on a duplicate sku. */
+    create(body: CreateProductBody): Promise<ProductDto>;
+    /** Edit a product (sku editable, still unique-checked). ADMIN; 409 on collision. */
+    update(id: string, body: UpdateProductBody): Promise<ProductDto>;
+    /** Soft-delete: leave the working catalog, keep merchandise + sales. ADMIN. */
+    archive(id: string): Promise<ProductDto>;
+    /** Restore an archived product back into the working catalog. ADMIN. */
+    unarchive(id: string): Promise<ProductDto>;
+    /** Hard-delete. ADMIN; 409 if the product is merchandised or has sales. */
+    remove(id: string): Promise<void>;
   };
   /**
    * STORE MANAGER — the signed-in manager's own store workspace. Every call is
@@ -599,6 +843,23 @@ export interface WallyClient {
       file: Blob | File,
       storeId?: string,
     ): Promise<FixtureComplianceDetail>;
+    /**
+     * REVIEWER/ADMIN: re-request a photo for a fixture ("redo this") — raises
+     * needsPhoto and stamps the requester. Returns the updated sheet.
+     */
+    requestCapturePhoto(
+      fixtureId: string,
+      storeId?: string,
+    ): Promise<FixtureComplianceDetail>;
+    /**
+     * REVIEWER/ADMIN: override a fixture-capture's AI verdict with a human
+     * decision (supersedes the AI verdict for compliance/money-map/UI).
+     */
+    overrideCapture(
+      fixtureId: string,
+      body: OverrideCaptureBody,
+      storeId?: string,
+    ): Promise<FixtureComplianceDetail>;
   };
   /** ADMIN — assign / list / edit / cancel store tasks. */
   adminTasks: {
@@ -615,6 +876,18 @@ export interface WallyClient {
     list(): Promise<UserDto[]>;
     invite(body: InviteUserBody): Promise<UserDto>;
     update(id: string, body: UpdateUserBody): Promise<UserDto>;
+    /**
+     * Hard-delete a user. ADMIN. Refused (409) for self, the org's last active
+     * admin, or a user with review history (deactivate them instead).
+     */
+    remove(id: string): Promise<void>;
+  };
+  /** The signed-in user's own account preferences (admin/reviewer Settings). */
+  me: {
+    /** My account preferences. */
+    preferences(): Promise<MePreferences>;
+    /** Patch my account preferences. */
+    updatePreferences(body: UpdateMePreferencesBody): Promise<MePreferences>;
   };
   /** BULLETINS — the per-sale memo (admin authors; managers read + acknowledge). */
   bulletins: {
@@ -626,14 +899,21 @@ export interface WallyClient {
       body: CreateBulletinBody,
       file?: Blob | File,
     ): Promise<BulletinDto>;
-    update(id: string, body: UpdateBulletinBody): Promise<BulletinDto>;
+    /** Admin: edit a bulletin; pass a file to replace the attachment. */
+    update(
+      id: string,
+      body: UpdateBulletinBody,
+      file?: Blob | File,
+    ): Promise<BulletinDto>;
     remove(id: string): Promise<void>;
-    /** Admin: which stores have acknowledged this bulletin. */
+    /** Admin: who has acknowledged this bulletin (the per-manager roster). */
     acks(id: string): Promise<BulletinAckRow[]>;
     /** Manager: bulletins for my store's project, with my-ack flag. */
     mine(storeId?: string): Promise<BulletinDto[]>;
     /** Manager: acknowledge a bulletin (read receipt). */
     acknowledge(id: string, storeId?: string): Promise<void>;
+    /** Manager: undo my own acknowledgement (an accidental ack isn't permanent). */
+    unacknowledge(id: string, storeId?: string): Promise<void>;
   };
   /** RESOURCES — the org's training & reference library (read by everyone). */
   resources: {
@@ -764,17 +1044,23 @@ export function createClient(opts: CreateClientOptions): WallyClient {
     },
     campaigns: {
       list: () => get<CampaignSummary[]>("campaigns"),
-      queue: (campaignId) =>
+      queue: (campaignId, window) =>
         get<{ stores: StoreScore[] }>(
-          `campaigns/${encodeURIComponent(campaignId)}/queue`,
+          `campaigns/${encodeURIComponent(campaignId)}/queue${query({
+            from: window?.from,
+            to: window?.to,
+          })}`,
         ).then((r) => r.stores),
       gallery: (campaignId) =>
         get<GalleryItem[]>(
           `campaigns/${encodeURIComponent(campaignId)}/gallery`,
         ),
-      turnaround: (campaignId) =>
+      turnaround: (campaignId, window) =>
         get<ComplianceTurnaround>(
-          `campaigns/${encodeURIComponent(campaignId)}/turnaround`,
+          `campaigns/${encodeURIComponent(campaignId)}/turnaround${query({
+            from: window?.from,
+            to: window?.to,
+          })}`,
         ),
       trend: (campaignId) =>
         get<ComplianceTrendPoint[]>(
@@ -783,6 +1069,10 @@ export function createClient(opts: CreateClientOptions): WallyClient {
       captureSnapshot: (campaignId) =>
         post<ComplianceTrendPoint>(
           `campaigns/${encodeURIComponent(campaignId)}/snapshot`,
+        ),
+      deleteTrendPoint: (campaignId, dateKey) =>
+        del<void>(
+          `campaigns/${encodeURIComponent(campaignId)}/trend/${encodeURIComponent(dateKey)}`,
         ),
       bestInClass: (campaignId) =>
         get<BestInClassItem[]>(
@@ -812,6 +1102,10 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         ),
       remove: (campaignId) =>
         del<void>(`campaigns/${encodeURIComponent(campaignId)}`),
+      publish: (campaignId) =>
+        post<PublishResult>(
+          `campaigns/${encodeURIComponent(campaignId)}/publish`,
+        ),
     },
     photos: {
       setBestInClass: (photoId, value) =>
@@ -830,9 +1124,14 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           `stores/${encodeURIComponent(id)}/store-score?campaignId=${encodeURIComponent(campaignId)}`,
         ),
       list: () => get<StoreDto[]>("stores"),
+      segments: () => get<StoreSegments>("stores/segments"),
       create: (body) => post<StoreDto>("stores", body),
       update: (id, body) =>
         patch<StoreDto>(`stores/${encodeURIComponent(id)}`, body),
+      deactivate: (id) =>
+        post<StoreDto>(`stores/${encodeURIComponent(id)}/deactivate`),
+      reactivate: (id) =>
+        post<StoreDto>(`stores/${encodeURIComponent(id)}/reactivate`),
     },
     org: {
       get: () => get<OrgDto>("org"),
@@ -845,6 +1144,20 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         post<Rubric>(
           `campaigns/${encodeURIComponent(campaignId)}/rubrics`,
           body,
+        ),
+      uploadReferenceImage: (campaignId, file) => {
+        const form = new FormData();
+        form.append("file", file);
+        return request<UploadReferenceImageResult>(
+          "POST",
+          `campaigns/${encodeURIComponent(campaignId)}/rubrics/reference-image`,
+          { body: form },
+        );
+      },
+      activate: (campaignId, fixtureKey, version) =>
+        post<Rubric>(
+          `campaigns/${encodeURIComponent(campaignId)}/rubrics/${encodeURIComponent(fixtureKey)}/activate`,
+          { version },
         ),
     },
     submissions: {
@@ -876,6 +1189,8 @@ export function createClient(opts: CreateClientOptions): WallyClient {
     fixtures: {
       list: () => get<Fixture[]>("fixtures"),
       create: (input) => post<Fixture>("fixtures", input),
+      update: (id, body) =>
+        patch<Fixture>(`fixtures/${encodeURIComponent(id)}`, body),
       usage: (id) =>
         get<FixtureUsage>(`fixtures/${encodeURIComponent(id)}/usage`),
       archive: (id) =>
@@ -886,13 +1201,26 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           get<FixtureDefaultProduct[]>(
             `fixtures/${encodeURIComponent(fixtureId)}/products`,
           ),
-        add: (fixtureId, productId) =>
+        add: (fixtureId, productId, row) =>
           post<void>(`fixtures/${encodeURIComponent(fixtureId)}/products`, {
             productId,
+            ...(row ? { row } : {}),
           }),
         remove: (fixtureId, fixtureProductId) =>
           del<void>(
             `fixtures/${encodeURIComponent(fixtureId)}/products/${encodeURIComponent(fixtureProductId)}`,
+          ),
+        reorder: (fixtureId, body) =>
+          patch<FixtureDefaultProduct[]>(
+            `fixtures/${encodeURIComponent(fixtureId)}/planogram`,
+            {
+              // The editor speaks `merchandiseIds`; the library endpoint wants
+              // `fixtureProductIds`. Same values (the facing ids), renamed.
+              shelves: body.shelves.map((s) => ({
+                row: s.row,
+                fixtureProductIds: s.merchandiseIds,
+              })),
+            },
           ),
       },
     },
@@ -900,6 +1228,11 @@ export function createClient(opts: CreateClientOptions): WallyClient {
       get: (campaignId, storeId) =>
         get<FloorPlan>(
           `campaigns/${encodeURIComponent(campaignId)}/stores/${encodeURIComponent(storeId)}/floorplan`,
+        ),
+      copyLayout: (campaignId, fromStoreId, toStoreId) =>
+        post<FloorPlan>(
+          `campaigns/${encodeURIComponent(campaignId)}/stores/${encodeURIComponent(toStoreId)}/copy-layout`,
+          { fromStoreId },
         ),
     },
     moneyMap: {
@@ -911,6 +1244,8 @@ export function createClient(opts: CreateClientOptions): WallyClient {
     placements: {
       move: (id, body) =>
         patch<void>(`placements/${encodeURIComponent(id)}`, body),
+      patch: (id, body) =>
+        patch<void>(`placements/${encodeURIComponent(id)}`, body),
       create: (campaignId, storeId, body) =>
         post<PlacedFixture>(
           `campaigns/${encodeURIComponent(campaignId)}/stores/${encodeURIComponent(storeId)}/placements`,
@@ -919,9 +1254,21 @@ export function createClient(opts: CreateClientOptions): WallyClient {
       remove: (id) => del<void>(`placements/${encodeURIComponent(id)}`),
     },
     projects: {
-      list: () => get<ProjectDto[]>("projects"),
+      list: (includeArchived) =>
+        get<ProjectDto[]>(
+          `projects${query({
+            includeArchived: includeArchived ? "true" : undefined,
+          })}`,
+        ),
       get: (id) => get<ProjectDto>(`projects/${encodeURIComponent(id)}`),
       create: (body) => post<ProjectDto>("projects", body),
+      update: (id, body) =>
+        patch<ProjectDto>(`projects/${encodeURIComponent(id)}`, body),
+      archive: (id) =>
+        post<ProjectDto>(`projects/${encodeURIComponent(id)}/archive`),
+      unarchive: (id) =>
+        post<ProjectDto>(`projects/${encodeURIComponent(id)}/unarchive`),
+      remove: (id) => del<void>(`projects/${encodeURIComponent(id)}`),
       venues: (id) =>
         get<ProjectVenue[]>(`projects/${encodeURIComponent(id)}/venues`),
     },
@@ -950,6 +1297,30 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           `guide-fixtures/${encodeURIComponent(guideFixtureId)}/planogram`,
           body,
         ),
+      addExampleImage: (guideFixtureId, file, caption) => {
+        const form = new FormData();
+        form.append("file", file);
+        if (caption !== undefined && caption !== "")
+          form.append("caption", caption);
+        return request<GuideFixtureDetail>(
+          "POST",
+          `guide-fixtures/${encodeURIComponent(guideFixtureId)}/example-images`,
+          { body: form },
+        );
+      },
+      updateExampleImageCaption: (guideFixtureId, imageId, caption) =>
+        patch<GuideFixtureDetail>(
+          `guide-fixtures/${encodeURIComponent(guideFixtureId)}/example-images/${encodeURIComponent(imageId)}`,
+          { caption },
+        ),
+      setExampleImageBestInClass: (guideFixtureId, imageId) =>
+        post<GuideFixtureDetail>(
+          `guide-fixtures/${encodeURIComponent(guideFixtureId)}/example-images/${encodeURIComponent(imageId)}/best-in-class`,
+        ),
+      removeExampleImage: (guideFixtureId, imageId) =>
+        del<GuideFixtureDetail>(
+          `guide-fixtures/${encodeURIComponent(guideFixtureId)}/example-images/${encodeURIComponent(imageId)}`,
+        ),
     },
     products: {
       list: (filters) =>
@@ -959,8 +1330,17 @@ export function createClient(opts: CreateClientOptions): WallyClient {
             brand: filters?.brand,
             category: filters?.category,
             color: filters?.color,
+            includeArchived: filters?.includeArchived ? "true" : undefined,
           })}`,
         ),
+      create: (body) => post<ProductDto>("products", body),
+      update: (id, body) =>
+        patch<ProductDto>(`products/${encodeURIComponent(id)}`, body),
+      archive: (id) =>
+        post<ProductDto>(`products/${encodeURIComponent(id)}/archive`),
+      unarchive: (id) =>
+        post<ProductDto>(`products/${encodeURIComponent(id)}/unarchive`),
+      remove: (id) => del<void>(`products/${encodeURIComponent(id)}`),
     },
     manager: {
       home: (storeId) =>
@@ -1006,6 +1386,15 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           { body: form },
         );
       },
+      requestCapturePhoto: (fixtureId, storeId) =>
+        post<FixtureComplianceDetail>(
+          `manager/fixtures/${encodeURIComponent(fixtureId)}/request-photo${query({ storeId })}`,
+        ),
+      overrideCapture: (fixtureId, body, storeId) =>
+        post<FixtureComplianceDetail>(
+          `manager/fixtures/${encodeURIComponent(fixtureId)}/override${query({ storeId })}`,
+          body,
+        ),
     },
     adminTasks: {
       create: (storeId, body) =>
@@ -1026,6 +1415,12 @@ export function createClient(opts: CreateClientOptions): WallyClient {
       invite: (body) => post<UserDto>("admin/users/invite", body),
       update: (id, body) =>
         patch<UserDto>(`admin/users/${encodeURIComponent(id)}`, body),
+      remove: (id) => del<void>(`admin/users/${encodeURIComponent(id)}`),
+    },
+    me: {
+      preferences: () => get<MePreferences>("me/preferences"),
+      updatePreferences: (body) =>
+        patch<MePreferences>("me/preferences", body),
     },
     bulletins: {
       list: (projectId) =>
@@ -1047,8 +1442,30 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           { body: form },
         );
       },
-      update: (id, body) =>
-        patch<BulletinDto>(`bulletins/${encodeURIComponent(id)}`, body),
+      update: (id, body, file) => {
+        // Multipart (mirrors create) so the PATCH route's FileInterceptor can
+        // carry a replacement attachment alongside the edited fields. Multipart
+        // text fields arrive as strings; the API coerces them.
+        const form = new FormData();
+        if (body.title !== undefined) form.append("title", body.title);
+        if (body.body !== undefined) form.append("body", body.body);
+        // null clears the date; "" tells the API to leave it untouched isn't a
+        // case here — only send the field when the caller set it.
+        if (body.startsAt !== undefined)
+          form.append("startsAt", body.startsAt ?? "");
+        if (body.endsAt !== undefined) form.append("endsAt", body.endsAt ?? "");
+        if (body.pinned !== undefined) form.append("pinned", String(body.pinned));
+        if (body.publish !== undefined)
+          form.append("publish", String(body.publish));
+        if (body.removeAttachment !== undefined)
+          form.append("removeAttachment", String(body.removeAttachment));
+        if (file) form.append("file", file);
+        return request<BulletinDto>(
+          "PATCH",
+          `bulletins/${encodeURIComponent(id)}`,
+          { body: form },
+        );
+      },
       remove: (id) => del<void>(`bulletins/${encodeURIComponent(id)}`),
       acks: (id) =>
         get<BulletinAckRow[]>(`bulletins/${encodeURIComponent(id)}/acks`),
@@ -1056,6 +1473,10 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         get<BulletinDto[]>(`manager/bulletins${query({ storeId })}`),
       acknowledge: (id, storeId) =>
         post<void>(
+          `manager/bulletins/${encodeURIComponent(id)}/ack${query({ storeId })}`,
+        ),
+      unacknowledge: (id, storeId) =>
+        del<void>(
           `manager/bulletins/${encodeURIComponent(id)}/ack${query({ storeId })}`,
         ),
     },
@@ -1083,6 +1504,9 @@ export function createClient(opts: CreateClientOptions): WallyClient {
 export type {
   ScoreResult,
   StoreScore,
+  ComplianceTurnaround,
+  ComplianceTrendPoint,
+  SnapshotSource,
   SessionUser,
   Role,
   Fixture,
@@ -1100,6 +1524,7 @@ export type {
   ManagerHome,
   ManagerFixture,
   ManagerPreferences,
+  MePreferences,
   SalesLog,
   SalesLine,
   SalesFixtureGroup,
@@ -1110,12 +1535,15 @@ export type {
   FixtureCompliance,
   FixtureComplianceDetail,
   CaptureVerdict,
+  CaptureAttempt,
+  OverrideCaptureBody,
   ComplianceState,
   ProjectDto,
   ProjectKind,
   ProjectVenue,
   BulletinDto,
   BulletinAckRow,
+  BulletinScheduleState,
   ResourceDto,
 } from "@wally/types";
 

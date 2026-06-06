@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -18,16 +19,22 @@ import { ZodValidationPipe } from '../org/zod-validation.pipe';
 import {
   AddFixtureProductSchema,
   CreateFixtureSchema,
+  ReorderFixturePlanogramSchema,
+  UpdateFixtureSchema,
   type AddFixtureProductInput,
   type CreateFixtureInput,
+  type ReorderFixturePlanogramInput,
+  type UpdateFixtureInput,
 } from './fixture.dto';
 import { FixtureService } from './fixture.service';
 
 // GET    /fixtures            -> the org's fixture library (Fixture[]).
 // POST   /fixtures            -> add a fixture to the library (ADMIN only).
+// PATCH  /fixtures/:id        -> rename / re-kind / re-classify (ADMIN; 409 on
+//                               a name collision).
 // GET    /fixtures/:id/usage  -> where a fixture is used (stores + guides).
 // POST   /fixtures/:id/archive-> soft-delete: hide it, keep placements (ADMIN).
-// DELETE /fixtures/:id        -> hard-delete it everywhere (ADMIN).
+// DELETE /fixtures/:id        -> hard-delete it (ADMIN; 409 if in use).
 @Controller('fixtures')
 @UseGuards(SessionGuard)
 export class FixtureController {
@@ -45,6 +52,16 @@ export class FixtureController {
     @Body(new ZodValidationPipe(CreateFixtureSchema)) dto: CreateFixtureInput,
   ) {
     return this.fixtures.create(user.orgId, dto);
+  }
+
+  @Patch(':id')
+  @Roles('ADMIN')
+  update(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateFixtureSchema)) dto: UpdateFixtureInput,
+  ) {
+    return this.fixtures.update(user.orgId, id, dto);
   }
 
   @Get(':id/usage')
@@ -82,7 +99,7 @@ export class FixtureController {
     @Body(new ZodValidationPipe(AddFixtureProductSchema))
     dto: AddFixtureProductInput,
   ) {
-    return this.fixtures.addProduct(user.orgId, id, dto.productId);
+    return this.fixtures.addProduct(user.orgId, id, dto.productId, dto.row);
   }
 
   @Delete(':id/products/:fixtureProductId')
@@ -94,5 +111,17 @@ export class FixtureController {
     @Param('fixtureProductId') fixtureProductId: string,
   ) {
     return this.fixtures.removeProduct(user.orgId, id, fixtureProductId);
+  }
+
+  /** Reorganise the default set into a planogram (shelves + layout) in one shot. */
+  @Patch(':id/planogram')
+  @Roles('ADMIN')
+  reorderPlanogram(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ReorderFixturePlanogramSchema))
+    dto: ReorderFixturePlanogramInput,
+  ) {
+    return this.fixtures.reorderPlanogram(user.orgId, id, dto.shelves);
   }
 }

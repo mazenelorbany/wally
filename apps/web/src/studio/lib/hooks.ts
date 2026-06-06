@@ -14,6 +14,11 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import type {
+  CreateProductBody,
+  UpdateProductBody,
+} from '@wally/sdk';
+import type {
+  Department,
   Fixture,
   FixtureDefaultProduct,
   FixtureKind,
@@ -39,11 +44,24 @@ export function useFixtures(): UseQueryResult<Fixture[]> {
 export function useCreateFixture(): UseMutationResult<
   Fixture,
   unknown,
-  { name: string; kind?: FixtureKind }
+  { name: string; kind?: FixtureKind; department?: Department }
 > {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input) => studio.fixtures.create(input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: sqk.fixtures }),
+  });
+}
+
+/** Edit a library fixture (name / kind / department); refreshes the grid. */
+export function useUpdateFixture(): UseMutationResult<
+  Fixture,
+  unknown,
+  { id: string; name?: string; kind?: FixtureKind; department?: Department | null }
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }) => studio.fixtures.update(id, body),
     onSuccess: () => void qc.invalidateQueries({ queryKey: sqk.fixtures }),
   });
 }
@@ -88,15 +106,33 @@ export function useFixtureProducts(
   });
 }
 
-/** Add / remove a product in a fixture's default set; refreshes the set. */
+/** Add / remove a product in a fixture's default set; refreshes the set. The
+ *  optional `row` files the product onto a planogram shelf. */
 export function useAddFixtureProduct(
   fixtureId: string,
-): UseMutationResult<void, unknown, string> {
+): UseMutationResult<void, unknown, { productId: string; row?: string }> {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (productId) => studio.fixtures.products.add(fixtureId, productId),
+    mutationFn: ({ productId, row }) =>
+      studio.fixtures.products.add(fixtureId, productId, row),
     onSuccess: () =>
       void qc.invalidateQueries({ queryKey: sqk.fixtureProducts(fixtureId) }),
+  });
+}
+
+/** Persist the whole default-set planogram (shelves + layout) in one PATCH. */
+export function useReorderFixturePlanogram(
+  fixtureId: string,
+): UseMutationResult<
+  FixtureDefaultProduct[],
+  unknown,
+  { shelves: { row: string; merchandiseIds: string[] }[] }
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body) => studio.fixtures.products.reorder(fixtureId, body),
+    onSuccess: (rows) =>
+      qc.setQueryData(sqk.fixtureProducts(fixtureId), rows),
   });
 }
 
@@ -172,6 +208,72 @@ export function useProducts(
   });
 }
 
+/** Add a product to the catalog; refreshes every catalog view on success. */
+export function useCreateProduct(): UseMutationResult<
+  ProductDto,
+  unknown,
+  CreateProductBody
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body) => studio.products.create(body),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: sqk.productsAll }),
+  });
+}
+
+/** Edit a product (sku editable; pricing changes only affect future sales). */
+export function useUpdateProduct(): UseMutationResult<
+  ProductDto,
+  unknown,
+  { id: string; body: UpdateProductBody }
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }) => studio.products.update(id, body),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: sqk.productsAll }),
+  });
+}
+
+/** Soft-delete: archive a product out of the working catalog (keeps history). */
+export function useArchiveProduct(): UseMutationResult<
+  ProductDto,
+  unknown,
+  string
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => studio.products.archive(id),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: sqk.productsAll }),
+  });
+}
+
+/** Restore an archived product back into the working catalog. */
+export function useUnarchiveProduct(): UseMutationResult<
+  ProductDto,
+  unknown,
+  string
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => studio.products.unarchive(id),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: sqk.productsAll }),
+  });
+}
+
+/** Hard-delete a product (guarded server-side: 409 if merchandised or sold). */
+export function useDeleteProduct(): UseMutationResult<void, unknown, string> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => studio.products.remove(id),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: sqk.productsAll }),
+  });
+}
+
 /**
  * Move/resize a placed fixture. Optimistically patches the cached floor plan so
  * the box stays exactly where the user dropped it, then reconciles on settle.
@@ -212,6 +314,68 @@ export function usePlacementMove(
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: key });
     },
+  });
+}
+
+/**
+ * Patch a placed fixture's editable fields — `applicable` (n/a toggle), `label`
+ * (inline rename), or `order` (checklist reorder). Invalidates the floor plan so
+ * the canvas + checklist re-read. Used by the layout editor's detail controls.
+ */
+export function usePlacementPatch(
+  campaignId: string | undefined,
+  storeId: string | undefined,
+): UseMutationResult<
+  void,
+  unknown,
+  { id: string; label?: string; order?: number; applicable?: boolean }
+> {
+  const qc = useQueryClient();
+  const key =
+    campaignId && storeId
+      ? sqk.floorplan(campaignId, storeId)
+      : (['studio', 'floorplan', 'none'] as const);
+  return useMutation({
+    mutationFn: ({ id, ...body }) => studio.placements.patch(id, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: key });
+    },
+  });
+}
+
+/**
+ * Copy another store's whole floor-plan layout onto this one. Invalidates the
+ * target store's floor plan so the canvas re-reads the copied placements.
+ */
+export function useCopyLayout(
+  campaignId: string | undefined,
+  toStoreId: string | undefined,
+): UseMutationResult<FloorPlan, unknown, string> {
+  const qc = useQueryClient();
+  const key =
+    campaignId && toStoreId
+      ? sqk.floorplan(campaignId, toStoreId)
+      : (['studio', 'floorplan', 'none'] as const);
+  return useMutation({
+    mutationFn: (fromStoreId) =>
+      studio.floorplan.copyLayout(campaignId!, fromStoreId, toStoreId!),
+    onSuccess: (plan) => {
+      qc.setQueryData(key, plan);
+      void qc.invalidateQueries({ queryKey: key });
+    },
+  });
+}
+
+/** Publish the guide to its stores (publish & notify). Returns the count notified. */
+export function usePublishCampaign(
+  campaignId: string | undefined,
+): UseMutationResult<
+  { publishedAt: string; notified: number },
+  unknown,
+  void
+> {
+  return useMutation({
+    mutationFn: () => studio.campaigns.publish(campaignId!),
   });
 }
 
@@ -334,4 +498,99 @@ export function useReorderPlanogram(
       void qc.invalidateQueries({ queryKey: key });
     },
   });
+}
+
+// ----- example images ("what good looks like") -----------------------------
+
+/**
+ * Shared cache-write for the example-image mutations: every one returns the
+ * refreshed sheet, so we seed the detail cache with it and invalidate so any
+ * other open view re-reads. Keeps the four mutations from repeating the wiring.
+ */
+function useGuideFixtureSheetMutation<TVars>(
+  campaignId: string | undefined,
+  fixtureId: string | undefined,
+  mutationFn: (vars: TVars) => Promise<GuideFixtureDetail>,
+): UseMutationResult<GuideFixtureDetail, unknown, TVars> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: (detail) => {
+      if (campaignId && fixtureId) {
+        const key = sqk.guideFixture(campaignId, fixtureId);
+        qc.setQueryData(key, detail);
+        void qc.invalidateQueries({ queryKey: key });
+      }
+    },
+  });
+}
+
+/** Upload a reference image (optional caption) to the sheet. */
+export function useAddExampleImage(
+  campaignId: string | undefined,
+  fixtureId: string | undefined,
+): UseMutationResult<
+  GuideFixtureDetail,
+  unknown,
+  { guideFixtureId: string; file: File; caption?: string }
+> {
+  return useGuideFixtureSheetMutation(campaignId, fixtureId, ({
+    guideFixtureId,
+    file,
+    caption,
+  }) => studio.guideFixtures.addExampleImage(guideFixtureId, file, caption));
+}
+
+/** Edit an example image's caption. */
+export function useUpdateExampleImageCaption(
+  campaignId: string | undefined,
+  fixtureId: string | undefined,
+): UseMutationResult<
+  GuideFixtureDetail,
+  unknown,
+  { guideFixtureId: string; imageId: string; caption: string }
+> {
+  return useGuideFixtureSheetMutation(campaignId, fixtureId, ({
+    guideFixtureId,
+    imageId,
+    caption,
+  }) =>
+    studio.guideFixtures.updateExampleImageCaption(
+      guideFixtureId,
+      imageId,
+      caption,
+    ),
+  );
+}
+
+/** Mark an example image best-in-class. */
+export function useSetExampleImageBestInClass(
+  campaignId: string | undefined,
+  fixtureId: string | undefined,
+): UseMutationResult<
+  GuideFixtureDetail,
+  unknown,
+  { guideFixtureId: string; imageId: string }
+> {
+  return useGuideFixtureSheetMutation(campaignId, fixtureId, ({
+    guideFixtureId,
+    imageId,
+  }) =>
+    studio.guideFixtures.setExampleImageBestInClass(guideFixtureId, imageId),
+  );
+}
+
+/** Remove an example image. */
+export function useRemoveExampleImage(
+  campaignId: string | undefined,
+  fixtureId: string | undefined,
+): UseMutationResult<
+  GuideFixtureDetail,
+  unknown,
+  { guideFixtureId: string; imageId: string }
+> {
+  return useGuideFixtureSheetMutation(campaignId, fixtureId, ({
+    guideFixtureId,
+    imageId,
+  }) => studio.guideFixtures.removeExampleImage(guideFixtureId, imageId));
 }

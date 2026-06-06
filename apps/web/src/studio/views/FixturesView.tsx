@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Boxes, Plus, Search, Trash2 } from 'lucide-react';
+import { Boxes, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -13,7 +13,14 @@ import {
   DialogTitle,
   Spinner,
 } from '@wally/ui';
-import type { Fixture, FixtureKind } from '@wally/types';
+import type {
+  Department,
+  Fixture,
+  FixtureDefaultProduct,
+  FixtureKind,
+  MerchandiseItem,
+  MerchandiseRow,
+} from '@wally/types';
 
 import { EmptyState, ErrorState, Skeleton } from '../../components/states';
 import { errorMessage } from '../../lib/api';
@@ -28,9 +35,12 @@ import {
   useFixtureUsage,
   useProducts,
   useRemoveFixtureProduct,
+  useReorderFixturePlanogram,
+  useUpdateFixture,
 } from '../lib/hooks';
 import { fixtureKindMeta } from '../lib/fixtureKind';
 import { ProductThumb } from '../components/ProductThumb';
+import { PlanogramEditor } from '../components/PlanogramEditor';
 import { useSetStudioTopBar } from '../components/StudioContext';
 
 const KINDS: FixtureKind[] = [
@@ -41,6 +51,8 @@ const KINDS: FixtureKind[] = [
   'dais',
   'trolley',
 ];
+
+const DEPARTMENTS: Department[] = ['The Custom Chef', 'The Cook Shop'];
 
 const fieldCls =
   'w-full rounded-md border border-mist/70 bg-paper px-3 py-2 text-sm text-ink transition-colors focus:border-graphite focus:outline-none';
@@ -56,6 +68,7 @@ export function FixturesView() {
   const [pendingDelete, setPendingDelete] = React.useState<Fixture | null>(
     null,
   );
+  const [editing, setEditing] = React.useState<Fixture | null>(null);
   const [managing, setManaging] = React.useState<Fixture | null>(null);
   const { user } = useSession();
   const isAdmin = user?.role === 'ADMIN';
@@ -113,15 +126,21 @@ export function FixturesView() {
                   <p className="truncate font-display text-sm font-semibold text-ink">
                     {f.name}
                   </p>
-                  <Badge
-                    variant="muted"
-                    className="mt-1.5 uppercase tracking-brand"
-                  >
-                    {meta.label}
-                  </Badge>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <Badge variant="muted" className="uppercase tracking-brand">
+                      {meta.label}
+                    </Badge>
+                    {f.department ? (
+                      <Badge variant="outline" className="tracking-tight">
+                        {f.department}
+                      </Badge>
+                    ) : null}
+                  </div>
                 </div>
-                {/* leave room for the corner delete button on admin cards */}
-                {isAdmin ? <span className="w-6 shrink-0" aria-hidden="true" /> : null}
+                {/* leave room for the corner edit/delete buttons on admin cards */}
+                {isAdmin ? (
+                  <span className="w-12 shrink-0" aria-hidden="true" />
+                ) : null}
               </>
             );
             return (
@@ -143,17 +162,30 @@ export function FixturesView() {
                   <div className="flex items-start gap-3 p-4">{inner}</div>
                 )}
                 {isAdmin ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setPendingDelete(f);
-                    }}
-                    aria-label={`Remove ${f.name}`}
-                    className="absolute right-2 top-2 z-10 rounded-md p-1.5 text-steel opacity-0 transition-opacity hover:bg-surface hover:text-fail focus:opacity-100 focus:outline-none group-hover:opacity-100"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <div className="absolute right-2 top-2 z-10 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditing(f);
+                      }}
+                      aria-label={`Edit ${f.name}`}
+                      className="rounded-md p-1.5 text-steel transition-colors hover:bg-surface hover:text-ink focus:opacity-100 focus:outline-none"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPendingDelete(f);
+                      }}
+                      aria-label={`Remove ${f.name}`}
+                      className="rounded-md p-1.5 text-steel transition-colors hover:bg-surface hover:text-fail focus:opacity-100 focus:outline-none"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 ) : null}
               </Card>
             );
@@ -162,6 +194,10 @@ export function FixturesView() {
       )}
 
       <AddFixtureDialog open={addOpen} onOpenChange={setAddOpen} />
+      <EditFixtureDialog
+        fixture={editing}
+        onClose={() => setEditing(null)}
+      />
       <DeleteFixtureDialog
         fixture={pendingDelete}
         onClose={() => setPendingDelete(null)}
@@ -193,10 +229,12 @@ function AddFixtureDialog({
   const create = useCreateFixture();
   const [name, setName] = React.useState('');
   const [kind, setKind] = React.useState<FixtureKind>('bay');
+  const [department, setDepartment] = React.useState<Department | ''>('');
 
   const close = () => {
     setName('');
     setKind('bay');
+    setDepartment('');
     create.reset();
     onOpenChange(false);
   };
@@ -205,7 +243,10 @@ function AddFixtureDialog({
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed || create.isPending) return;
-    create.mutate({ name: trimmed, kind }, { onSuccess: close });
+    create.mutate(
+      { name: trimmed, kind, ...(department ? { department } : {}) },
+      { onSuccess: close },
+    );
   };
 
   return (
@@ -255,6 +296,26 @@ function AddFixtureDialog({
             </select>
           </label>
 
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-graphite">
+              Department
+            </span>
+            <select
+              value={department}
+              onChange={(e) =>
+                setDepartment(e.target.value as Department | '')
+              }
+              className={fieldCls}
+            >
+              <option value="">Unclassified</option>
+              {DEPARTMENTS.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+
           {create.isError ? (
             <p className="text-sm text-fail">{errorMessage(create.error)}</p>
           ) : null}
@@ -267,6 +328,139 @@ function AddFixtureDialog({
             </DialogClose>
             <Button type="submit" disabled={!name.trim() || create.isPending}>
               {create.isPending ? 'Adding…' : 'Add fixture'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Edit a library fixture — rename, re-kind, re-classify its department. */
+function EditFixtureDialog({
+  fixture,
+  onClose,
+}: {
+  fixture: Fixture | null;
+  onClose: () => void;
+}) {
+  const update = useUpdateFixture();
+  const [name, setName] = React.useState('');
+  const [kind, setKind] = React.useState<FixtureKind>('bay');
+  const [department, setDepartment] = React.useState<Department | ''>('');
+
+  // Seed the form whenever a new fixture opens.
+  React.useEffect(() => {
+    if (fixture) {
+      setName(fixture.name);
+      setKind(fixture.kind);
+      setDepartment(fixture.department ?? '');
+      update.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixture]);
+
+  const close = () => {
+    update.reset();
+    onClose();
+  };
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fixture) return;
+    const trimmed = name.trim();
+    if (!trimmed || update.isPending) return;
+    // `department` is tri-state: a value sets it, '' clears it (null).
+    update.mutate(
+      {
+        id: fixture.id,
+        name: trimmed,
+        kind,
+        department: department === '' ? null : department,
+      },
+      { onSuccess: close },
+    );
+  };
+
+  return (
+    <Dialog
+      open={Boolean(fixture)}
+      onOpenChange={(o) => {
+        if (!o && !update.isPending) close();
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit fixture</DialogTitle>
+          <DialogDescription>
+            Rename, change the type, or set the Myer department this fixture
+            belongs to.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={submit} className="mt-2 space-y-4">
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-graphite">
+              Name
+            </span>
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={120}
+              className={fieldCls}
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-graphite">
+              Type
+            </span>
+            <select
+              value={kind}
+              onChange={(e) => setKind(e.target.value as FixtureKind)}
+              className={fieldCls}
+            >
+              {KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {fixtureKindMeta(k).label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-graphite">
+              Department
+            </span>
+            <select
+              value={department}
+              onChange={(e) =>
+                setDepartment(e.target.value as Department | '')
+              }
+              className={fieldCls}
+            >
+              <option value="">Unclassified</option>
+              {DEPARTMENTS.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {update.isError ? (
+            <p className="text-sm text-fail">{errorMessage(update.error)}</p>
+          ) : null}
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost" type="button" disabled={update.isPending}>
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit" disabled={!name.trim() || update.isPending}>
+              {update.isPending ? 'Saving…' : 'Save changes'}
             </Button>
           </DialogFooter>
         </form>
@@ -290,11 +484,27 @@ function DeleteFixtureDialog({
   const usage = usageQ.data;
   const inUse = usage ? usage.storeCount > 0 || usage.guideCount > 0 : false;
 
+  // Hard delete is gated: reveal it behind a disclosure, then require the admin
+  // to type the fixture's exact name. When the fixture is in use we steer away
+  // from delete entirely (the server returns 409 anyway) — archive is the move.
+  const [showDelete, setShowDelete] = React.useState(false);
+  const [confirmName, setConfirmName] = React.useState('');
+  const nameMatches = Boolean(fixture) && confirmName.trim() === fixture!.name;
+
+  // Reset the gate whenever a different fixture opens (or it closes).
+  React.useEffect(() => {
+    setShowDelete(false);
+    setConfirmName('');
+    archive.reset();
+    remove.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixture]);
+
   const doArchive = () => {
     if (fixture) archive.mutate(fixture.id, { onSuccess: onClose });
   };
   const doDelete = () => {
-    if (fixture) remove.mutate(fixture.id, { onSuccess: onClose });
+    if (fixture && nameMatches) remove.mutate(fixture.id, { onSuccess: onClose });
   };
 
   return (
@@ -308,8 +518,8 @@ function DeleteFixtureDialog({
         <DialogHeader>
           <DialogTitle>Remove “{fixture?.name}”?</DialogTitle>
           <DialogDescription>
-            Archive keeps existing placements and just hides it from the
-            library. Delete removes it everywhere.
+            Archiving hides it from the library but keeps every existing
+            placement intact — the recommended, reversible option.
           </DialogDescription>
         </DialogHeader>
 
@@ -322,7 +532,7 @@ function DeleteFixtureDialog({
             </p>
           ) : !inUse ? (
             <p className="text-steel">
-              Not placed in any store or guide yet — safe to delete.
+              Not placed in any store or guide yet.
             </p>
           ) : (
             <div className="text-graphite">
@@ -358,6 +568,40 @@ function DeleteFixtureDialog({
           )}
         </div>
 
+        {/* Hard-delete zone — only reachable when NOT in use, and only after the
+            admin reveals it and types the exact name. */}
+        {!usageQ.isLoading && !usageQ.isError ? (
+          inUse ? (
+            <p className="rounded-md border border-mist/60 bg-surface/30 px-3 py-2 text-xs text-steel">
+              Permanent delete is blocked while this fixture is in use. Archive
+              it, or remove its placements first.
+            </p>
+          ) : !showDelete ? (
+            <button
+              type="button"
+              onClick={() => setShowDelete(true)}
+              className="self-start text-xs font-medium text-steel underline-offset-2 hover:text-fail hover:underline"
+            >
+              Delete permanently instead…
+            </button>
+          ) : (
+            <div className="space-y-2 rounded-md border border-fail/40 bg-fail/5 p-3">
+              <p className="text-xs text-graphite">
+                This permanently removes the fixture and everything that hangs
+                off it. To confirm, type its name{' '}
+                <b className="text-ink">{fixture?.name}</b>.
+              </p>
+              <input
+                value={confirmName}
+                onChange={(e) => setConfirmName(e.target.value)}
+                placeholder={fixture?.name}
+                aria-label="Type the fixture name to confirm deletion"
+                className={fieldCls}
+              />
+            </div>
+          )
+        ) : null}
+
         {archive.isError ? (
           <p className="text-sm text-fail">{errorMessage(archive.error)}</p>
         ) : null}
@@ -371,12 +615,19 @@ function DeleteFixtureDialog({
               Cancel
             </Button>
           </DialogClose>
-          <Button variant="outline" onClick={doArchive} disabled={busy}>
-            {archive.isPending ? 'Archiving…' : 'Archive'}
-          </Button>
-          <Button variant="signal" onClick={doDelete} disabled={busy}>
-            {remove.isPending ? 'Deleting…' : 'Delete everywhere'}
-          </Button>
+          {showDelete && !inUse ? (
+            <Button
+              variant="signal"
+              onClick={doDelete}
+              disabled={busy || !nameMatches}
+            >
+              {remove.isPending ? 'Deleting…' : 'Delete everywhere'}
+            </Button>
+          ) : (
+            <Button onClick={doArchive} disabled={busy}>
+              {archive.isPending ? 'Archiving…' : 'Archive'}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -391,15 +642,18 @@ function FixtureProductsDialog({
   fixture: Fixture | null;
   onClose: () => void;
 }) {
+  const [tab, setTab] = React.useState<'products' | 'layout'>('products');
   const defaultsQ = useFixtureProducts(fixture?.id);
   const add = useAddFixtureProduct(fixture?.id ?? '');
   const remove = useRemoveFixtureProduct(fixture?.id ?? '');
+  const reorder = useReorderFixturePlanogram(fixture?.id ?? '');
   const [q, setQ] = React.useState('');
   const productsQ = useProducts(fixture ? { search: q } : {});
 
   const defaults = defaultsQ.data ?? [];
   const defaultIds = new Set(defaults.map((d) => d.id));
   const results = (productsQ.data ?? []).slice(0, 24);
+  const rows = React.useMemo(() => defaultsToRows(defaults), [defaults]);
 
   return (
     <Dialog
@@ -407,131 +661,176 @@ function FixtureProductsDialog({
       onOpenChange={(o) => {
         if (!o) {
           setQ('');
+          setTab('products');
           onClose();
         }
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent className={tab === 'layout' ? 'max-w-3xl' : 'max-w-lg'}>
         <DialogHeader>
           <DialogTitle>
-            Default products{fixture ? ` · ${fixture.name}` : ''}
+            {fixture ? fixture.name : 'Fixture'} · default set
           </DialogTitle>
           <DialogDescription>
-            The starter set for this fixture. When it's added to a guide, the
-            author can pre-populate from this set or start from scratch.
+            The reusable starter set for this fixture. Lay it out as a planogram
+            and a guide author who pre-populates inherits the shelves.
           </DialogDescription>
         </DialogHeader>
 
-        <div>
-          <p className="mb-2 text-[11px] font-medium uppercase tracking-brand text-steel">
-            In the set{defaults.length ? ` · ${defaults.length}` : ''}
-          </p>
-          {defaultsQ.isLoading ? (
-            <div className="grid place-items-center py-6">
-              <Spinner className="text-lg text-steel" />
-            </div>
-          ) : defaults.length === 0 ? (
-            <p className="rounded-md border border-dashed border-mist/70 px-3 py-3 text-xs text-steel">
-              No default products yet — add some from the catalog below.
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {defaults.map((d) => (
-                <li
-                  key={d.fixtureProductId}
-                  className="flex items-center gap-2.5 rounded-md px-1.5 py-1"
-                >
-                  <ProductThumb
-                    imageUrl={d.imageUrl}
-                    sku={d.sku}
-                    name={d.name}
-                    className="h-9 w-9 shrink-0 rounded"
-                  />
-                  <div className="min-w-0 flex-1 leading-tight">
-                    <p className="truncate text-xs font-medium text-ink">
-                      {d.name}
-                    </p>
-                    <p className="truncate text-[10px] uppercase tracking-brand text-steel">
-                      {d.sku}
-                      {d.brand ? ` · ${d.brand}` : ''}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={`Remove ${d.name}`}
-                    disabled={remove.isPending}
-                    onClick={() => remove.mutate(d.fixtureProductId)}
-                    className="shrink-0 rounded-md p-1.5 text-steel hover:text-fail disabled:opacity-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+        {/* Products / Layout tabs */}
+        <div className="inline-flex rounded-md border border-mist/70 p-0.5 text-xs">
+          {(['products', 'layout'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={`rounded px-3 py-1 font-medium ${
+                tab === t ? 'bg-ink text-paper' : 'text-graphite hover:text-ink'
+              }`}
+            >
+              {t === 'layout' ? 'Layout / shelves' : 'Products'}
+            </button>
+          ))}
         </div>
 
-        <div className="rounded-md border border-mist/70 bg-surface/40 p-3">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search the catalog by name, brand or SKU…"
-              className="w-full rounded-md border border-mist bg-paper py-2 pl-8 pr-3 text-sm text-ink placeholder:text-steel focus:border-steel focus:outline-none"
-            />
-          </div>
-          <div className="mt-2 max-h-64 overflow-y-auto">
-            {productsQ.isLoading ? (
-              <div className="grid place-items-center py-6">
+        {tab === 'layout' ? (
+          <div className="max-h-[65vh] overflow-y-auto">
+            {defaultsQ.isLoading ? (
+              <div className="grid place-items-center py-10">
                 <Spinner className="text-lg text-steel" />
               </div>
-            ) : results.length === 0 ? (
-              <p className="px-1 py-4 text-center text-xs text-steel">
-                No products match.
+            ) : fixture ? (
+              <PlanogramEditor
+                large
+                onDone={onClose}
+                adapter={{
+                  rows,
+                  isPersisting: reorder.isPending,
+                  onReorder: (body) => reorder.mutate(body),
+                  onAddProduct: (productId, row, onSuccess) =>
+                    add.mutate({ productId, row }, { onSuccess }),
+                  onRemoveFacing: (fixtureProductId) =>
+                    remove.mutate(fixtureProductId),
+                }}
+              />
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <div>
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-brand text-steel">
+                In the set{defaults.length ? ` · ${defaults.length}` : ''}
               </p>
-            ) : (
-              <ul className="flex flex-col">
-                {results.map((p) => {
-                  const inSet = defaultIds.has(p.id);
-                  return (
-                    <li key={p.id}>
+              {defaultsQ.isLoading ? (
+                <div className="grid place-items-center py-6">
+                  <Spinner className="text-lg text-steel" />
+                </div>
+              ) : defaults.length === 0 ? (
+                <p className="rounded-md border border-dashed border-mist/70 px-3 py-3 text-xs text-steel">
+                  No default products yet — add some from the catalog below, then
+                  open “Layout / shelves” to organise them.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {defaults.map((d) => (
+                    <li
+                      key={d.fixtureProductId}
+                      className="flex items-center gap-2.5 rounded-md px-1.5 py-1"
+                    >
+                      <ProductThumb
+                        imageUrl={d.imageUrl}
+                        sku={d.sku}
+                        name={d.name}
+                        className="h-9 w-9 shrink-0 rounded"
+                      />
+                      <div className="min-w-0 flex-1 leading-tight">
+                        <p className="truncate text-xs font-medium text-ink">
+                          {d.name}
+                        </p>
+                        <p className="truncate text-[10px] uppercase tracking-brand text-steel">
+                          {d.sku}
+                          {d.brand ? ` · ${d.brand}` : ''}
+                          {d.row ? ` · ${d.row}` : ''}
+                        </p>
+                      </div>
                       <button
                         type="button"
-                        disabled={inSet || add.isPending}
-                        onClick={() => add.mutate(p.id)}
-                        className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left hover:bg-paper disabled:opacity-50"
+                        aria-label={`Remove ${d.name}`}
+                        disabled={remove.isPending}
+                        onClick={() => remove.mutate(d.fixtureProductId)}
+                        className="shrink-0 rounded-md p-1.5 text-steel hover:text-fail disabled:opacity-50"
                       >
-                        <ProductThumb
-                          imageUrl={p.imageUrl}
-                          sku={p.sku}
-                          name={p.name}
-                          className="h-9 w-9 shrink-0 rounded"
-                        />
-                        <div className="min-w-0 flex-1 leading-tight">
-                          <p className="truncate text-xs font-medium text-ink">
-                            {p.name}
-                          </p>
-                          <p className="truncate text-[10px] uppercase tracking-brand text-steel">
-                            {p.sku}
-                            {p.brand ? ` · ${p.brand}` : ''}
-                          </p>
-                        </div>
-                        {inSet ? (
-                          <span className="shrink-0 text-[10px] font-medium uppercase tracking-brand text-pass">
-                            In set
-                          </span>
-                        ) : (
-                          <Plus className="h-4 w-4 shrink-0 text-steel" />
-                        )}
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </div>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="rounded-md border border-mist/70 bg-surface/40 p-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search the catalog by name, brand or SKU…"
+                  className="w-full rounded-md border border-mist bg-paper py-2 pl-8 pr-3 text-sm text-ink placeholder:text-steel focus:border-steel focus:outline-none"
+                />
+              </div>
+              <div className="mt-2 max-h-64 overflow-y-auto">
+                {productsQ.isLoading ? (
+                  <div className="grid place-items-center py-6">
+                    <Spinner className="text-lg text-steel" />
+                  </div>
+                ) : results.length === 0 ? (
+                  <p className="px-1 py-4 text-center text-xs text-steel">
+                    No products match.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col">
+                    {results.map((p) => {
+                      const inSet = defaultIds.has(p.id);
+                      return (
+                        <li key={p.id}>
+                          <button
+                            type="button"
+                            disabled={inSet || add.isPending}
+                            onClick={() => add.mutate({ productId: p.id })}
+                            className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left hover:bg-paper disabled:opacity-50"
+                          >
+                            <ProductThumb
+                              imageUrl={p.imageUrl}
+                              sku={p.sku}
+                              name={p.name}
+                              className="h-9 w-9 shrink-0 rounded"
+                            />
+                            <div className="min-w-0 flex-1 leading-tight">
+                              <p className="truncate text-xs font-medium text-ink">
+                                {p.name}
+                              </p>
+                              <p className="truncate text-[10px] uppercase tracking-brand text-steel">
+                                {p.sku}
+                                {p.brand ? ` · ${p.brand}` : ''}
+                              </p>
+                            </div>
+                            {inSet ? (
+                              <span className="shrink-0 text-[10px] font-medium uppercase tracking-brand text-pass">
+                                In set
+                              </span>
+                            ) : (
+                              <Plus className="h-4 w-4 shrink-0 text-steel" />
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </>
+        )}
 
         <DialogFooter>
           <DialogClose asChild>
@@ -543,4 +842,16 @@ function FixtureProductsDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Group the flat default set into planogram rows (facing id = FixtureProduct id). */
+function defaultsToRows(defaults: FixtureDefaultProduct[]): MerchandiseRow[] {
+  const map = new Map<string, MerchandiseItem[]>();
+  for (const d of defaults) {
+    const row = d.row?.trim() || 'Unsorted';
+    const arr = map.get(row) ?? [];
+    arr.push({ ...d, merchandiseId: d.fixtureProductId });
+    map.set(row, arr);
+  }
+  return [...map.entries()].map(([row, products]) => ({ row, products }));
 }

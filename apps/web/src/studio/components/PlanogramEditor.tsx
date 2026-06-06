@@ -15,12 +15,7 @@ import { Button, Spinner } from '@wally/ui';
 import type { MerchandiseRow } from '@wally/types';
 
 import { ProductThumb } from './ProductThumb';
-import {
-  useAddMerchandise,
-  useProducts,
-  useRemoveMerchandise,
-  useReorderPlanogram,
-} from '../lib/hooks';
+import { useProducts } from '../lib/hooks';
 import {
   addShelf,
   emptyShelfToUnsorted,
@@ -45,52 +40,63 @@ type Drag =
   | null;
 
 /**
+ * What the editor needs to read and persist a planogram, decoupled from where
+ * the data lives. The guide-fixture sheet and the library-fixture default set
+ * both implement this, so they share one editor.
+ *
+ * `facingId` is the id used to address a single placement — a Merchandise id on
+ * a guide sheet, a FixtureProduct id in the library. The pure layout ops in
+ * `planogram/layout` key facings by this id (`merchandiseId`) either way.
+ */
+export interface PlanogramAdapter {
+  /** Current persisted layout, grouped into shelves top→bottom. */
+  rows: MerchandiseRow[];
+  /** Persist the full layout (server owns `order`). */
+  onReorder: (body: { shelves: { row: string; merchandiseIds: string[] }[] }) => void;
+  /** True while a reorder is in flight (drives the saved/spinner indicator). */
+  isPersisting: boolean;
+  /** Add a product onto a shelf (by row label); calls back on success to refetch. */
+  onAddProduct: (productId: string, row: string, onSuccess: () => void) => void;
+  /** Remove a single facing by its id. */
+  onRemoveFacing: (facingId: string) => void;
+}
+
+/**
  * The drag-and-drop planogram editor. Organise shelves and facings freely:
  * drag products within / between shelves, reorder, add / rename / remove
  * shelves. Every structural change persists as one PATCH (the server owns the
- * order); add / remove a product go through the merchandise endpoints.
+ * order) via the adapter; add / remove a product go through the adapter too.
  */
 export function PlanogramEditor({
-  campaignId,
-  fixtureId,
-  guideFixtureId,
-  merchandise,
+  adapter,
   onDone,
   large = false,
 }: {
-  campaignId: string;
-  fixtureId: string;
-  guideFixtureId: string;
-  merchandise: MerchandiseRow[];
+  adapter: PlanogramAdapter;
   onDone: () => void;
   /** Roomy mode (in the modal): bigger facings, easier to see and drag. */
   large?: boolean;
 }) {
-  const [shelves, setShelves] = React.useState<Shelf[]>(() => seedShelves(merchandise));
-  const lastSig = React.useRef(sigFromRows(merchandise));
+  const { rows, onReorder, isPersisting, onAddProduct, onRemoveFacing } = adapter;
+  const [shelves, setShelves] = React.useState<Shelf[]>(() => seedShelves(rows));
+  const lastSig = React.useRef(sigFromRows(rows));
 
   // Re-seed only when the SERVER layout changes from what we last persisted
   // (so our own reorder echoes don't clobber local edits, but adds/removes do).
   React.useEffect(() => {
-    const incoming = sigFromRows(merchandise);
+    const incoming = sigFromRows(rows);
     if (incoming !== lastSig.current) {
       lastSig.current = incoming;
-      setShelves(seedShelves(merchandise));
+      setShelves(seedShelves(rows));
     }
-  }, [merchandise]);
-
-  const reorder = useReorderPlanogram(campaignId, fixtureId);
-  const remove = useRemoveMerchandise(campaignId, fixtureId);
+  }, [rows]);
 
   const persistTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const apply = (next: Shelf[]) => {
     setShelves(next);
     lastSig.current = sigFromShelves(next);
     clearTimeout(persistTimer.current);
-    persistTimer.current = setTimeout(
-      () => reorder.mutate({ guideFixtureId, body: toBody(next) }),
-      350,
-    );
+    persistTimer.current = setTimeout(() => onReorder(toBody(next)), 350);
   };
   React.useEffect(() => () => clearTimeout(persistTimer.current), []);
 
@@ -113,7 +119,7 @@ export function PlanogramEditor({
           Editing planogram · {total} facing{total === 1 ? '' : 's'}
         </span>
         <div className="flex items-center gap-1.5">
-          {reorder.isPending ? (
+          {isPersisting ? (
             <Spinner className="text-sm text-steel" />
           ) : (
             <Check className="h-3.5 w-3.5 text-pass" />
@@ -132,15 +138,13 @@ export function PlanogramEditor({
             index={i}
             count={shelves.length}
             isOver={over === shelf.id}
-            campaignId={campaignId}
-            fixtureId={fixtureId}
-            guideFixtureId={guideFixtureId}
             large={large}
             dragRef={dragRef}
+            onAddProduct={onAddProduct}
             onDragOverShelf={() => setOver(shelf.id)}
             onDropFacing={onDropFacing}
             onShiftFacing={(fid, dir) => apply(shiftFacing(shelves, fid, dir))}
-            onRemoveFacing={(mid) => remove.mutate({ guideFixtureId, merchandiseId: mid })}
+            onRemoveFacing={(mid) => onRemoveFacing(mid)}
             onShiftShelf={(dir) => apply(shiftShelf(shelves, shelf.id, dir))}
             onRename={(label) => apply(renameShelf(shelves, shelf.id, label))}
             onRemoveShelf={() => {
@@ -178,11 +182,9 @@ function ShelfRow({
   index,
   count,
   isOver,
-  campaignId,
-  fixtureId,
-  guideFixtureId,
   large,
   dragRef,
+  onAddProduct,
   onDragOverShelf,
   onDropFacing,
   onShiftFacing,
@@ -196,11 +198,9 @@ function ShelfRow({
   index: number;
   count: number;
   isOver: boolean;
-  campaignId: string;
-  fixtureId: string;
-  guideFixtureId: string;
   large: boolean;
   dragRef: React.MutableRefObject<Drag>;
+  onAddProduct: (productId: string, row: string, onSuccess: () => void) => void;
   onDragOverShelf: () => void;
   onDropFacing: (toShelfId: string, toIndex: number) => void;
   onShiftFacing: (facingId: string, dir: -1 | 1) => void;
@@ -287,11 +287,9 @@ function ShelfRow({
       {/* Per-shelf product picker */}
       {picking ? (
         <ShelfPicker
-          campaignId={campaignId}
-          fixtureId={fixtureId}
-          guideFixtureId={guideFixtureId}
           row={shelf.row}
           placedIds={new Set(shelf.facings.map((f) => f.id))}
+          onAddProduct={onAddProduct}
           onClose={() => setPicking(false)}
           onAdded={onAdded}
         />
@@ -424,25 +422,21 @@ function FacingSquare({
 }
 
 function ShelfPicker({
-  campaignId,
-  fixtureId,
-  guideFixtureId,
   row,
   placedIds,
+  onAddProduct,
   onClose,
   onAdded,
 }: {
-  campaignId: string;
-  fixtureId: string;
-  guideFixtureId: string;
   row: string;
   placedIds: Set<string>;
+  onAddProduct: (productId: string, row: string, onSuccess: () => void) => void;
   onClose: () => void;
   onAdded: () => void;
 }) {
   const [q, setQ] = React.useState('');
   const productsQ = useProducts({ search: q });
-  const add = useAddMerchandise(campaignId, fixtureId);
+  const [adding, setAdding] = React.useState<string | null>(null);
   const results = (productsQ.data ?? []).slice(0, 16);
 
   return (
@@ -480,13 +474,14 @@ function ShelfPicker({
                 <li key={p.id}>
                   <button
                     type="button"
-                    disabled={placed || add.isPending}
-                    onClick={() =>
-                      add.mutate(
-                        { guideFixtureId, productId: p.id, row },
-                        { onSuccess: onAdded },
-                      )
-                    }
+                    disabled={placed || adding !== null}
+                    onClick={() => {
+                      setAdding(p.id);
+                      onAddProduct(p.id, row, () => {
+                        setAdding(null);
+                        onAdded();
+                      });
+                    }}
                     className="flex w-full items-center gap-2 rounded px-1 py-1 text-left hover:bg-paper disabled:opacity-50"
                   >
                     <ProductThumb

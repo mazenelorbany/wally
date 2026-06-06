@@ -1,17 +1,33 @@
 import * as React from 'react';
-import { ImageIcon, Plus, Search, Star, Trash2, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Pencil,
+  Plus,
+  Search,
+  Star,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import { Badge, Button, cn, Spinner } from '@wally/ui';
+import type { GuideFixtureExampleImage } from '@wally/types';
 
 import { ErrorState } from '../../components/states';
 import { errorMessage } from '../../lib/api';
+import { useToast } from '../../lib/toast';
 import {
+  useAddExampleImage,
   useAddMerchandise,
   useFixtureProducts,
   useGuideFixture,
   usePrepopulate,
   useProducts,
+  useRemoveExampleImage,
   useRemoveMerchandise,
+  useReorderPlanogram,
   useSaveNotes,
+  useSetExampleImageBestInClass,
+  useUpdateExampleImageCaption,
 } from '../lib/hooks';
 import { fixtureKindMeta } from '../lib/fixtureKind';
 import { ProductThumb } from './ProductThumb';
@@ -129,50 +145,13 @@ export function FixtureDetailPanel({
               />
             </section>
 
-            {/* Example images */}
-            <section>
-              <SectionLabel
-                text={`What good looks like · ${detail.exampleImages.length}`}
-              />
-              {detail.exampleImages.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2.5">
-                  {detail.exampleImages.map((img) => (
-                    <figure
-                      key={img.id}
-                      className="overflow-hidden rounded-md border border-mist/60 bg-surface"
-                    >
-                      <div className="relative aspect-[4/3]">
-                        <img
-                          src={img.url}
-                          alt={img.caption ?? 'Reference image'}
-                          loading="lazy"
-                          className="h-full w-full object-cover"
-                        />
-                        {img.bestInClass ? (
-                          <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-ink/85 px-1.5 py-0.5 text-[10px] font-medium text-paper">
-                            <Star
-                              className="h-3 w-3 fill-paper"
-                              aria-hidden="true"
-                            />
-                            Best in class
-                          </span>
-                        ) : null}
-                      </div>
-                      {img.caption ? (
-                        <figcaption className="px-2 py-1.5 text-[11px] leading-snug text-steel">
-                          {img.caption}
-                        </figcaption>
-                      ) : null}
-                    </figure>
-                  ))}
-                </div>
-              ) : (
-                <EmptyHint
-                  icon={<ImageIcon className="h-4 w-4" />}
-                  text="No reference images yet."
-                />
-              )}
-            </section>
+            {/* Example images — "what good looks like" */}
+            <ExampleImagesSection
+              campaignId={campaignId}
+              fixtureId={fixtureId}
+              guideFixtureId={detail.guideFixtureId}
+              images={detail.exampleImages}
+            />
 
             {/* Merchandise planogram — add / remove products */}
             <MerchandiseSection
@@ -185,6 +164,217 @@ export function FixtureDetailPanel({
         ) : null}
       </div>
     </aside>
+  );
+}
+
+const ACCEPT_IMAGE = 'image/jpeg,image/png,image/webp';
+
+/**
+ * The "what good looks like" reference grid with full authoring: upload a new
+ * image (optional caption), edit a caption, star one best-in-class, and delete.
+ * Without a reference the AI scores against the notes alone — so the empty state
+ * says exactly that instead of a soft "no images yet".
+ */
+function ExampleImagesSection({
+  campaignId,
+  fixtureId,
+  guideFixtureId,
+  images,
+}: {
+  campaignId: string;
+  fixtureId: string;
+  guideFixtureId: string;
+  images: GuideFixtureExampleImage[];
+}) {
+  const toast = useToast();
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const add = useAddExampleImage(campaignId, fixtureId);
+  const updateCaption = useUpdateExampleImageCaption(campaignId, fixtureId);
+  const setBest = useSetExampleImageBestInClass(campaignId, fixtureId);
+  const remove = useRemoveExampleImage(campaignId, fixtureId);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [captionDraft, setCaptionDraft] = React.useState('');
+
+  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    add.mutate(
+      { guideFixtureId, file },
+      {
+        onSuccess: () => toast.success('Reference image added'),
+        onError: (err) => toast.error(errorMessage(err)),
+      },
+    );
+  };
+
+  const startEditCaption = (img: GuideFixtureExampleImage) => {
+    setEditingId(img.id);
+    setCaptionDraft(img.caption ?? '');
+  };
+
+  const commitCaption = (imageId: string) => {
+    updateCaption.mutate(
+      { guideFixtureId, imageId, caption: captionDraft },
+      { onError: (err) => toast.error(errorMessage(err)) },
+    );
+    setEditingId(null);
+  };
+
+  return (
+    <section>
+      <div className="mb-2.5 flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-medium uppercase tracking-brand text-steel">
+          What good looks like{images.length ? ` · ${images.length}` : ''}
+        </h3>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => fileRef.current?.click()}
+          disabled={add.isPending}
+        >
+          <Upload className="h-3.5 w-3.5" />
+          {add.isPending ? 'Uploading…' : 'Add image'}
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept={ACCEPT_IMAGE}
+          className="sr-only"
+          onChange={onPick}
+        />
+      </div>
+
+      {images.length > 0 ? (
+        <div className="grid grid-cols-2 gap-2.5">
+          {images.map((img) => {
+            const editing = editingId === img.id;
+            return (
+              <figure
+                key={img.id}
+                className="group overflow-hidden rounded-md border border-mist/60 bg-surface"
+              >
+                <div className="relative aspect-[4/3]">
+                  <img
+                    src={img.url}
+                    alt={img.caption ?? 'Reference image'}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
+                  {img.bestInClass ? (
+                    <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-ink/85 px-1.5 py-0.5 text-[10px] font-medium text-paper">
+                      <Star className="h-3 w-3 fill-paper" aria-hidden="true" />
+                      Best in class
+                    </span>
+                  ) : null}
+                  {/* Hover controls: star (best-in-class), edit caption, delete */}
+                  <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    {!img.bestInClass ? (
+                      <IconAction
+                        label="Mark best in class"
+                        disabled={setBest.isPending}
+                        onClick={() =>
+                          setBest.mutate(
+                            { guideFixtureId, imageId: img.id },
+                            { onError: (e) => toast.error(errorMessage(e)) },
+                          )
+                        }
+                      >
+                        <Star className="h-3.5 w-3.5" />
+                      </IconAction>
+                    ) : null}
+                    <IconAction
+                      label="Edit caption"
+                      onClick={() => startEditCaption(img)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </IconAction>
+                    <IconAction
+                      label="Delete image"
+                      danger
+                      disabled={remove.isPending}
+                      onClick={() =>
+                        remove.mutate(
+                          { guideFixtureId, imageId: img.id },
+                          { onError: (e) => toast.error(errorMessage(e)) },
+                        )
+                      }
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </IconAction>
+                  </div>
+                </div>
+                {editing ? (
+                  <div className="flex items-center gap-1 p-1.5">
+                    <input
+                      autoFocus
+                      value={captionDraft}
+                      onChange={(e) => setCaptionDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitCaption(img.id);
+                        if (e.key === 'Escape') setEditingId(null);
+                      }}
+                      onBlur={() => commitCaption(img.id)}
+                      placeholder="Add a caption…"
+                      maxLength={280}
+                      aria-label="Caption"
+                      className="min-w-0 flex-1 rounded border border-mist bg-paper px-1.5 py-1 text-[11px] text-ink focus:border-steel focus:outline-none"
+                    />
+                  </div>
+                ) : img.caption ? (
+                  <figcaption className="px-2 py-1.5 text-[11px] leading-snug text-steel">
+                    {img.caption}
+                  </figcaption>
+                ) : null}
+              </figure>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="flex items-start gap-2 rounded-md border border-dashed border-signal/40 bg-signal/5 px-3 py-3 text-xs text-graphite">
+          <AlertTriangle
+            className="mt-0.5 h-4 w-4 shrink-0 text-signal"
+            aria-hidden="true"
+          />
+          <span>
+            No reference image set — the AI will score this fixture against the{' '}
+            <b className="font-semibold text-ink">notes only</b>. Add a “what good
+            looks like” photo so it has a standard to compare against.
+          </span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** A small overlaid icon button used by the example-image hover controls. */
+function IconAction({
+  label,
+  onClick,
+  disabled,
+  danger,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'grid h-6 w-6 place-items-center rounded bg-paper/90 text-steel shadow-card transition-colors hover:text-ink disabled:opacity-40',
+        danger && 'hover:text-signal',
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -209,6 +399,7 @@ function MerchandiseSection({
   const [q, setQ] = React.useState('');
   const add = useAddMerchandise(campaignId, fixtureId);
   const remove = useRemoveMerchandise(campaignId, fixtureId);
+  const reorder = useReorderPlanogram(campaignId, fixtureId);
   // Pre-populate: this fixture's default product set + the copy action.
   const defaultsQ = useFixtureProducts(fixtureId);
   const defaultsCount = defaultsQ.data?.length ?? 0;
@@ -238,11 +429,16 @@ function MerchandiseSection({
         </div>
         <PlanogramEditor
           large
-          campaignId={campaignId}
-          fixtureId={fixtureId}
-          guideFixtureId={guideFixtureId}
-          merchandise={merchandise}
           onDone={() => setEditing(false)}
+          adapter={{
+            rows: merchandise,
+            isPersisting: reorder.isPending,
+            onReorder: (body) => reorder.mutate({ guideFixtureId, body }),
+            onAddProduct: (productId, row, onSuccess) =>
+              add.mutate({ guideFixtureId, productId, row }, { onSuccess }),
+            onRemoveFacing: (merchandiseId) =>
+              remove.mutate({ guideFixtureId, merchandiseId }),
+          }}
         />
       </section>
     );
