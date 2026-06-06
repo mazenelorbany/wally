@@ -37,6 +37,7 @@ export class AdminController {
   constructor(private readonly admin: AdminService) {}
 
   @Post('stores/:storeId/tasks')
+  @Roles('ADMIN')
   createTask(
     @CurrentUser() user: SessionUser,
     @Param('storeId') storeId: string,

@@ -57,11 +57,64 @@ export class ReviewService {
     });
     if (!verdict) throw new NotFoundException('verdict not found');
 
+    // `note` is the UI field; `reason` is the API alias. One canonical reason.
+    const reason = input.note ?? input.reason ?? null;
+
     if (input.action === ReviewAction.OVERRIDE) {
-      return this.override(reviewerId, verdict, input);
+      // Two override shapes (the DTO guarantees exactly one is present):
+      //   • whole-fixture band  → set Verdict.overall directly.
+      //   • per-criterion flip  → flip one criterion + recompute the rollup.
+      if (input.overall !== undefined) {
+        return this.overrideBand(reviewerId, verdict, input.overall, reason);
+      }
+      return this.override(reviewerId, verdict, input, reason);
     }
     // CONFIRM / ESCALATE: audit-only, no verdict mutation.
-    return this.recordAudit(reviewerId, verdict.id, input);
+    return this.recordAudit(reviewerId, verdict.id, input, reason);
+  }
+
+  // ----- override (whole-fixture band) -------------------------------------
+
+  /**
+   * Set the fixture's overall band directly to the reviewer's call. The console
+   * offers this form: the reviewer just picks the correct band. We write an
+   * immutable Review row (the audit) and set Verdict.overall in one transaction.
+   * needsReview is cleared (a human has made the call); confidence is left as the
+   * model's — the per-criterion results are untouched.
+   */
+  private async overrideBand(
+    reviewerId: string,
+    verdict: Prisma.VerdictGetPayload<{
+      include: { rubric: { include: { campaign: { select: { key: true } } } } };
+    }>,
+    overall: Overall,
+    reason: string | null,
+  ) {
+    const fromOverall = (Object.keys(OVERALL_CORE_TO_DB) as Overall[]).find(
+      (k) => OVERALL_CORE_TO_DB[k] === verdict.overall,
+    )!;
+    return this.prisma.$transaction(async (tx) => {
+      const review = await tx.review.create({
+        data: {
+          verdictId: verdict.id,
+          criterionId: null, // whole-fixture action
+          action: ReviewAction.OVERRIDE,
+          fromVerdict: fromOverall,
+          toVerdict: overall,
+          reason,
+          reviewerId,
+        },
+      });
+      const updated = await tx.verdict.update({
+        where: { id: verdict.id },
+        data: {
+          overall: OVERALL_CORE_TO_DB[overall],
+          needsReview: false,
+          lastReviewedById: reviewerId,
+        },
+      });
+      return { review, verdict: this.presentVerdict(updated) };
+    });
   }
 
   // ----- override ----------------------------------------------------------
@@ -77,8 +130,9 @@ export class ReviewService {
       include: { rubric: { include: { campaign: { select: { key: true } } } } };
     }>,
     input: CreateReviewInput,
+    reason: string | null,
   ) {
-    // superRefine already guarantees these on OVERRIDE; assert for the types.
+    // superRefine already guarantees these on the per-criterion form; assert.
     const criterionId = input.criterionId!;
     const toVerdict = input.toVerdict!;
 
@@ -95,7 +149,7 @@ export class ReviewService {
 
     // Apply the human correction. A human decision is certain (confidence 1) and
     // the evidence records who/why so the override is self-documenting.
-    const overridden = upsertResult(current, criterionId, toVerdict, input.reason);
+    const overridden = upsertResult(current, criterionId, toVerdict, reason ?? undefined);
 
     // Recompute with the SAME stamp the scorer used — reproducible, not freehand.
     // Canonical stamp: <fixtureKey>.<campaignKey>.v<version>.
@@ -115,7 +169,7 @@ export class ReviewService {
           action: ReviewAction.OVERRIDE,
           fromVerdict,
           toVerdict,
-          reason: input.reason ?? null,
+          reason,
           reviewerId,
         },
       });
@@ -126,6 +180,7 @@ export class ReviewService {
           needsReview: rolled.needsReview,
           confidence: rolled.confidence,
           results: rolled.results as unknown as Prisma.InputJsonValue,
+          lastReviewedById: reviewerId,
         },
       });
       return { review, verdict: this.presentVerdict(updated) };
@@ -138,13 +193,14 @@ export class ReviewService {
     reviewerId: string,
     verdictId: string,
     input: CreateReviewInput,
+    reason: string | null,
   ) {
     const review = await this.prisma.review.create({
       data: {
         verdictId,
         criterionId: input.criterionId ?? null,
         action: input.action as ReviewAction,
-        reason: input.reason ?? null,
+        reason,
         reviewerId,
       },
     });

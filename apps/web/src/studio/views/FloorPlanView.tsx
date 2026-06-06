@@ -13,7 +13,7 @@ import { studio } from '../lib/sdk';
 import { api } from '../../lib/api';
 import { useToast } from '../../lib/toast';
 import { fixtureKindMeta } from '../lib/fixtureKind';
-import { FloorPlanCanvas } from '../components/FloorPlanCanvas';
+import { FloorPlanCanvas, PLAN_W, PLAN_H } from '../components/FloorPlanCanvas';
 import { FixtureDetailPanel } from '../components/FixtureDetailPanel';
 
 /**
@@ -103,9 +103,22 @@ export function FloorPlanView() {
   const onMove = (id: string, x: number, y: number) => {
     const p = plan?.placements.find((pp) => pp.id === id);
     if (!p) return;
+    // Keep the fixture on the canvas…
+    const nx = Math.round(Math.max(0, Math.min(x, PLAN_W - p.w)));
+    const ny = Math.round(Math.max(0, Math.min(y, PLAN_H - p.h)));
+    // …and don't let it land on top of another fixture. Edge-touching is fine
+    // (strict overlap), so neighbours can sit flush. Blocked drops snap back.
+    const proposed = { x: nx, y: ny, w: p.w, h: p.h };
+    const collides = (plan?.placements ?? []).some(
+      (o) => o.id !== id && rectsOverlap(proposed, o),
+    );
+    if (collides) {
+      toast.info(`${p.label} can’t overlap another fixture — kept it in place.`);
+      return;
+    }
     move.mutate({
       id,
-      geometry: { x, y, w: p.w, h: p.h, rotation: p.rotation },
+      geometry: { x: nx, y: ny, w: p.w, h: p.h, rotation: p.rotation },
     });
   };
 
@@ -145,9 +158,10 @@ export function FloorPlanView() {
 
   return (
     <>
-      {/* Canvas — full width; the fixture sheet opens as a popup on click */}
-      <div className="h-full overflow-y-auto px-6 py-6">
-        <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      {/* Canvas — fits the viewport (no scroll); the fixture sheet opens as a
+          popup on click. Flex column: fixed header/palette/footer, canvas fills. */}
+      <div className="flex h-full flex-col px-6 py-6">
+        <header className="mb-4 flex shrink-0 flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-[11px] uppercase tracking-brand text-steel">
               Floor plan
@@ -176,26 +190,30 @@ export function FloorPlanView() {
 
         {/* Fixture palette (layout builder) */}
         {building ? (
-          <FixturePalette
-            fixtures={fixturesQ.data ?? []}
-            placedFixtureIds={new Set(plan.placements.map((p) => p.fixtureId))}
-            adding={addFixture.isPending}
-            creating={createAndPlace.isPending}
-            onAdd={(id) => addFixture.mutate(id)}
-            onCreate={(name, kind) => createAndPlace.mutate({ name, kind })}
-          />
+          <div className="shrink-0">
+            <FixturePalette
+              fixtures={fixturesQ.data ?? []}
+              placedFixtureIds={new Set(plan.placements.map((p) => p.fixtureId))}
+              adding={addFixture.isPending}
+              creating={createAndPlace.isPending}
+              onAdd={(id) => addFixture.mutate(id)}
+              onCreate={(name, kind) => createAndPlace.mutate({ name, kind })}
+            />
+          </div>
         ) : null}
 
         {plan.placements.length > 0 ? (
           <>
-            <FloorPlanCanvas
-              placements={plan.placements}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              onMove={onMove}
-              onClearSelection={() => setSelectedId(undefined)}
-            />
-            <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="min-h-0 flex-1">
+              <FloorPlanCanvas
+                placements={plan.placements}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                onMove={onMove}
+                onClearSelection={() => setSelectedId(undefined)}
+              />
+            </div>
+            <div className="mt-3 flex shrink-0 items-center justify-between gap-3">
               <p className="text-xs text-steel">
                 {building
                   ? 'Add fixtures from the palette · drag to position · select one to remove.'
@@ -254,6 +272,14 @@ export function FloorPlanView() {
 
 function Pad({ children }: { children: React.ReactNode }) {
   return <div className="px-6 py-6">{children}</div>;
+}
+
+/** Axis-aligned rectangle overlap (logical units). Edge-touching is NOT overlap. */
+function rectsOverlap(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
 const FIXTURE_KINDS: import('@wally/types').FixtureKind[] = [

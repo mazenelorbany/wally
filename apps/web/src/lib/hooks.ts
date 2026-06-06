@@ -91,3 +91,23 @@ export function useReview(): UseMutationResult<
     },
   });
 }
+
+/**
+ * Re-open a FAILED (or stuck) photo for scoring. On success we invalidate the
+ * submission + queue caches so the photo flips back to UPLOADED and re-scores.
+ */
+export function useRescore(): UseMutationResult<
+  { id: string; status: string },
+  unknown,
+  string
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (photoId) => api.photos.rescore(photoId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['submission'] });
+      void qc.invalidateQueries({ queryKey: ['queue'] });
+      void qc.invalidateQueries({ queryKey: ['store-score'] });
+    },
+  });
+}

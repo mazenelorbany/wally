@@ -111,13 +111,26 @@ export interface SubmissionFixture {
   order: number;
 }
 
+/**
+ * A scored photo on the reviewer bench. The full ScoreResult (overall,
+ * confidence, flags, per-criterion results, rubricVersion) plus the VERDICT id
+ * — the review endpoint is keyed by verdict id, so the bench submits decisions
+ * against `score.id`, not the photo id.
+ */
+export interface ReviewableScore extends ScoreResult {
+  /** The verdict id — pass to `verdicts.review(id, …)`. */
+  id: string;
+  createdAt?: string;
+}
+
 export interface SubmissionPhoto {
   id: string;
   fixtureKey: string;
   status: string;
   /** Signed, time-limited URL — never the raw storage key. */
   url?: string;
-  score?: ScoreResult;
+  /** The AI verdict, presented for review. Null/absent until scored. */
+  score?: ReviewableScore | null;
 }
 
 /** Result of uploading one photo to a submission. */
@@ -359,6 +372,11 @@ export interface WallyClient {
       photoId: string,
       value: boolean,
     ): Promise<{ id: string; bestInClass: boolean }>;
+    /**
+     * Re-open a FAILED (or stuck) photo for scoring — resets its job to PENDING
+     * and the photo to UPLOADED so the worker re-enqueues it. REVIEWER/ADMIN.
+     */
+    rescore(photoId: string): Promise<{ id: string; status: string }>;
   };
   stores: {
     storeScore(id: string, campaignId: string): Promise<StoreScore>;
@@ -706,6 +724,10 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         patch<{ id: string; bestInClass: boolean }>(
           `photos/${encodeURIComponent(photoId)}/best-in-class`,
           { value },
+        ),
+      rescore: (photoId) =>
+        post<{ id: string; status: string }>(
+          `photos/${encodeURIComponent(photoId)}/rescore`,
         ),
     },
     stores: {

@@ -908,11 +908,15 @@ type PlacementSpec = {
   applicable?: boolean;
 };
 
+// Deliberate, collision-free layout on the 1000×640 plane. Four horizontal
+// bands below the wall-bay run, each with clear gutters, plus a window column on
+// the right edge. Every rect is checked against the others before returning, so
+// the seeded plan never ships overlapping fixtures.
 function floorPlanFor(): PlacementSpec[] {
   const specs: PlacementSpec[] = [];
   const push = (s: PlacementSpec) => specs.push(s);
 
-  // Row of 7 wall bays along the top edge (~110x40, 10px gutter).
+  // Row of 7 TCC wall bays + the Fry bay along the top edge (110×40, 10 gutter).
   const bayW = 110;
   const bayH = 40;
   const bayGap = 10;
@@ -922,63 +926,65 @@ function floorPlanFor(): PlacementSpec[] {
     push({ fixtureName: `TCC WALL BAY ${i}`, label: `TCC Wall Bay ${i}`, x: bayX, y: bayY, w: bayW, h: bayH });
     bayX += bayW + bayGap;
   }
-  // Fry wall bay caps the top-right run.
   push({ fixtureName: 'FRY WALL BAY 01', label: 'Fry Wall Bay 01', x: bayX, y: bayY, w: bayW, h: bayH });
 
-  // Tall window display on the right edge.
-  push({ fixtureName: 'WINDOW DISPLAY', label: 'Window Display', x: 880, y: 80, w: 100, h: 470 });
+  // Tall window display down the right edge (clear of every band below).
+  push({ fixtureName: 'WINDOW DISPLAY', label: 'Window Display', x: 885, y: 70, w: 95, h: 540 });
 
-  // Mid-floor fixtures (~90x120) on a loose grid.
-  const midW = 90;
-  const midH = 120;
-  const mid: { name: string; label: string; col: number; rowIdx: number }[] = [
-    { name: 'FREE STANDER 1 (FRONT)', label: 'Free Stander 1 (Front)', col: 0, rowIdx: 0 },
-    { name: 'FREE STANDER 1 (BACK)', label: 'Free Stander 1 (Back)', col: 0, rowIdx: 1 },
-    { name: 'FREE STANDER 2 (FRONT)', label: 'Free Stander 2 (Front)', col: 1, rowIdx: 0 },
-    { name: 'FREE STANDER 2 (BACK)', label: 'Free Stander 2 (Back)', col: 1, rowIdx: 1 },
-    { name: 'FREE STANDER 3 (FRONT)', label: 'Free Stander 3 (Front)', col: 2, rowIdx: 0 },
-    { name: 'FREE STANDER 3 (BACK)', label: 'Free Stander 3 (Back)', col: 2, rowIdx: 1 },
-    { name: 'QUAD STAND 1', label: 'Quad Stand 1', col: 3, rowIdx: 0 },
-    { name: 'KA STAND 1', label: 'KA Stand 1', col: 3, rowIdx: 1 },
-    { name: 'KA STAND 2', label: 'KA Stand 2', col: 4, rowIdx: 0 },
-    { name: 'ELECTRICAL STAND 1', label: 'Electrical Stand 1', col: 4, rowIdx: 1 },
-    { name: 'ELECTRICAL STAND 2', label: 'Electrical Stand 2', col: 5, rowIdx: 0 },
-    { name: 'MINI DAIS 1', label: 'Mini Dais 1', col: 5, rowIdx: 1 },
+  // Band A & B — the free-standers and stands, two tidy rows of six (90×110,
+  // 50px column gutter). Same six columns, so the rows line up cleanly.
+  const standW = 90;
+  const standH = 110;
+  const standCols = [24, 164, 304, 444, 584, 724];
+  const rowA: [string, string][] = [
+    ['FREE STANDER 1 (FRONT)', 'Free Stander 1 (Front)'],
+    ['FREE STANDER 2 (FRONT)', 'Free Stander 2 (Front)'],
+    ['FREE STANDER 3 (FRONT)', 'Free Stander 3 (Front)'],
+    ['QUAD STAND 1', 'Quad Stand 1'],
+    ['KA STAND 2', 'KA Stand 2'],
+    ['ELECTRICAL STAND 2', 'Electrical Stand 2'],
   ];
-  const midX0 = 40;
-  const midY0 = 110;
-  const midColGap = 50;
-  const midRowGap = 60;
-  for (const m of mid) {
-    push({
-      fixtureName: m.name,
-      label: m.label,
-      x: midX0 + m.col * (midW + midColGap),
-      y: midY0 + m.rowIdx * (midH + midRowGap),
-      w: midW,
-      h: midH,
-    });
+  const rowB: [string, string][] = [
+    ['FREE STANDER 1 (BACK)', 'Free Stander 1 (Back)'],
+    ['FREE STANDER 2 (BACK)', 'Free Stander 2 (Back)'],
+    ['FREE STANDER 3 (BACK)', 'Free Stander 3 (Back)'],
+    ['KA STAND 1', 'KA Stand 1'],
+    ['ELECTRICAL STAND 1', 'Electrical Stand 1'],
+    ['MINI DAIS 1', 'Mini Dais 1'],
+  ];
+  rowA.forEach(([name, label], i) =>
+    push({ fixtureName: name, label, x: standCols[i]!, y: 78, w: standW, h: standH }),
+  );
+  rowB.forEach(([name, label], i) =>
+    push({ fixtureName: name, label, x: standCols[i]!, y: 210, w: standW, h: standH }),
+  );
+
+  // Band C — the headline Baccarat VM tables (Le Con / NOOK / iD3) + Mini Dais 10.
+  push({ fixtureName: 'VM TABLE 1', label: 'VM Table 1 · Le Connoisseur', x: 24, y: 342, w: 120, h: 100 });
+  push({ fixtureName: 'VM TABLE 2', label: 'VM Table 2 · NOOK', x: 174, y: 342, w: 120, h: 100 });
+  push({ fixtureName: 'VM TABLE 3', label: 'VM Table 3 · iD3', x: 324, y: 342, w: 120, h: 100 });
+  push({ fixtureName: 'MINI DAIS 10', label: 'Mini Dais 10', x: 474, y: 342, w: 100, h: 100 });
+
+  // Band D — trolleys then the bulkstacks by the entrance.
+  push({ fixtureName: 'TROLLEY 1', label: 'Trolley 1', x: 24, y: 474, w: 85, h: 110 });
+  push({ fixtureName: 'TROLLEY 2', label: 'Trolley 2', x: 139, y: 474, w: 85, h: 110 });
+  push({ fixtureName: 'TROLLEY 3', label: 'Trolley 3', x: 254, y: 474, w: 85, h: 110 });
+  push({ fixtureName: 'COOKSET BULKSTACK', label: 'Cookset Bulkstack', x: 380, y: 474, w: 110, h: 110 });
+  push({ fixtureName: 'COOKWEAR SET BULK STACK', label: 'Cookwear Set Bulk Stack', x: 520, y: 474, w: 110, h: 110 });
+  push({ fixtureName: 'KNIFE BLOCK BULK STACK', label: 'Knife Block Bulk Stack', x: 660, y: 474, w: 110, h: 110 });
+
+  // Belt-and-braces: assert the seeded layout has no overlaps (dev-time only).
+  for (let i = 0; i < specs.length; i++) {
+    for (let j = i + 1; j < specs.length; j++) {
+      const a = specs[i]!;
+      const b = specs[j]!;
+      const overlap =
+        a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+      if (overlap) {
+        throw new Error(`Floor-plan seed overlap: "${a.label}" overlaps "${b.label}"`);
+      }
+    }
   }
-
-  // VM promo tables — the headline Baccarat ranges (LE CON / NOOK / ID3) sit on
-  // these three tables this sale. Placed centre-floor so they read as the hero
-  // tables on the money map.
-  const tableY = 290;
-  push({ fixtureName: 'VM TABLE 1', label: 'VM Table 1 · Le Connoisseur', x: 320, y: tableY, w: 120, h: 90 });
-  push({ fixtureName: 'VM TABLE 2', label: 'VM Table 2 · NOOK', x: 460, y: tableY, w: 120, h: 90 });
-  push({ fixtureName: 'VM TABLE 3', label: 'VM Table 3 · iD3', x: 600, y: tableY, w: 120, h: 90 });
-
-  // Trolleys + the second mini dais on a lower band.
-  const lowY = 400;
-  push({ fixtureName: 'TROLLEY 1', label: 'Trolley 1', x: 320, y: lowY, w: 80, h: 80 });
-  push({ fixtureName: 'TROLLEY 2', label: 'Trolley 2', x: 420, y: lowY, w: 80, h: 80 });
-  push({ fixtureName: 'TROLLEY 3', label: 'Trolley 3', x: 520, y: lowY, w: 80, h: 80 });
-  push({ fixtureName: 'MINI DAIS 10', label: 'Mini Dais 10', x: 640, y: lowY, w: 90, h: 90 });
-
-  // Bulkstacks near the entrance (bottom-left), where shoppers enter.
-  push({ fixtureName: 'COOKSET BULKSTACK', label: 'Cookset Bulkstack', x: 40, y: 510, w: 110, h: 100 });
-  push({ fixtureName: 'COOKWEAR SET BULK STACK', label: 'Cookwear Set Bulk Stack', x: 170, y: 510, w: 110, h: 100 });
-  push({ fixtureName: 'KNIFE BLOCK BULK STACK', label: 'Knife Block Bulk Stack', x: 300, y: 510, w: 110, h: 100 });
 
   // Default rotation 0 / applicable true; the caller stamps `order` by index.
   return specs.map((s) => ({ rotation: 0, applicable: true, ...s }));
@@ -1329,24 +1335,29 @@ async function seedManagerWorkspace(ctx: {
   // For 1–2 stores, log REAL sales against a broad subset of merchandised
   // products. NOTE: the money map flips a whole store to "real" once it has ANY
   // SalesEntry, so we log across MANY products (every Nth sku) to avoid zeroing
-  // the rest of that store's tiles. units 2..40 deterministic by sku; unitPrice
-  // = salePrice ?? rrp ?? 0; fixtureId = the product's guide-fixture.
+  // the rest of that store's tiles. unitPrice = salePrice ?? rrp ?? 0;
+  // fixtureId = the product's guide-fixture.
   const salesStores = [firstStore?.name, 'Chadstone Myer']
     .filter((n): n is string => Boolean(n))
     .map((n) => byName(n))
     .filter((s): s is { id: string; name: string } => Boolean(s));
   const merchSkus = [...fixtureNameByProductSku.keys()];
-  // Sales are tracked per calendar DAY (SalesEntry.soldOn). Spread the seeded
-  // rows across the first few days of the sale so the manager's daily view and
-  // the money map both have real day-over-day variety (date-only, UTC midnight).
+  // Sales are tracked per calendar DAY (SalesEntry.soldOn, @db.Date), so the
+  // unique key is (store, campaign, product, soldOn). Log each chosen product
+  // across SEVERAL recent days INSIDE the campaign window (2026-06-01 →
+  // 2026-07-06) with units that vary per day — this exercises the per-day
+  // dimension the manager's daily view and money map read. Date-only at UTC
+  // midnight, matching how the app writes soldOn (manager.service `dayUtc`).
   const SALE_DAYS = [
-    new Date('2026-02-06T00:00:00Z'),
-    new Date('2026-02-07T00:00:00Z'),
-    new Date('2026-02-08T00:00:00Z'),
+    new Date('2026-06-01T00:00:00.000Z'),
+    new Date('2026-06-02T00:00:00.000Z'),
+    new Date('2026-06-03T00:00:00.000Z'),
+    new Date('2026-06-04T00:00:00.000Z'),
+    new Date('2026-06-05T00:00:00.000Z'),
   ];
   let salesCount = 0;
   for (const store of salesStores) {
-    // ~70% of merchandised products get a sales row (deterministic by sku).
+    // ~70% of merchandised products get sales rows (deterministic by sku).
     const subset = merchSkus.filter((sku) => unitHash(`${store.name}|sale|${sku}`) < 0.7);
     for (const sku of subset) {
       const info = productInfoBySku.get(sku);
@@ -1354,22 +1365,30 @@ async function seedManagerWorkspace(ctx: {
       const fixtureName = fixtureNameByProductSku.get(sku);
       if (!info || !productId || !fixtureName) continue;
       const fixtureId = fixtureByName.get(fixtureName) ?? null;
-      const units = 2 + Math.floor(unitHash(`${store.name}|units|${sku}`) * 39); // 2..40
       const unitPrice = info.salePrice ?? info.rrp ?? 0;
-      const revenue = Math.round(units * unitPrice * 100) / 100;
-      const soldOn = SALE_DAYS[Math.floor(unitHash(`${store.name}|day|${sku}`) * SALE_DAYS.length)];
-      await prisma.salesEntry.upsert({
-        where: {
-          storeId_campaignId_productId_soldOn: { storeId: store.id, campaignId, productId, soldOn },
-        },
-        update: { fixtureId, units, unitPrice, revenue },
-        create: { orgId, storeId: store.id, campaignId, productId, fixtureId, units, unitPrice, revenue, soldOn },
-      });
-      salesCount++;
+      // Each product sells across a deterministic recent stretch (the last 2–5
+      // of SALE_DAYS), with day-varying units so the daily series isn't flat.
+      const span = 2 + Math.floor(unitHash(`${store.name}|span|${sku}`) * 4); // 2..5 days
+      const days = SALE_DAYS.slice(SALE_DAYS.length - span);
+      for (let d = 0; d < days.length; d++) {
+        const soldOn = days[d];
+        const dayKey = soldOn.toISOString().slice(0, 10);
+        // units 1..20 per day, varying by product AND day (no flat repeats).
+        const units = 1 + Math.floor(unitHash(`${store.name}|units|${sku}|${dayKey}`) * 20);
+        const revenue = Math.round(units * unitPrice * 100) / 100;
+        await prisma.salesEntry.upsert({
+          where: {
+            storeId_campaignId_productId_soldOn: { storeId: store.id, campaignId, productId, soldOn },
+          },
+          update: { fixtureId, units, unitPrice, revenue },
+          create: { orgId, storeId: store.id, campaignId, productId, fixtureId, units, unitPrice, revenue, soldOn },
+        });
+        salesCount++;
+      }
     }
   }
   console.log(
-    `  sales: ${salesCount} entries across ${salesStores.map((s) => s.name).join(', ') || 'none'} (real money map)`,
+    `  sales: ${salesCount} entries across ${salesStores.map((s) => s.name).join(', ') || 'none'} over ${SALE_DAYS.length} days (real money map)`,
   );
 
   // --- Compliance flags (FixtureCapture) -----------------------------------

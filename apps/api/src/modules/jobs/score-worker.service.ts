@@ -37,6 +37,14 @@ const WorkerEnv = z.object({
   WALLY_SCORE_BACKOFF_MAX_MS: z.coerce.number().int().positive().default(300_000),
 });
 
+// How long a job may sit RUNNING (lockedAt) before a later tick considers it
+// dead and reclaims it. A real score (one vision call) is seconds; a job still
+// RUNNING this long means the worker that claimed it crashed or was killed
+// mid-score, so the row is requeued to PENDING rather than spinning forever.
+// Generously above the worst-case score latency so we never reclaim a job
+// that's genuinely still in flight on another replica.
+const LOCK_LAPSE_MS = 5 * 60_000; // 5 minutes
+
 /** Row shape returned by the claim query. */
 interface ClaimedJob {
   id: string;
@@ -71,6 +79,10 @@ export class ScoreWorkerService {
     if (this.busy) return;
     this.busy = true;
     try {
+      // Reaper: requeue any job stuck RUNNING past the lock-lapse window (its
+      // worker crashed mid-score). Cheap bulk UPDATE; runs before each claim so
+      // a reclaimed job is immediately eligible to be picked up this same tick.
+      await this.reapStale();
       const job = await this.claim();
       if (!job) return; // nothing due — idle tick
       await this.process(job);
@@ -81,6 +93,38 @@ export class ScoreWorkerService {
       this.logger.error(`score-worker tick failed: ${errMsg(err)}`);
     } finally {
       this.busy = false;
+    }
+  }
+
+  // ----- reaper ------------------------------------------------------------
+
+  /**
+   * Reclaim jobs stuck RUNNING longer than the lock-lapse window — the worker
+   * that claimed them crashed or was killed mid-score, so `lockedAt` (written at
+   * claim, never read until now) is stale. Requeue them to PENDING with
+   * runAfter=now so the next claim() re-picks them, instead of leaving the photo
+   * spinning in SCORING forever. attempts is left as-is so the retry budget
+   * (and eventual FAILED parking) still applies to a job that keeps crashing.
+   *
+   * Bulk + idempotent: a RUNNING job a live worker is still mid-score on has a
+   * recent lockedAt and is excluded by the cutoff.
+   */
+  private async reapStale(): Promise<void> {
+    const cutoff = new Date(Date.now() - LOCK_LAPSE_MS);
+    const { count } = await this.prisma.scoreJob.updateMany({
+      where: { status: JobStatus.RUNNING, lockedAt: { lt: cutoff } },
+      data: {
+        status: JobStatus.PENDING,
+        lockedAt: null,
+        runAfter: new Date(),
+      },
+    });
+    if (count > 0) {
+      this.logger.warn(
+        `reaped ${count} stale RUNNING job(s) (locked > ${Math.round(
+          LOCK_LAPSE_MS / 60_000,
+        )}m) back to PENDING`,
+      );
     }
   }
 

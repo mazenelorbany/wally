@@ -8,14 +8,17 @@ import {
   JobStatus,
   Overall as DbOverall,
   PhotoStatus,
+  Prisma,
   SubmissionStatus,
   type Photo,
-  type Verdict,
 } from '@prisma/client';
 import type {
   BestInClassItem,
   ComplianceTrendPoint,
   ComplianceTurnaround,
+  Criterion,
+  CriterionResult,
+  Flag,
   FixtureOutcome,
   FixtureStatus,
   Overall,
@@ -27,6 +30,13 @@ import sharp from 'sharp';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { storeRollup, ApplicabilityError } from '../scoring/store-rollup';
+
+// A Verdict joined with its Rubric (+ campaign key) — everything presentVerdict
+// needs to emit the reviewer-bench ScoreResult (the rubricVersion stamp and the
+// criteria the flags are re-derived from).
+type VerdictWithRubric = Prisma.VerdictGetPayload<{
+  include: { rubric: { include: { campaign: { select: { key: true } } } } };
+}>;
 
 import type { CreateSubmissionInput } from './submission.dto';
 
@@ -234,7 +244,11 @@ export class SubmissionService {
         photos: {
           orderBy: { createdAt: 'asc' },
           include: {
-            verdict: true,
+            verdict: {
+              include: {
+                rubric: { include: { campaign: { select: { key: true } } } },
+              },
+            },
             job: { select: { status: true, attempts: true, lastError: true } },
           },
         },
@@ -269,7 +283,11 @@ export class SubmissionService {
       fixtures,
       photos: submission.photos.map((p) => ({
         ...this.presentPhoto(p),
-        verdict: p.verdict ? this.presentVerdict(p.verdict) : null,
+        // The reviewer bench reads `photo.score` (the @wally/sdk SubmissionPhoto
+        // contract), so emit `score:`, not `verdict:`. Carries the verdict id
+        // (the review endpoint is keyed by verdict id), the rubricVersion stamp,
+        // and the re-derived flags the bench consumes.
+        score: p.verdict ? this.presentVerdict(p.verdict) : null,
         job: p.job,
       })),
     };
@@ -662,9 +680,63 @@ export class SubmissionService {
     }));
   }
 
-  /** Toggle a store execution photo as best-in-class (a showcase exemplar). */
+  /**
+   * Re-open a photo for scoring: reset its ScoreJob to PENDING (runAfter now,
+   * attempts 0, lastError + lockedAt cleared) and the Photo back to UPLOADED, so
+   * the durable-queue worker re-enqueues it. The escape hatch for a photo parked
+   * FAILED after a transient outage (or to re-grade against a newer rubric).
+   *
+   * Idempotent and safe to call on a non-FAILED photo (e.g. one stuck SCORING).
+   * Creates a job if one was somehow lost so the photo never re-enqueues into
+   * the void. The existing Verdict (if any) is left in place; a successful
+   * re-score upserts over it.
+   */
+  async rescorePhoto(
+    orgId: string,
+    photoId: string,
+  ): Promise<{ id: string; status: PhotoStatus }> {
+    const photo = await this.prisma.photo.findFirst({
+      where: { id: photoId, submission: { orgId } },
+      select: { id: true, job: { select: { id: true } } },
+    });
+    if (!photo) throw new NotFoundException('photo not found');
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (photo.job) {
+        await tx.scoreJob.update({
+          where: { id: photo.job.id },
+          data: {
+            status: JobStatus.PENDING,
+            attempts: 0,
+            lastError: null,
+            lockedAt: null,
+            runAfter: new Date(),
+          },
+        });
+      } else {
+        // Job lost (shouldn't happen — Photo.job is 1:1) — recreate it so the
+        // photo can actually re-enqueue rather than silently dead-end.
+        await tx.scoreJob.create({
+          data: { photoId: photo.id, status: JobStatus.PENDING },
+        });
+      }
+      return tx.photo.update({
+        where: { id: photo.id },
+        data: { status: PhotoStatus.UPLOADED },
+        select: { id: true, status: true },
+      });
+    });
+    return updated;
+  }
+
+  /**
+   * Toggle a store execution photo as best-in-class (a showcase exemplar).
+   * Audited: stamps who curated it (`curatedById`) and when (`curatedAt`) on
+   * every flip, so a reverted exemplar isn't an unattributable mystery.
+   */
   async setBestInClass(
     orgId: string,
+    actorId: string,
     photoId: string,
     value: boolean,
   ): Promise<{ id: string; bestInClass: boolean }> {
@@ -675,7 +747,7 @@ export class SubmissionService {
     if (!photo) throw new NotFoundException('photo not found');
     return this.prisma.photo.update({
       where: { id: photoId },
-      data: { bestInClass: value },
+      data: { bestInClass: value, curatedById: actorId, curatedAt: new Date() },
       select: { id: true, bestInClass: true },
     });
   }
@@ -719,18 +791,52 @@ export class SubmissionService {
     };
   }
 
-  private presentVerdict(v: Verdict) {
+  /**
+   * Present a Verdict as the reviewer-bench ScoreResult the web reads as
+   * `photo.score`. `id` is the VERDICT id (the review endpoint is keyed by
+   * verdict id, not photo id). `rubricVersion` is the canonical stamp and
+   * `flags` are re-derived from the persisted per-criterion results + the
+   * rubric's criteria — exactly the set fixtureRollup() flagged when scoring,
+   * recomputed here so we don't have to persist them on the Verdict.
+   */
+  private presentVerdict(v: VerdictWithRubric) {
+    const criteria = v.rubric.criteria as unknown as Criterion[];
+    const results = v.results as unknown as CriterionResult[];
+    const rubricVersion = `${v.rubric.fixtureKey}.${v.rubric.campaign.key}.v${v.rubric.version}`;
     return {
       id: v.id,
       overall: dbOverallToCore(v.overall),
       needsReview: v.needsReview,
       confidence: v.confidence,
+      flags: deriveFlags(results, criteria),
+      results,
+      rubricVersion,
       modelId: v.modelId,
       promptVersion: v.promptVersion,
-      results: v.results,
       createdAt: v.createdAt,
     };
   }
+}
+
+/**
+ * Re-derive the flagged criteria for a scored photo from its persisted results
+ * and the rubric's criteria — the same set fixtureRollup() produced at score
+ * time (a criterion is flagged when it failed, was unsure, or the model never
+ * graded it). Kept in sync with rollup.ts's flag rule.
+ */
+function deriveFlags(
+  results: CriterionResult[],
+  criteria: Criterion[],
+): Flag[] {
+  const byId = new Map(results.map((r) => [r.id, r]));
+  const flags: Flag[] = [];
+  for (const c of criteria) {
+    const v = byId.get(c.id);
+    if (!v || v.verdict === 'unsure' || v.verdict === 'fail') {
+      flags.push({ id: c.id, kind: c.kind, text: c.text });
+    }
+  }
+  return flags;
 }
 
 /** Map an accepted upload mime to the storage extension. */

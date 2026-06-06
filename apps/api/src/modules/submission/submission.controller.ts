@@ -162,7 +162,17 @@ export class PhotoController {
     @Param('id') photoId: string,
     @Body(new ZodValidationPipe(SetBestInClassSchema)) dto: SetBestInClassInput,
   ) {
-    return this.submissions.setBestInClass(user.orgId, photoId, dto.value);
+    return this.submissions.setBestInClass(user.orgId, user.id, photoId, dto.value);
+  }
+
+  /**
+   * Re-open a photo for scoring (resets the job to PENDING + photo to UPLOADED
+   * so the worker re-enqueues it). The recovery path for a photo parked FAILED.
+   */
+  @Post(':id/rescore')
+  @Roles('ADMIN', 'REVIEWER')
+  rescore(@CurrentUser() user: SessionUser, @Param('id') photoId: string) {
+    return this.submissions.rescorePhoto(user.orgId, photoId);
   }
 }
 

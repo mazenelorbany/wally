@@ -86,10 +86,12 @@ model User {
   disabledAt DateTime? // deactivated by an admin — blocked from resolving a session
   createdAt  DateTime @default(now())
 
-  org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  store    Store?    @relation(fields: [storeId], references: [id], onDelete: SetNull)
-  sessions Session[]
-  reviews  Review[]
+  org             Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  store           Store?    @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  sessions        Session[]
+  reviews         Review[]
+  curatedPhotos   Photo[]   @relation("PhotoCurator")
+  reviewedVerdicts Verdict[] @relation("VerdictReviewer")
 
   @@index([orgId])
   @@index([storeId])
@@ -165,6 +167,14 @@ model Campaign {
   startsAt  DateTime?
   endsAt    DateTime?
   createdAt DateTime       @default(now())
+  updatedAt DateTime       @default(now()) @updatedAt
+  // Lifecycle audit trail. activatedAt/closedAt are stamped by the lifecycle
+  // transitions (setActive/close/reopen) including the project-scoped bulk-close
+  // branch; archivedAt is the soft-archive marker (archived campaigns are hidden
+  // from the list but kept for historical analytics).
+  activatedAt DateTime?
+  closedAt    DateTime?
+  archivedAt  DateTime?
 
   org         Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
@@ -285,11 +295,15 @@ model Photo {
   width        Int?
   height       Int?
   bestInClass  Boolean     @default(false) // reviewer-flagged exemplar execution
+  // Audit for the best-in-class curation toggle: who last flipped it and when.
+  curatedById  String?
+  curatedAt    DateTime?
   createdAt    DateTime    @default(now())
 
   submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   job        ScoreJob?
   verdict    Verdict?
+  curatedBy  User?      @relation("PhotoCurator", fields: [curatedById], references: [id])
 
   @@index([submissionId])
 }
@@ -335,11 +349,16 @@ model Verdict {
   modelId       String
   promptVersion String
   results       Json     // [{ id, verdict, confidence, evidence }]
+  // Audit for human review: who last reviewed/overrode this verdict, and when
+  // the row last changed (set on every override).
+  lastReviewedById String?
   createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  photo   Photo    @relation(fields: [photoId], references: [id], onDelete: Cascade)
-  rubric  Rubric   @relation(fields: [rubricId], references: [id])
-  reviews Review[]
+  photo        Photo    @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  rubric       Rubric   @relation(fields: [rubricId], references: [id])
+  reviews      Review[]
+  lastReviewedBy User?  @relation("VerdictReviewer", fields: [lastReviewedById], references: [id])
 
   @@index([rubricId])
 }

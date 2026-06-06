@@ -9,11 +9,12 @@ export const PLAN_H = 640;
 
 /**
  * The floor-plan canvas: a fixed logical 1000×640 plane that scales to fit its
- * container responsively, with each placed fixture drawn as a draggable box.
+ * container, with each placed fixture drawn as a draggable box.
  *
- * Scaling: we measure the container width and derive a single `scale` so the
- * plane keeps its aspect ratio. Pointer deltas in `FixtureBox` divide by this
- * scale to map screen pixels back to logical units.
+ * Scaling: we measure the container's width AND height and derive a single
+ * `scale = min(w/PLAN_W, h/PLAN_H)` so the whole plane fits on screen (no
+ * scroll) while keeping its aspect ratio, then centre it in the space. Pointer
+ * deltas in `FixtureBox` divide by this scale to map screen px → logical units.
  */
 export function FloorPlanCanvas({
   placements,
@@ -36,7 +37,8 @@ export function FloorPlanCanvas({
     if (!el) return;
     const measure = () => {
       const w = el.clientWidth;
-      setScale(w > 0 ? w / PLAN_W : 1);
+      const h = el.clientHeight;
+      if (w > 0 && h > 0) setScale(Math.min(w / PLAN_W, h / PLAN_H));
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -45,7 +47,7 @@ export function FloorPlanCanvas({
   }, []);
 
   return (
-    <div ref={wrapRef} className="w-full">
+    <div ref={wrapRef} className="grid h-full w-full place-items-center">
       <div
         role="application"
         aria-label="Floor plan canvas"

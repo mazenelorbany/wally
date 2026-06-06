@@ -53,10 +53,42 @@ export const studioRoutes: RouteObject = {
     { path: 'leaderboard', element: <LeaderboardView /> },
     { path: 'insights', element: <InsightsView /> },
     { path: 'settings', element: <SettingsPage /> },
-    { path: 'campaigns', element: <CampaignsView /> },
-    { path: 'store-directory', element: <StoreDirectoryView /> },
-    { path: 'users', element: <UsersView /> },
-    { path: 'rubrics', element: <RubricsView /> },
+    // Admin-authoring surfaces: the subtree gate also lets REVIEWERs in, so each
+    // of these (all mutations are ADMIN-only on the API) gets its own ADMIN gate
+    // to keep reviewers off them by URL. RequireRole redirects to their home —
+    // no scary 403. Users in particular 403s on load (its list is ADMIN-only).
+    {
+      path: 'campaigns',
+      element: (
+        <RequireRole roles={['ADMIN']}>
+          <CampaignsView />
+        </RequireRole>
+      ),
+    },
+    {
+      path: 'store-directory',
+      element: (
+        <RequireRole roles={['ADMIN']}>
+          <StoreDirectoryView />
+        </RequireRole>
+      ),
+    },
+    {
+      path: 'users',
+      element: (
+        <RequireRole roles={['ADMIN']}>
+          <UsersView />
+        </RequireRole>
+      ),
+    },
+    {
+      path: 'rubrics',
+      element: (
+        <RequireRole roles={['ADMIN']}>
+          <RubricsView />
+        </RequireRole>
+      ),
+    },
     { path: ':campaignId/store/:storeId', element: <FloorPlanView /> },
     // Unknown studio sub-path → back to the studio home.
     { path: '*', element: <Navigate to="/studio" replace /> },

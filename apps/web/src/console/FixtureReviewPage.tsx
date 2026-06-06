@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ImageOff } from 'lucide-react';
-import { Card, ConfidenceBar, Verdict } from '@wally/ui';
+import { ArrowLeft, ImageOff, RotateCcw } from 'lucide-react';
+import { Button, Card, ConfidenceBar, Verdict } from '@wally/ui';
 
 import type { SubmissionPhoto } from '@wally/sdk';
-import { useReview, useSubmission } from '../lib/hooks';
+import { useRescore, useReview, useSubmission } from '../lib/hooks';
 import { humanizeKey } from '../lib/format';
 import { EmptyState, ErrorState, Skeleton } from '../components/states';
 import { CriterionResultRow } from './CriterionResultRow';
@@ -26,6 +26,7 @@ export function FixtureReviewPage() {
 
   const submissionQ = useSubmission(submissionId);
   const review = useReview();
+  const rescore = useRescore();
   const navigate = useNavigate();
   const [submitted, setSubmitted] = React.useState(false);
 
@@ -87,6 +88,7 @@ export function FixtureReviewPage() {
   }
 
   const score = photo.score;
+  const failed = photo.status === 'FAILED';
 
   return (
     <div>
@@ -138,6 +140,34 @@ export function FixtureReviewPage() {
                 ))}
               </ul>
             </Card>
+          ) : failed ? (
+            <Card className="p-5">
+              <p className="text-sm text-graphite">
+                Scoring failed for this photo. Re-score it to send it back
+                through the scorer.
+              </p>
+              <div className="mt-3 flex justify-end">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={rescore.isPending}
+                  onClick={() => rescore.mutate(photo.id)}
+                >
+                  <RotateCcw className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                  Re-score
+                </Button>
+              </div>
+              {rescore.isError ? (
+                <p className="mt-2 text-sm text-signal">
+                  Couldn&apos;t re-score. Try again.
+                </p>
+              ) : null}
+              {rescore.isSuccess ? (
+                <p className="mt-2 text-sm text-pass">
+                  Re-queued — it&apos;ll re-score shortly.
+                </p>
+              ) : null}
+            </Card>
           ) : (
             <Card className="p-5 text-sm text-steel">
               This photo hasn&apos;t been scored yet. It will appear here once the
@@ -152,7 +182,9 @@ export function FixtureReviewPage() {
               done={submitted}
               onSubmit={(body) =>
                 review.mutate(
-                  { verdictId: photo.id, body },
+                  // The review endpoint is keyed by VERDICT id (score.id), not
+                  // the photo id.
+                  { verdictId: score.id, body },
                   { onSuccess: () => setSubmitted(true) },
                 )
               }
