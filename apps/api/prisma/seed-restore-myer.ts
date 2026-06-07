@@ -32,6 +32,9 @@ const STORAGE_DIR = resolve(process.env.WALLY_STORAGE_DIR ?? './storage');
 const MYER_PROJECT_ID = 'seed-project-myer';
 const CAMPAIGN_KEY = 'MSP2-2026';
 
+// ReStore categories that are catch-all photo buckets, NOT real fixtures.
+const EXCLUDE_CATEGORIES = new Set(['Additional Photos 1', 'Additional Photos 2']);
+
 // Load apps/api/.env so DATABASE_URL is present (same mechanism as seed.ts).
 const __envPath = join(__dirname, '..', '.env');
 if (
@@ -155,10 +158,20 @@ async function main(): Promise<void> {
       (unmatched.length ? ` · unmatched (skipped): ${unmatched.join(', ')}` : ''),
   );
 
-  // ── 2. The 16 real fixture categories → library fixtures + guide sheets ────
+  // Remove any previously-imported catch-all "Additional Photos" buckets — they
+  // are not fixtures. Deleting the fixture cascades to its guide sheet, gallery
+  // and placements.
+  const purged = await prisma.fixture.deleteMany({
+    where: { orgId, name: { in: [...EXCLUDE_CATEGORIES] } },
+  });
+  if (purged.count) console.log(`  purged ${purged.count} non-fixture "Additional Photos" buckets`);
+
+  // ── 2. The real fixture categories → library fixtures + guide sheets ───────
   const categories = new Set<string>();
   for (const name of storeNames) {
-    for (const cat of Object.keys(manifest.stores[name].fixtures)) categories.add(cat);
+    for (const cat of Object.keys(manifest.stores[name].fixtures)) {
+      if (!EXCLUDE_CATEGORIES.has(cat)) categories.add(cat);
+    }
   }
   const guideFixtureByCat = new Map<string, string>();
   const fixtureIdByCat = new Map<string, string>();
