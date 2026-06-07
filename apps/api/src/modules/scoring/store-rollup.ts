@@ -14,12 +14,17 @@ export interface StoreRollupInput {
 
 export function storeRollup(input: StoreRollupInput): StoreScore {
   const { fixtures } = input;
+  // These arrays are display-only (chase list, reason strings, CSV), so carry the
+  // human LABEL, falling back to the key only when a fixture has no label. Using
+  // the raw key here surfaced raw cuids (e.g. "Cmpyxxmjr0042…") to reviewers for
+  // any fixture whose key is an id rather than a readable slug.
+  const nameOf = (f: FixtureOutcome) => f.label || f.fixture;
   const notApplicable = fixtures
     .filter((f) => f.status === "not_applicable")
-    .map((f) => f.fixture);
+    .map(nameOf);
   const missing = fixtures
     .filter((f) => f.status === "not_submitted")
-    .map((f) => f.fixture);
+    .map(nameOf);
   const scored = fixtures.filter((f) => f.status === "scored");
 
   if (scored.length === 0 && missing.length === 0) {
@@ -31,10 +36,10 @@ export function storeRollup(input: StoreRollupInput): StoreScore {
 
   const failed = scored
     .filter((f) => f.overall === "not_good")
-    .map((f) => f.fixture);
+    .map(nameOf);
   const review = scored
     .filter((f) => f.overall === "needs_review")
-    .map((f) => f.fixture);
+    .map(nameOf);
   const hasGood = scored.some((f) => f.overall === "good");
 
   let overall: StoreBand;
