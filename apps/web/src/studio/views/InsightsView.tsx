@@ -1,10 +1,13 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ArrowDown,
+  ArrowUp,
   ArrowUpDown,
   Camera,
   Clock,
   Download,
+  Minus,
   RotateCcw,
   TrendingUp,
 } from 'lucide-react';
@@ -13,7 +16,15 @@ import type { ComplianceTrendPoint, StoreBand, StoreScore } from '@wally/types';
 
 import { api } from '../../lib/api';
 import { useSession } from '../../lib/auth';
+import { ErrorState } from '../../components/states';
 import { useSetStudioTopBar } from '../components/StudioContext';
+import { useProjectCampaign } from '../lib/useProjectCampaign';
+import {
+  PERIOD_OPTIONS,
+  resolvePeriod,
+  windowKey,
+  type PeriodKey,
+} from '../lib/period';
 
 const BAND: Record<StoreBand, { label: string; cls: string; seg: string }> = {
   perfect: { label: 'Perfect', cls: 'text-pass', seg: 'bg-pass' },
@@ -39,27 +50,97 @@ function fmtMins(m: number | null): string {
   return `${(m / 1440).toFixed(1)}d`;
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  ACTIVE: 'Active',
+  DRAFT: 'Draft',
+  CLOSED: 'Closed',
+};
+
+const fmtDay = (iso: string) =>
+  new Date(iso).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+
+/** "Runs Feb 6 – Feb 10" / "Starts Feb 6" / "Ends Feb 10" — advisory window. */
+function windowLabel(c: { startsAt: string | null; endsAt: string | null }): string {
+  if (c.startsAt && c.endsAt) return `Runs ${fmtDay(c.startsAt)} – ${fmtDay(c.endsAt)}`;
+  if (c.startsAt) return `Starts ${fmtDay(c.startsAt)}`;
+  if (c.endsAt) return `Ends ${fmtDay(c.endsAt)}`;
+  return '';
+}
+
 type SortKey = 'score' | 'completion' | 'defects';
 
-/** Compliance analytics for the active guide — KPIs, turnaround, store table, export. */
+// The trend chart can plot any of the stored daily dimensions, not just
+// pass-rate. Each metric maps a ComplianceTrendPoint to a 0..1 ratio.
+type TrendMetric = 'passRate' | 'completion' | 'failing';
+
+const TREND_METRICS: Record<
+  TrendMetric,
+  { label: string; short: string; ratio: (p: ComplianceTrendPoint) => number }
+> = {
+  passRate: {
+    label: 'Pass-rate',
+    short: 'pass-rate',
+    ratio: (p) => (p.expected > 0 ? p.passing / p.expected : 0),
+  },
+  completion: {
+    label: 'Completion',
+    short: 'completion',
+    ratio: (p) => (p.expected > 0 ? p.submitted / p.expected : 0),
+  },
+  failing: {
+    label: 'Failing',
+    short: 'failing stores',
+    ratio: (p) => (p.storeCount > 0 ? p.failing / p.storeCount : 0),
+  },
+};
+
+/** Compliance analytics for any guide — KPIs, turnaround, store table, export. */
 export function InsightsView() {
   const campaignsQ = useQuery({
     queryKey: ['studio', 'campaigns'],
     queryFn: () => api.campaigns.list(),
   });
+
+  // The selected campaign drives every query below. Default to the SELECTED
+  // PROJECT's campaign (not the org-wide newest-active, which is the wrong
+  // project when two are concurrently live), but let the user pick any campaign
+  // — closed and draft quarters are viewable, since the endpoints accept any id.
+  const [selectedId, setSelectedId] = React.useState<string | undefined>();
+  const { campaign: defaultCampaign } = useProjectCampaign();
   const campaign =
-    campaignsQ.data?.find((c) => c.status === 'ACTIVE') ?? campaignsQ.data?.[0];
+    campaignsQ.data?.find((c) => c.id === selectedId) ?? defaultCampaign;
 
   useSetStudioTopBar({ guideName: 'Insights', guideKey: campaign?.key, stores: [] });
 
+  // Period selector drives the date window threaded into every analytics query.
+  // Default = All time, so the surface is unchanged until the user narrows it.
+  const [period, setPeriod] = React.useState<PeriodKey>('all');
+  const resolved = React.useMemo(
+    () => resolvePeriod(period, campaign),
+    [period, campaign],
+  );
+  const curKey = windowKey(resolved.current);
+  const prevKey = resolved.previous ? windowKey(resolved.previous) : 'none';
+
   const queueQ = useQuery({
-    queryKey: ['studio', 'insights-queue', campaign?.id],
-    queryFn: () => api.campaigns.queue(campaign!.id),
+    queryKey: ['studio', 'insights-queue', campaign?.id, curKey],
+    queryFn: () => api.campaigns.queue(campaign!.id, resolved.current),
     enabled: Boolean(campaign?.id),
   });
+  // The immediately-preceding equal-length window — powers the "vs previous
+  // period" KPI deltas. Skipped for periods with no finite previous (All time).
+  const prevQueueQ = useQuery({
+    queryKey: ['studio', 'insights-queue-prev', campaign?.id, prevKey],
+    queryFn: () => api.campaigns.queue(campaign!.id, resolved.previous!),
+    enabled: Boolean(campaign?.id) && resolved.previous != null,
+  });
   const turnaroundQ = useQuery({
-    queryKey: ['studio', 'insights-turnaround', campaign?.id],
-    queryFn: () => api.campaigns.turnaround(campaign!.id),
+    queryKey: ['studio', 'insights-turnaround', campaign?.id, curKey],
+    queryFn: () => api.campaigns.turnaround(campaign!.id, resolved.current),
     enabled: Boolean(campaign?.id),
   });
 
@@ -81,6 +162,7 @@ export function InsightsView() {
 
   const [sort, setSort] = React.useState<SortKey>('score');
   const [region, setRegion] = React.useState('all');
+  const [trendMetric, setTrendMetric] = React.useState<TrendMetric>('passRate');
   const regions = React.useMemo(
     () =>
       [
@@ -117,6 +199,24 @@ export function InsightsView() {
   const passTotal = stores.reduce((a, s) => a + passing(s), 0);
   const fleetRate = expTotal ? Math.round((passTotal / expTotal) * 100) : 0;
   const fleetDone = expTotal ? Math.round((subTotal / expTotal) * 100) : 0;
+
+  // "vs previous period" — the same fleet metrics computed for the immediately-
+  // preceding equal-length window. null when there's no previous period (All
+  // time) or its data hasn't loaded — the tiles then show no delta.
+  const prevStores = (prevQueueQ.data ?? []).filter(
+    (s) => region === 'all' || s.region === region,
+  );
+  const prevFleet = React.useMemo(() => {
+    if (!resolved.previous || prevQueueQ.data == null) return null;
+    const exp = prevStores.reduce((a, s) => a + s.expected, 0);
+    const pass = prevStores.reduce((a, s) => a + passing(s), 0);
+    const sub = prevStores.reduce((a, s) => a + s.submitted, 0);
+    return {
+      rate: exp ? Math.round((pass / exp) * 100) : 0,
+      done: exp ? Math.round((sub / exp) * 100) : 0,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prevQueueQ.data, region, resolved.previous]);
 
   const dist = (
     [
@@ -186,8 +286,37 @@ export function InsightsView() {
             Compliance health across the fleet — pass-rate, turnaround, and where
             to help.
           </p>
+          {campaign && (campaign.startsAt || campaign.endsAt) ? (
+            <p className="mt-1 text-xs text-steel">{windowLabel(campaign)}</p>
+          ) : null}
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex flex-wrap items-end gap-2">
+          {(campaignsQ.data?.length ?? 0) > 1 && campaign ? (
+            <select
+              value={campaign.id}
+              onChange={(e) => setSelectedId(e.target.value)}
+              aria-label="Select campaign"
+              className="rounded-md border border-mist/70 bg-paper px-2.5 py-1.5 text-sm text-ink focus:border-graphite focus:outline-none"
+            >
+              {campaignsQ.data!.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} · {STATUS_LABEL[c.status] ?? c.status}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <select
+            value={period}
+            onChange={(e) => setPeriod(e.target.value as PeriodKey)}
+            aria-label="Select period"
+            className="rounded-md border border-mist/70 bg-paper px-2.5 py-1.5 text-sm text-ink focus:border-graphite focus:outline-none"
+          >
+            {PERIOD_OPTIONS.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.label}
+              </option>
+            ))}
+          </select>
           {regions.length > 0 ? (
             <select
               value={region}
@@ -219,6 +348,15 @@ export function InsightsView() {
         <div className="grid h-40 place-items-center">
           <Spinner className="text-2xl text-steel" />
         </div>
+      ) : campaignsQ.isError || queueQ.isError ? (
+        <ErrorState
+          error={campaignsQ.error ?? queueQ.error}
+          onRetry={() => {
+            void campaignsQ.refetch();
+            void queueQ.refetch();
+          }}
+          title="Couldn't load insights"
+        />
       ) : !campaign ? (
         <p className="text-sm text-steel">No active guide yet.</p>
       ) : stores.length === 0 ? (
@@ -227,8 +365,17 @@ export function InsightsView() {
         <>
           {/* KPI tiles */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Tile label="Fleet pass-rate" value={`${fleetRate}%`} />
-            <Tile label="Completion" value={`${fleetDone}%`} sub={`${subTotal}/${expTotal} photos`} />
+            <Tile
+              label="Fleet pass-rate"
+              value={`${fleetRate}%`}
+              delta={prevFleet ? fleetRate - prevFleet.rate : null}
+            />
+            <Tile
+              label="Completion"
+              value={`${fleetDone}%`}
+              sub={`${subTotal}/${expTotal} photos`}
+              delta={prevFleet ? fleetDone - prevFleet.done : null}
+            />
             <Tile label="On track" value={String(onTrack)} tone="text-pass" />
             <Tile
               label="Failing / review"
@@ -236,6 +383,11 @@ export function InsightsView() {
               tone="text-fail"
             />
           </div>
+          {resolved.previous ? (
+            <p className="mt-2 text-[11px] text-steel">
+              Deltas vs the preceding {resolved.label.toLowerCase()}.
+            </p>
+          ) : null}
 
           {/* Distribution bar */}
           <div className="mt-6">
@@ -256,27 +408,50 @@ export function InsightsView() {
 
           {/* Compliance trend */}
           <div className="mt-6 rounded-lg border border-mist/60 bg-paper p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-brand text-steel">
-                <TrendingUp className="h-3.5 w-3.5" /> Compliance trend ·
-                pass-rate
+                <TrendingUp className="h-3.5 w-3.5" /> Compliance trend ·{' '}
+                {TREND_METRICS[trendMetric].short}
               </p>
-              {isAdmin ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => snapshot.mutate()}
-                  disabled={snapshot.isPending}
-                >
-                  <Camera className="h-3.5 w-3.5" />
-                  {snapshot.isPending ? 'Capturing…' : 'Capture snapshot'}
-                </Button>
-              ) : null}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 text-[11px] text-steel">
+                  {(Object.keys(TREND_METRICS) as TrendMetric[]).map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setTrendMetric(k)}
+                      className={cn(
+                        'rounded px-1.5 py-0.5',
+                        trendMetric === k ? 'bg-ink text-paper' : 'hover:bg-surface',
+                      )}
+                    >
+                      {TREND_METRICS[k].label}
+                    </button>
+                  ))}
+                </div>
+                {isAdmin ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => snapshot.mutate()}
+                    disabled={snapshot.isPending}
+                  >
+                    <Camera className="h-3.5 w-3.5" />
+                    {snapshot.isPending ? 'Capturing…' : 'Capture snapshot'}
+                  </Button>
+                ) : null}
+              </div>
             </div>
             {trendQ.isLoading ? (
               <div className="grid h-24 place-items-center">
                 <Spinner className="text-lg text-steel" />
               </div>
+            ) : trendQ.isError ? (
+              <ErrorState
+                error={trendQ.error}
+                onRetry={() => void trendQ.refetch()}
+                title="Couldn't load the trend"
+              />
             ) : (trendQ.data?.length ?? 0) < 2 ? (
               <p className="text-sm text-steel">
                 The trend builds as daily snapshots accumulate
@@ -284,7 +459,7 @@ export function InsightsView() {
                 {trendQ.data?.length === 1 ? ' (1 point so far)' : ''}
               </p>
             ) : (
-              <TrendChart points={trendQ.data!} />
+              <TrendChart points={trendQ.data!} metric={trendMetric} />
             )}
           </div>
 
@@ -302,6 +477,15 @@ export function InsightsView() {
                   <Stat label="Median" value={fmtMins(t?.medianReviewMinutes ?? null)} />
                   <Stat label="Reviewed" value={String(t?.reviewedCount ?? 0)} />
                   <Stat label="Revisions" value={String(t?.revisionCount ?? 0)} />
+                  <Stat
+                    label="Awaiting review"
+                    value={String(t?.awaitingReview ?? 0)}
+                    tone={t && t.awaitingReview > 0 ? 'text-fail' : undefined}
+                  />
+                  <Stat
+                    label="Oldest pending"
+                    value={fmtMins(t?.oldestPendingAgeMinutes ?? null)}
+                  />
                 </dl>
               )}
             </div>
@@ -392,11 +576,14 @@ function Tile({
   value,
   sub,
   tone = 'text-ink',
+  delta = null,
 }: {
   label: string;
   value: string;
   sub?: string;
   tone?: string;
+  /** Percentage-point change vs the previous period (null = no comparison). */
+  delta?: number | null;
 }) {
   return (
     <div className="rounded-lg border border-mist/60 bg-paper p-4">
@@ -404,22 +591,55 @@ function Tile({
       <p className={cn('mt-1 font-display text-2xl font-semibold tabular-nums', tone)}>
         {value}
       </p>
+      {delta != null ? <DeltaBadge delta={delta} /> : null}
       {sub ? <p className="mt-0.5 text-[11px] text-steel">{sub}</p> : null}
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+/** A signed "▲ 4 pts / ▼ 2 pts / — no change" chip for a vs-previous delta. */
+function DeltaBadge({ delta }: { delta: number }) {
+  const rounded = Math.round(delta);
+  const Icon = rounded > 0 ? ArrowUp : rounded < 0 ? ArrowDown : Minus;
+  const cls =
+    rounded > 0 ? 'text-pass' : rounded < 0 ? 'text-fail' : 'text-steel';
+  const label =
+    rounded === 0 ? 'No change' : `${Math.abs(rounded)} pt${Math.abs(rounded) === 1 ? '' : 's'}`;
+  return (
+    <span className={cn('mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium', cls)}>
+      <Icon className="h-3 w-3" aria-hidden="true" />
+      {label}
+    </span>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+}) {
   return (
     <div className="flex items-center justify-between gap-3">
       <dt className="text-steel">{label}</dt>
-      <dd className="font-display font-semibold tabular-nums text-ink">{value}</dd>
+      <dd className={cn('font-display font-semibold tabular-nums', tone ?? 'text-ink')}>
+        {value}
+      </dd>
     </div>
   );
 }
 
-/** Lightweight inline SVG line chart of pass-rate over the snapshots (no deps). */
-function TrendChart({ points }: { points: ComplianceTrendPoint[] }) {
+/** Lightweight inline SVG line chart of the selected metric over the snapshots. */
+function TrendChart({
+  points,
+  metric,
+}: {
+  points: ComplianceTrendPoint[];
+  metric: TrendMetric;
+}) {
   const W = 720;
   const H = 180;
   const padX = 10;
@@ -430,8 +650,8 @@ function TrendChart({ points }: { points: ComplianceTrendPoint[] }) {
   const last = points[n - 1];
   if (!first || !last) return null;
 
-  const rate = (p: ComplianceTrendPoint) =>
-    p.expected > 0 ? p.passing / p.expected : 0;
+  const def = TREND_METRICS[metric];
+  const rate = def.ratio;
   const x = (i: number) => padX + (n === 1 ? 0 : (i / (n - 1)) * (W - padX * 2));
   const y = (r: number) => padTop + (1 - r) * (H - padTop - padBottom);
   const line = points
@@ -449,7 +669,7 @@ function TrendChart({ points }: { points: ComplianceTrendPoint[] }) {
         viewBox={`0 0 ${W} ${H}`}
         className="w-full"
         role="img"
-        aria-label="Compliance pass-rate over time"
+        aria-label={`Compliance ${def.short} over time`}
       >
         {[0, 0.5, 1].map((g) => (
           <g key={g}>
@@ -481,7 +701,7 @@ function TrendChart({ points }: { points: ComplianceTrendPoint[] }) {
       <div className="mt-1 flex items-center justify-between text-[11px] text-steel">
         <span>{fmtDate(first.capturedAt)}</span>
         <span className="font-medium text-ink">
-          Now: {Math.round(rate(last) * 100)}% pass-rate
+          Now: {Math.round(rate(last) * 100)}% {def.short}
         </span>
         <span>{fmtDate(last.capturedAt)}</span>
       </div>

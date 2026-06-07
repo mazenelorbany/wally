@@ -15,6 +15,7 @@ import type { StoreBand, StoreSales, StoreScore } from '@wally/types';
 
 import { api } from '../../lib/api';
 import { ErrorState } from '../../components/states';
+import { useProjectCampaign } from '../lib/useProjectCampaign';
 import { useSetStudioTopBar } from '../components/StudioContext';
 import {
   PERIOD_OPTIONS,
@@ -123,12 +124,8 @@ function rankMap(merged: Merged[]): Map<string, number> {
 
 /** Store league table — best→worst by SALES, then VM compliance. */
 export function LeaderboardView() {
-  const campaignsQ = useQuery({
-    queryKey: ['studio', 'campaigns'],
-    queryFn: () => api.campaigns.list(),
-  });
-  const campaign =
-    campaignsQ.data?.find((c) => c.status === 'ACTIVE') ?? campaignsQ.data?.[0];
+  // Scope to the SELECTED project's campaign, not the org-wide newest-active.
+  const { campaign, campaignsQ } = useProjectCampaign();
 
   useSetStudioTopBar({
     guideName: 'Leaderboard',

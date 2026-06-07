@@ -7,6 +7,7 @@ import type { GalleryItem, Overall } from '@wally/types';
 import { api } from '../../lib/api';
 import { useSession } from '../../lib/auth';
 import { useSetStudioTopBar } from '../components/StudioContext';
+import { useProjectCampaign } from '../lib/useProjectCampaign';
 
 const BAND: Record<Overall, { icon: string; label: string; cls: string }> = {
   perfect: { icon: '✓', label: 'Perfect', cls: 'text-pass' },
@@ -17,12 +18,8 @@ const BAND: Record<Overall, { icon: string; label: string; cls: string }> = {
 
 /** Every execution image across the guide's stores, filterable. */
 export function GalleryView() {
-  const campaignsQ = useQuery({
-    queryKey: ['studio', 'campaigns'],
-    queryFn: () => api.campaigns.list(),
-  });
-  const campaign =
-    campaignsQ.data?.find((c) => c.status === 'ACTIVE') ?? campaignsQ.data?.[0];
+  // Scope to the SELECTED project's campaign, not the org-wide newest-active.
+  const { campaign, campaignsQ } = useProjectCampaign();
 
   useSetStudioTopBar({ guideName: 'Gallery', guideKey: campaign?.key, stores: [] });
 
