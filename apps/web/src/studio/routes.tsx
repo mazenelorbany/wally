@@ -3,8 +3,10 @@
 //
 // Exported as a single route object so the app router (apps/web/src/router.tsx)
 // can drop the whole studio in with one entry, guarded for guide authors. The
-// studio is org-scoped, signed-in chrome (StudioShell) wrapping the live pillars
-// (Floor Plan / Fixtures / Products) plus tasteful Coming-soon placeholders.
+// studio is org-scoped, signed-in chrome (StudioShell) wrapping the full
+// surface: guide authoring (Floor Plan / Fixtures / Products / Rubrics),
+// comms (Bulletins / Resources), analytics, and admin (Campaigns / Stores /
+// Users). Every pillar is live — there are no placeholder routes.
 // =============================================================================
 
 import * as React from 'react';
