@@ -230,43 +230,75 @@ async function main(): Promise<void> {
   }
   console.log(`  floor plans: ${placed} placements across ${dbStores.length} stores`);
 
-  // ── 3. Per-fixture reference gallery from each store's newest photo ─────────
-  let images = 0;
+  // ── 3. ONE guide reference per fixture + per-store CAPTURES ────────────────
+  // The guide's "what good looks like" is the shared STANDARD, so it gets a
+  // single clean reference (not every store). Each store's own photo becomes
+  // its FixtureCapture — so a store's floor map shows only THAT store's photo.
+  let refs = 0;
+  let captures = 0;
   let missing = 0;
   for (const cat of categories) {
     const gfId = guideFixtureByCat.get(cat)!;
-    // idempotent: clear this restore fixture's gallery, then rebuild.
+    const fixtureId = fixtureIdByCat.get(cat)!;
     await prisma.exampleImage.deleteMany({ where: { guideFixtureId: gfId } });
-    let first = true;
+
+    let best: { store: string; date: string; file: string } | null = null;
     for (const storeName of storeNames) {
       const photos = manifest.stores[storeName].fixtures[cat];
       if (!photos || photos.length === 0) continue;
-      // newest by createdAt (the downloaded file IS the newest per store x cat).
+      const newest = [...photos].sort((a, b) =>
+        (b.createdAt ?? '').localeCompare(a.createdAt ?? ''),
+      )[0];
+      const date = newest?.createdAt ? newest.createdAt.slice(0, 10) : '';
       const file = join(EXPORT_DIR, safe(storeName), `${safe(cat)}.jpg`);
+      if (!best || date > best.date) best = { store: storeName, date, file };
+
+      // Per-store capture — only for stores we matched to a Wally store.
+      const sid = byNorm.get(norm(storeName));
+      if (!sid) continue;
       const key = await storeImage(file);
       if (!key) {
         missing++;
         continue;
       }
-      const newest = [...photos].sort((a, b) =>
-        (b.createdAt ?? '').localeCompare(a.createdAt ?? ''),
-      )[0];
-      const date = newest?.createdAt ? newest.createdAt.slice(0, 10) : '';
-      await prisma.exampleImage.create({
-        data: {
+      const uploadedAt = newest?.createdAt ? new Date(newest.createdAt) : new Date();
+      await prisma.fixtureCapture.upsert({
+        where: {
+          storeId_campaignId_fixtureId: { storeId: sid, campaignId: campaign.id, fixtureId },
+        },
+        update: { storageKey: key, needsPhoto: false, uploadedAt },
+        create: {
           orgId,
-          guideFixtureId: gfId,
+          storeId: sid,
+          campaignId: campaign.id,
+          fixtureId,
           storageKey: key,
-          caption: `${storeName}${date ? ` · ${date}` : ''}`,
-          bestInClass: first,
+          needsPhoto: false,
+          uploadedAt,
         },
       });
-      images++;
-      first = false;
+      captures++;
+    }
+
+    // The single guide reference (newest execution across stores).
+    if (best) {
+      const rkey = await storeImage(best.file);
+      if (rkey) {
+        await prisma.exampleImage.create({
+          data: {
+            orgId,
+            guideFixtureId: gfId,
+            storageKey: rkey,
+            caption: `Reference · ${best.store} · ${best.date}`,
+            bestInClass: true,
+          },
+        });
+        refs++;
+      }
     }
   }
   console.log(
-    `  reference photos: ${images} attached across ${categories.size} fixtures` +
+    `  guide references: ${refs} (one per fixture) · per-store captures: ${captures}` +
       (missing ? ` · ${missing} files missing on disk` : ''),
   );
   console.log('Done.');
