@@ -1,5 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import type { Placement } from '@prisma/client';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { TaskKind, TaskStatus, type Placement } from '@prisma/client';
 import type {
   Department,
   FixtureKind,
@@ -194,6 +198,11 @@ export class FloorplanService {
         ...(input.w !== undefined ? { w: input.w } : {}),
         ...(input.h !== undefined ? { h: input.h } : {}),
         ...(input.rotation !== undefined ? { rotation: input.rotation } : {}),
+        ...(input.label !== undefined ? { label: input.label } : {}),
+        ...(input.order !== undefined ? { order: input.order } : {}),
+        ...(input.applicable !== undefined
+          ? { applicable: input.applicable }
+          : {}),
       },
       include: { fixture: { select: { name: true, kind: true, department: true } } },
     });
@@ -288,6 +297,175 @@ export class FloorplanService {
     if (!existing) throw new NotFoundException('placement not found');
 
     await this.prisma.placement.delete({ where: { id: existing.id } });
+  }
+
+  /**
+   * Copy a store's whole floor-plan layout onto another store for the same
+   * campaign — so a venue's true layout can be reused instead of rebuilt
+   * fixture-by-fixture. Org-scoped: campaign + both stores must belong to the
+   * caller's org. Idempotent on the unique (storeId, campaignId, fixtureId):
+   * a fixture already placed on the target is updated to match the source's
+   * geometry / label / order / applicability rather than erroring. Returns the
+   * refreshed target floor plan.
+   */
+  async copyLayout(
+    orgId: string,
+    campaignId: string,
+    fromStoreId: string,
+    toStoreId: string,
+  ): Promise<FloorPlan> {
+    if (fromStoreId === toStoreId) {
+      throw new BadRequestException(
+        'source and target stores must be different',
+      );
+    }
+
+    const [campaign, fromStore, toStore] = await Promise.all([
+      this.prisma.campaign.findFirst({
+        where: { id: campaignId, orgId },
+        select: { id: true },
+      }),
+      this.prisma.store.findFirst({
+        where: { id: fromStoreId, orgId },
+        select: { id: true },
+      }),
+      this.prisma.store.findFirst({
+        where: { id: toStoreId, orgId },
+        select: { id: true },
+      }),
+    ]);
+    if (!campaign) throw new NotFoundException('campaign not found');
+    if (!fromStore) throw new NotFoundException('source store not found');
+    if (!toStore) throw new NotFoundException('target store not found');
+
+    const source = await this.prisma.placement.findMany({
+      where: { storeId: fromStoreId, campaignId, orgId },
+      orderBy: { order: 'asc' },
+    });
+
+    // Upsert each source placement onto the target, keyed on the existing
+    // (storeId, campaignId, fixtureId) unique — so re-copying is a no-op-safe
+    // overwrite, never a duplicate-key error. One transaction so the target
+    // never half-updates.
+    await this.prisma.$transaction(
+      source.map((p) =>
+        this.prisma.placement.upsert({
+          where: {
+            storeId_campaignId_fixtureId: {
+              storeId: toStoreId,
+              campaignId,
+              fixtureId: p.fixtureId,
+            },
+          },
+          create: {
+            orgId,
+            storeId: toStoreId,
+            campaignId,
+            fixtureId: p.fixtureId,
+            label: p.label,
+            x: p.x,
+            y: p.y,
+            w: p.w,
+            h: p.h,
+            rotation: p.rotation,
+            applicable: p.applicable,
+            order: p.order,
+          },
+          update: {
+            label: p.label,
+            x: p.x,
+            y: p.y,
+            w: p.w,
+            h: p.h,
+            rotation: p.rotation,
+            applicable: p.applicable,
+            order: p.order,
+          },
+        }),
+      ),
+    );
+
+    return this.get(orgId, campaignId, toStoreId);
+  }
+
+  /**
+   * Publish the guide to its stores: stamp the campaign `publishedAt` and fan a
+   * GENERAL "the floor plan is ready" task out to every store in the campaign's
+   * project (so each store manager is notified). Org-scoped; 404 cross-tenant.
+   *
+   * Tasks are created with `skipDuplicates` off (each publish is a fresh notice)
+   * but we de-dupe the open notice per store so re-publishing doesn't pile up
+   * identical OPEN tasks — an existing OPEN publish task for the store is left
+   * as-is and counted as "already notified". Returns the count notified.
+   */
+  async publish(
+    orgId: string,
+    campaignId: string,
+  ): Promise<{ publishedAt: string; notified: number }> {
+    const campaign = await this.prisma.campaign.findFirst({
+      where: { id: campaignId, orgId },
+      select: { id: true, key: true, name: true, projectId: true },
+    });
+    if (!campaign) throw new NotFoundException('campaign not found');
+
+    // The stores to notify: every ACTIVE store in the campaign's project (or,
+    // for a project-less campaign, every active project-less store in the org).
+    // Closed stores are retired and shouldn't receive a fanned-out task.
+    const stores = await this.prisma.store.findMany({
+      where: {
+        orgId,
+        projectId: campaign.projectId,
+        closedAt: null,
+      },
+      select: { id: true },
+    });
+
+    const now = new Date();
+    const title = `Floor plan published — ${campaign.name}`;
+    const body =
+      'The floor plan and fixture guide for this campaign are ready. ' +
+      'Open your floor plan to review the layout and upload your fixture photos.';
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.campaign.update({
+        where: { id: campaign.id },
+        data: { publishedAt: now },
+      });
+
+      if (stores.length > 0) {
+        // De-dupe: skip stores that already have an OPEN publish task for this
+        // campaign so re-publishing doesn't stack identical notices.
+        const existing = await tx.task.findMany({
+          where: {
+            orgId,
+            campaignId: campaign.id,
+            kind: TaskKind.GENERAL,
+            status: TaskStatus.OPEN,
+            title,
+            storeId: { in: stores.map((s) => s.id) },
+          },
+          select: { storeId: true },
+        });
+        const alreadyNotified = new Set(existing.map((t) => t.storeId));
+        const fresh = stores.filter((s) => !alreadyNotified.has(s.id));
+
+        if (fresh.length > 0) {
+          await tx.task.createMany({
+            data: fresh.map((s) => ({
+              orgId,
+              storeId: s.id,
+              campaignId: campaign.id,
+              kind: TaskKind.GENERAL,
+              status: TaskStatus.OPEN,
+              title,
+              body,
+            })),
+          });
+        }
+      }
+    });
+
+    return { publishedAt: now.toISOString(), notified: stores.length };
   }
 
   // ----- presenters ---------------------------------------------------------

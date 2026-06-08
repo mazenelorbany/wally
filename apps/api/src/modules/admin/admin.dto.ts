@@ -11,10 +11,42 @@ export const CreateTaskSchema = z
     body: z.string().optional(),
     fixtureKey: z.string().optional(),
     dueAt: z.string().datetime().optional(),
+    /** Optionally narrow the task to one manager (else store-wide). */
+    assignedToId: z.string().optional(),
   })
   .strict();
 
 export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
+
+// POST /admin/tasks/bulk — assign the same task to MANY stores at once (the
+// "assign to all stores" affordance). `storeIds` is the explicit set of targets
+// the UI resolved from the selected project/campaign.
+export const BulkCreateTaskSchema = z
+  .object({
+    storeIds: z.array(z.string().min(1)).min(1),
+    kind: z.enum(['UPLOAD_PHOTO', 'LOG_SALES', 'GENERAL']),
+    title: z.string().min(1),
+    body: z.string().optional(),
+    fixtureKey: z.string().optional(),
+    dueAt: z.string().datetime().optional(),
+  })
+  .strict();
+
+export type BulkCreateTaskInput = z.infer<typeof BulkCreateTaskSchema>;
+
+// PATCH /admin/tasks/:id — edit a task's title / body / due date / status. A
+// status flip to DONE/OPEN moves it through the lifecycle (completedAt is
+// stamped/cleared by the service). `dueAt` accepts null to clear it.
+export const UpdateTaskSchema = z
+  .object({
+    title: z.string().min(1).optional(),
+    body: z.string().nullable().optional(),
+    dueAt: z.string().datetime().nullable().optional(),
+    status: z.enum(['OPEN', 'DONE']).optional(),
+  })
+  .strict();
+
+export type UpdateTaskInput = z.infer<typeof UpdateTaskSchema>;
 
 const ROLES = ['ADMIN', 'REVIEWER', 'STORE_MANAGER', 'VIEWER'] as const;
 

@@ -1,6 +1,6 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { CampaignStatus, SubmissionStatus } from '@prisma/client';
+import { CampaignStatus, CaptureVerdict } from '@prisma/client';
 import nodemailer, { type Transporter } from 'nodemailer';
 import { z } from 'zod';
 
@@ -12,9 +12,22 @@ import { withSchedulerLock } from './scheduler-lock';
 // ChaseService — the "where are your photos?" nudge.
 // =============================================================================
 //
-// Once a day it finds submissions for ACTIVE campaigns that are still open
-// (PENDING / PARTIAL) and were created more than WALLY_CHASE_AFTER_HOURS ago,
-// and emits one chase per store (logged, and emailed when SMTP is configured).
+// Once a day it finds stores that are BEHIND on the live floor-plan capture loop
+// for an ACTIVE campaign — a store with applicable Placements that aren't yet
+// satisfied — and emits one chase per (store, campaign) (logged, and emailed when
+// SMTP is configured).
+//
+// MIGRATED to the live FixtureCapture+Placement pipeline (from the legacy
+// Submission/Photo pipeline). A store doing all its work on the floor plan used to
+// be invisible to the legacy Submission read and get wrongly chased (or never
+// chased); "behind" is now computed from the SAME source the manager floor map
+// writes to:
+//   EXPECTED  = the store's applicable Placements for an ACTIVE campaign.
+//   SATISFIED = a FixtureCapture for that fixture with a photo (storageKey), no
+//               outstanding needsPhoto request, and an EFFECTIVE verdict
+//               (`overrideVerdict ?? verdict`) of PASS.
+//   BEHIND    = ≥1 applicable placement that is NOT satisfied.
+// A store whose every applicable placement is PASS is DONE and is never chased.
 //
 // Single-fire across replicas: the @Cron fires on every replica, but the body
 // runs under a Postgres advisory lock (withSchedulerLock) so exactly one
@@ -27,8 +40,8 @@ import { withSchedulerLock } from './scheduler-lock';
 
 const ChaseEnv = z
   .object({
-    // A submission is "overdue" once this many hours have passed since it was
-    // created without being SUBMITTED.
+    // A behind store is only chased once the active campaign is at least this
+    // many hours old — so a campaign that just went live isn't chased instantly.
     WALLY_CHASE_AFTER_HOURS: z.coerce.number().int().positive().default(48),
     // Mail — mirrors the auth MailService config so a chase can actually send.
     SMTP_HOST: z.string().default('localhost'),
@@ -47,6 +60,19 @@ const ChaseEnv = z
       e.SMTP_PASSWORD && e.SMTP_PASSWORD.length ? e.SMTP_PASSWORD : undefined,
     mailFrom: e.MAIL_FROM,
   }));
+
+/** One store that is behind on an active campaign — the unit of a chase. */
+interface BehindStore {
+  storeName: string;
+  storeBrand: string;
+  campaignKey: string;
+  /** Applicable placements that aren't satisfied yet. */
+  outstanding: number;
+  /** Total applicable placements (the denominator for the chase line). */
+  expected: number;
+  /** ADMIN/REVIEWER recipients in the org who opted into chase emails. */
+  recipients: string[];
+}
 
 @Injectable()
 export class ChaseService implements OnModuleInit {
@@ -81,28 +107,66 @@ export class ChaseService implements OnModuleInit {
     }
   }
 
-  /** The actual sweep. Pure-ish: reads overdue submissions, emits one chase per
-   *  store, returns the count for logging/testing. */
+  /** The actual sweep. Reads behind stores from the capture pipeline, emits one
+   *  chase per behind store, returns the count for logging/testing. */
   private async chase(): Promise<number> {
     const cutoff = new Date(Date.now() - this.cfg.afterHours * 60 * 60_000);
+    const behind = await this.findBehindStores(cutoff);
 
-    // Overdue = an open submission, on a campaign that's still ACTIVE, created
-    // before the cutoff. We only chase live sweeps — a CLOSED campaign is done.
-    const overdue = await this.prisma.submission.findMany({
-      where: {
-        status: { in: [SubmissionStatus.PENDING, SubmissionStatus.PARTIAL] },
-        createdAt: { lt: cutoff },
-        campaign: { status: CampaignStatus.ACTIVE },
-      },
-      include: {
-        store: { select: { name: true, brand: true } },
-        campaign: { select: { key: true, name: true } },
-        _count: { select: { photos: true } },
+    if (behind.length === 0) {
+      this.logger.log('chase sweep: no stores behind');
+      return 0;
+    }
+
+    for (const store of behind) {
+      const line =
+        `chase: store "${store.storeName}" (${store.storeBrand}) is behind on ` +
+        `campaign ${store.campaignKey} — ${store.outstanding} of ` +
+        `${store.expected} applicable fixture(s) not yet passing`;
+      this.logger.warn(line);
+
+      if (store.recipients.length > 0) {
+        await this.email(
+          store.recipients,
+          store.storeName,
+          store.campaignKey,
+          line,
+        );
+      }
+    }
+
+    this.logger.log(`chase sweep complete: ${behind.length} store(s) behind`);
+    return behind.length;
+  }
+
+  /**
+   * Find stores that are BEHIND on an ACTIVE campaign via the capture pipeline.
+   *
+   * Walks each ACTIVE campaign (created before `cutoff` — a just-launched
+   * campaign isn't chased yet), and within it each ACTIVE store (closedAt null),
+   * computing whether every applicable Placement is SATISFIED by a FixtureCapture
+   * (photo present, no outstanding needsPhoto, effective verdict PASS). A store
+   * with ≥1 unsatisfied applicable placement is behind. A store with no
+   * applicable placements is not behind (nothing to chase).
+   */
+  private async findBehindStores(cutoff: Date): Promise<BehindStore[]> {
+    const campaigns = await this.prisma.campaign.findMany({
+      where: { status: CampaignStatus.ACTIVE, createdAt: { lt: cutoff } },
+      select: {
+        id: true,
+        key: true,
+        orgId: true,
         org: {
           select: {
-            name: true,
+            // Recipients = the org's ADMIN/REVIEWER owners who haven't opted out
+            // of chase emails (chaseEmails toggled off in Settings suppresses it).
+            // Disabled users are excluded too — they shouldn't get nudges.
             users: {
-              where: { role: { in: ['ADMIN', 'REVIEWER'] } },
+              where: {
+                role: { in: ['ADMIN', 'REVIEWER'] },
+                chaseEmails: true,
+                disabledAt: null,
+              },
               select: { email: true },
             },
           },
@@ -111,27 +175,81 @@ export class ChaseService implements OnModuleInit {
       orderBy: { createdAt: 'asc' },
     });
 
-    if (overdue.length === 0) {
-      this.logger.log('chase sweep: no overdue submissions');
-      return 0;
-    }
+    const behind: BehindStore[] = [];
 
-    for (const sub of overdue) {
-      const line =
-        `chase: store "${sub.store.name}" (${sub.store.brand}) has an open ` +
-        `submission for campaign ${sub.campaign.key} — status ${sub.status}, ` +
-        `${sub._count.photos} photo(s) uploaded, opened ` +
-        `${ageInDays(sub.createdAt)}d ago`;
-      this.logger.warn(line);
+    for (const campaign of campaigns) {
+      const recipients = campaign.org.users
+        .map((u) => u.email)
+        .filter(Boolean);
 
-      const recipients = sub.org.users.map((u) => u.email).filter(Boolean);
-      if (recipients.length > 0) {
-        await this.email(recipients, sub.store.name, sub.campaign.key, line);
+      // The campaign's applicable placements, grouped by store. (A campaign's
+      // placements all live in its org; the store filter below keeps closed
+      // stores out.) Only ACTIVE stores are chased — a closed store is retired.
+      const placements = await this.prisma.placement.findMany({
+        where: {
+          campaignId: campaign.id,
+          applicable: true,
+          store: { closedAt: null },
+        },
+        select: {
+          fixtureId: true,
+          storeId: true,
+          store: { select: { name: true, brand: true } },
+        },
+      });
+      if (placements.length === 0) continue;
+
+      // The captures for this campaign across all its stores, keyed by
+      // (storeId, fixtureId) — the unique floor-plan join key.
+      const captures = await this.prisma.fixtureCapture.findMany({
+        where: { campaignId: campaign.id },
+        select: {
+          storeId: true,
+          fixtureId: true,
+          storageKey: true,
+          needsPhoto: true,
+          verdict: true,
+          overrideVerdict: true,
+        },
+      });
+      const captureByKey = new Map(
+        captures.map((c) => [`${c.storeId}:${c.fixtureId}`, c]),
+      );
+
+      // Roll the placements up per store: count outstanding (unsatisfied) ones.
+      const byStore = new Map<
+        string,
+        { name: string; brand: string; expected: number; outstanding: number }
+      >();
+      for (const p of placements) {
+        const agg =
+          byStore.get(p.storeId) ??
+          {
+            name: p.store.name,
+            brand: p.store.brand,
+            expected: 0,
+            outstanding: 0,
+          };
+        agg.expected += 1;
+        const capture = captureByKey.get(`${p.storeId}:${p.fixtureId}`);
+        if (!isSatisfied(capture)) agg.outstanding += 1;
+        byStore.set(p.storeId, agg);
+      }
+
+      for (const agg of byStore.values()) {
+        if (agg.outstanding === 0) continue; // store is done — never chased
+        behind.push({
+          storeName: agg.name,
+          storeBrand: agg.brand,
+          campaignKey: campaign.key,
+          outstanding: agg.outstanding,
+          expected: agg.expected,
+          recipients,
+        });
       }
     }
 
-    this.logger.log(`chase sweep complete: ${overdue.length} overdue submission(s)`);
-    return overdue.length;
+    return behind;
   }
 
   private async email(
@@ -156,8 +274,26 @@ export class ChaseService implements OnModuleInit {
   }
 }
 
-function ageInDays(from: Date): number {
-  return Math.floor((Date.now() - from.getTime()) / (24 * 60 * 60_000));
+/** A FixtureCapture narrowed to the satisfaction predicate's inputs. */
+interface SatisfactionCapture {
+  storageKey: string | null;
+  needsPhoto: boolean;
+  verdict: CaptureVerdict | null;
+  overrideVerdict: CaptureVerdict | null;
+}
+
+/**
+ * Is an applicable placement SATISFIED (so it needn't be chased)? Yes only when
+ * its capture has a photo, no outstanding re-shoot request, and an EFFECTIVE
+ * verdict (override beats AI) of PASS. No capture row, a needs-photo flag, a
+ * missing photo, or any non-PASS verdict all leave the placement outstanding.
+ */
+function isSatisfied(capture: SatisfactionCapture | undefined): boolean {
+  if (!capture) return false;
+  if (capture.needsPhoto) return false;
+  if (!capture.storageKey) return false;
+  const effective = capture.overrideVerdict ?? capture.verdict;
+  return effective === CaptureVerdict.PASS;
 }
 
 function errMsg(err: unknown): string {

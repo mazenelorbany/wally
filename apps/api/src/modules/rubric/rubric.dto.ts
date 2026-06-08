@@ -64,10 +64,24 @@ export const PublishRubricSchema = z
         }
       }),
     rollupRule: RollupRuleSchema.default(DEFAULT_ROLLUP),
-    // Optional storage key of the campaign's reference/standard image for the
-    // fixture. The uploader/seed owns putting it in StorageService.
-    referenceKey: z.string().max(256).optional(),
+    // Storage key of the campaign's reference/standard image for the fixture.
+    // OMITTED → the service carries the previous version's key forward (so an
+    // edit never silently drops the reference). `null` → explicitly clear it.
+    // A string → set/replace it. The uploader puts the bytes in StorageService
+    // (POST .../reference-image) and hands the returned key here.
+    referenceKey: z.string().max(256).nullable().optional(),
   })
   .strict();
 
 export type PublishRubricInput = z.infer<typeof PublishRubricSchema>;
+
+// POST /campaigns/:campaignId/rubrics/:fixtureKey/activate — flip the live
+// grading version to a specific version (= rollback to / promote an earlier one)
+// without publishing anything new. Identifies the target by version number.
+export const ActivateRubricSchema = z
+  .object({
+    version: z.number().int().positive(),
+  })
+  .strict();
+
+export type ActivateRubricInput = z.infer<typeof ActivateRubricSchema>;

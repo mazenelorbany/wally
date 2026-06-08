@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { ClipboardList, LogOut, Settings, WifiOff } from 'lucide-react';
+import { LogOut, Settings, WifiOff } from 'lucide-react';
 
 import { useLogout, useSession } from '../lib/auth';
 import { useCaptureQueue } from '../lib/captureQueue';
@@ -13,9 +13,9 @@ interface NavItem {
   roles: Array<'ADMIN' | 'REVIEWER' | 'STORE_MANAGER' | 'VIEWER'>;
 }
 
-const NAV: NavItem[] = [
-  { to: '/console', label: 'Console', icon: ClipboardList, roles: ['REVIEWER', 'ADMIN'] },
-];
+// The reviewer flow moved into the studio shell (/studio/review). This shell now
+// only backs the standalone /settings route, so it carries no primary nav.
+const NAV: NavItem[] = [];
 
 /** Offline ribbon — the field app must always say when it has lost signal. */
 function OfflineRibbon() {

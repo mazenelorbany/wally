@@ -73,7 +73,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       aria-busy={loading || undefined}
       disabled={disabled || loading}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md font-sans font-medium",
+        "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md font-sans font-medium [&_svg]:shrink-0",
         // Specific properties (never `all`); ease-out + a subtle press so the
         // button feels like it heard you (emil craft).
         "transition-[transform,background-color,border-color,box-shadow,color] duration-base ease-out",

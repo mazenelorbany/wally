@@ -1,11 +1,28 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import type { ProjectDto, SessionUser } from '@wally/types';
 
 import { CurrentUser } from '../auth/current-user.decorator';
+import { Roles } from '../auth/roles.decorator';
 import { SessionGuard } from '../auth/session.guard';
 import { ZodValidationPipe } from '../org/zod-validation.pipe';
 
-import { CreateProjectSchema, type CreateProjectInput } from './project.dto';
+import {
+  CreateProjectSchema,
+  UpdateProjectSchema,
+  type CreateProjectInput,
+  type UpdateProjectInput,
+} from './project.dto';
 import { ProjectService } from './project.service';
 
 // =============================================================================
@@ -20,10 +37,16 @@ import { ProjectService } from './project.service';
 export class ProjectController {
   constructor(private readonly projects: ProjectService) {}
 
-  /** Every project in the caller's org (RETAIL first, then by name). */
+  /**
+   * Every project in the caller's org (RETAIL first, then by name). Archived
+   * projects are hidden unless `?includeArchived=true` opts them back in.
+   */
   @Get()
-  list(@CurrentUser() user: SessionUser): Promise<ProjectDto[]> {
-    return this.projects.list(user);
+  list(
+    @CurrentUser() user: SessionUser,
+    @Query('includeArchived') includeArchived?: string,
+  ): Promise<ProjectDto[]> {
+    return this.projects.list(user, includeArchived === 'true');
   }
 
   /** One project, scoped to the caller's org (404 across tenants). */
@@ -51,5 +74,50 @@ export class ProjectController {
     @Body(new ZodValidationPipe(CreateProjectSchema)) dto: CreateProjectInput,
   ): Promise<ProjectDto> {
     return this.projects.create(user, dto);
+  }
+
+  /** Rename a project / change its kind (slug is immutable). ADMIN. */
+  @Patch(':id')
+  @Roles('ADMIN')
+  update(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateProjectSchema)) dto: UpdateProjectInput,
+  ): Promise<ProjectDto> {
+    return this.projects.update(user.orgId, id, dto);
+  }
+
+  /** Soft-delete: hide the project from the working list, keep its history. ADMIN. */
+  @Post(':id/archive')
+  @Roles('ADMIN')
+  archive(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+  ): Promise<ProjectDto> {
+    return this.projects.archive(user.orgId, id);
+  }
+
+  /** Restore an archived project back into the working list. ADMIN. */
+  @Post(':id/unarchive')
+  @Roles('ADMIN')
+  unarchive(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+  ): Promise<ProjectDto> {
+    return this.projects.unarchive(user.orgId, id);
+  }
+
+  /**
+   * Hard-delete a project. ADMIN; 409 if it still owns stores, campaigns, or
+   * bulletins (archive it instead to keep that history).
+   */
+  @Delete(':id')
+  @Roles('ADMIN')
+  @HttpCode(204)
+  remove(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+  ): Promise<void> {
+    return this.projects.remove(user.orgId, id);
   }
 }

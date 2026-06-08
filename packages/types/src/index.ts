@@ -103,6 +103,20 @@ export interface StoreScore {
 }
 
 /**
+ * One store's sales rollup for a campaign — units and revenue logged across the
+ * (optional) date window. The leaderboard ranks primarily on `revenue`, with
+ * compliance as the tiebreaker. Every ACTIVE store appears, including stores
+ * with zero sales so far (units/revenue = 0).
+ */
+export interface StoreSales {
+  storeId: string;
+  storeName: string;
+  region?: string | null;
+  units: number;
+  revenue: number;
+}
+
+/**
  * Operational turnaround for a campaign — how fast verdicts get reviewed and
  * which stores need the most rework. Powers the Insights "who needs help" view.
  */
@@ -251,6 +265,11 @@ export interface Fixture {
   kind: FixtureKind;
   /** Which Myer department this fixture belongs to (null until classified). */
   department?: Department | null;
+  /**
+   * The project that owns this fixture. Null = a shared fixture visible in every
+   * project; a project id scopes it to that project's library + floor plans.
+   */
+  projectId?: string | null;
 }
 
 /**

@@ -6,24 +6,42 @@ import {
   Param,
   Patch,
   Post,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { SessionUser } from '@wally/types';
 
 import { CurrentUser } from '../auth/current-user.decorator';
 import { NoViewerGuard } from '../auth/no-viewer.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { ZodValidationPipe } from '../org/zod-validation.pipe';
+import { MAX_IMAGE_BYTES } from '../storage/image-upload.util';
 
 import {
+  AddExampleImageSchema,
+  type AddExampleImageInput,
   AddMerchandiseSchema,
   type AddMerchandiseInput,
   ReorderPlanogramSchema,
   type ReorderPlanogramInput,
   SaveNotesSchema,
   type SaveNotesInput,
+  UpdateExampleImageSchema,
+  type UpdateExampleImageInput,
 } from './guide-fixture.dto';
 import { GuideFixtureService } from './guide-fixture.service';
+
+// In-memory upload — the buffer goes straight to StorageService.put(). 15MB cap
+// mirrors every other image upload in the app.
+const IMAGE_UPLOAD = { limits: { fileSize: MAX_IMAGE_BYTES, files: 1 } };
+
+interface UploadedImage {
+  buffer: Buffer;
+  mimetype: string;
+  size: number;
+}
 
 // The instruction sheet read by fixture, routed under campaigns so the URL reads
 // naturally: GET /campaigns/:campaignId/fixtures/:fixtureId/detail. Separate
@@ -105,5 +123,63 @@ export class GuideFixtureController {
     @Body(new ZodValidationPipe(ReorderPlanogramSchema)) dto: ReorderPlanogramInput,
   ) {
     return this.guideFixtures.reorderPlanogram(user.orgId, id, dto.shelves);
+  }
+
+  // ----- example images ("what good looks like") ---------------------------
+
+  /**
+   * Upload a reference image for the sheet (multipart, field `file`; optional
+   * text field `caption`). Returns the refreshed sheet.
+   */
+  @Post(':id/example-images')
+  @UseInterceptors(FileInterceptor('file', IMAGE_UPLOAD))
+  addExampleImage(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @UploadedFile() file: UploadedImage | undefined,
+    @Body(new ZodValidationPipe(AddExampleImageSchema)) dto: AddExampleImageInput,
+  ) {
+    return this.guideFixtures.addExampleImage(user.orgId, id, file, dto.caption);
+  }
+
+  /** Edit an example image's caption. */
+  @Patch(':id/example-images/:imageId')
+  updateExampleImage(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+    @Body(new ZodValidationPipe(UpdateExampleImageSchema))
+    dto: UpdateExampleImageInput,
+  ) {
+    return this.guideFixtures.updateExampleImageCaption(
+      user.orgId,
+      id,
+      imageId,
+      dto.caption,
+    );
+  }
+
+  /** Mark an example image best-in-class (unsets its siblings). */
+  @Post(':id/example-images/:imageId/best-in-class')
+  setExampleImageBestInClass(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+  ) {
+    return this.guideFixtures.setExampleImageBestInClass(
+      user.orgId,
+      id,
+      imageId,
+    );
+  }
+
+  /** Remove an example image (and clean up its bytes). */
+  @Delete(':id/example-images/:imageId')
+  removeExampleImage(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+  ) {
+    return this.guideFixtures.removeExampleImage(user.orgId, id, imageId);
   }
 }

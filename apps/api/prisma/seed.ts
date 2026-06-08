@@ -203,14 +203,19 @@ function sample(name: string): string | null {
   return existsSync(p) ? p : null;
 }
 
-// ───────────────────────────────────────────── the 32 real Myer stores
-// Myer is the only retailer in scope. A store's `brand` is the concession fascia
-// the storefront rubric grades; the floor plan splits departments per-fixture
-// (The Custom Chef vs The Cook Shop), so brand here just alternates for variety.
-// externalRef is MYER-<UPPER-SLUG>; the seeded id is `seed-store-<externalRef>`
-// so the floor-plan loop seeds a plan for every store deterministically.
+// ───────────────────────────────────────────── the real Myer stores
+// Myer is the only retailer in scope. Each Myer LOCATION contains TWO stores —
+// the concessions "The Custom Chef" (knives/chef tools/electricals) and "The
+// Cookshop" (cookware) — so "Belconnen Myer" seeds two Store rows: "Belconnen
+// Myer — The Custom Chef" and "Belconnen Myer — The Cookshop". `brand` is that
+// concession fascia. externalRef is MYER-<UPPER-SLUG>-<CC|CS>; the seeded id is
+// `seed-store-<externalRef>` so every store gets a deterministic floor plan.
 const CUSTOM_CHEF = 'The Custom Chef';
 const COOK_SHOP = 'The Cook Shop';
+// Store-facing concession names (the fascia shoppers see). The Cookshop is one
+// word on the shopfloor even though the legacy Department enum reads "Cook Shop".
+const CC_FASCIA = 'The Custom Chef';
+const CS_FASCIA = 'The Cookshop';
 
 const MYER_STORE_NAMES = [
   'Adelaide City Myer',
@@ -256,13 +261,21 @@ function slugUpper(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-const STORES = MYER_STORE_NAMES.map((name, i) => ({
-  name,
-  // Alternate the fascia for variety; the floor plan is what actually splits
-  // departments per-fixture, so this is cosmetic.
-  brand: i % 2 === 0 ? CUSTOM_CHEF : COOK_SHOP,
-  externalRef: `MYER-${slugUpper(name)}`,
-}));
+// Each location splits into its two concession stores. The Custom Chef and The
+// Cookshop are real, separately-managed stores inside the one Myer — not floor-
+// plan departments — so they get their own Store row, externalRef and floor map.
+const STORE_DEPTS = [
+  { fascia: CC_FASCIA, brand: CUSTOM_CHEF, refSuffix: 'CC' },
+  { fascia: CS_FASCIA, brand: COOK_SHOP, refSuffix: 'CS' },
+] as const;
+
+const STORES = MYER_STORE_NAMES.flatMap((location) =>
+  STORE_DEPTS.map((d) => ({
+    name: `${location} — ${d.fascia}`,
+    brand: d.brand,
+    externalRef: `MYER-${slugUpper(location)}-${d.refSuffix}`,
+  })),
+);
 
 // Per-store fixture applicability. Range assignment differs by store, so VM
 // tables are a deliberate mix — applicable, not-applicable ("we don't have that
@@ -465,7 +478,7 @@ async function main(): Promise<void> {
     photos: { fixtureKey: string; image: string }[];
   }[] = [
     {
-      store: 'Chadstone Myer',
+      store: 'Chadstone Myer — The Custom Chef',
       status: SubmissionStatus.SUBMITTED,
       photos: [
         { fixtureKey: 'storefront', image: 'msp2img-01.png' },
@@ -473,12 +486,12 @@ async function main(): Promise<void> {
       ],
     },
     {
-      store: 'Melbourne City Myer',
+      store: 'Melbourne City Myer — The Custom Chef',
       status: SubmissionStatus.PARTIAL,
       photos: [{ fixtureKey: 'storefront', image: 'msp2img-05.png' }],
     },
     {
-      store: 'Sydney City Myer',
+      store: 'Sydney City Myer — The Custom Chef',
       status: SubmissionStatus.SUBMITTED,
       photos: [{ fixtureKey: 'storefront', image: 'msp2img-03.png' }],
     },
@@ -552,7 +565,6 @@ async function main(): Promise<void> {
     projectId: myerProject.id,
     campaignId: campaign.id,
     stores,
-    ackUserId: admin.id,
   });
 
   // --- Training & Resources (org-wide library every store draws on) ---------
@@ -609,10 +621,23 @@ async function seedBulletins(ctx: {
   projectId: string;
   campaignId: string;
   stores: { id: string; name: string }[];
-  ackUserId: string;
 }): Promise<void> {
-  const { orgId, projectId, campaignId, stores, ackUserId } = ctx;
+  const { orgId, projectId, campaignId, stores } = ctx;
   console.log('\nSeeding BULLETINS (Myer sale memo + read receipts)…');
+
+  // Bulletin acks are keyed PER USER, so each acknowledging store needs its own
+  // store-manager user — that's what the roster attributes the read receipt to.
+  // Upsert one deterministic STORE_MANAGER per store (idempotent on email).
+  const managerByStore = new Map<string, string>();
+  for (const store of stores) {
+    const email = `mgr+${store.id}@grb.test`;
+    const mgr = await prisma.user.upsert({
+      where: { email },
+      update: { orgId, role: Role.STORE_MANAGER, name: `${store.name} manager`, storeId: store.id },
+      create: { orgId, email, name: `${store.name} manager`, role: Role.STORE_MANAGER, storeId: store.id },
+    });
+    managerByStore.set(store.id, mgr.id);
+  }
 
   const specs: {
     id: string;
@@ -692,14 +717,16 @@ async function seedBulletins(ctx: {
     });
     created++;
 
-    // Read receipts — only meaningful once published.
+    // Read receipts — only meaningful once published. Keyed per (bulletin,user):
+    // each store's own manager acknowledges, so the roster shows distinct actors.
     if (s.publishedAt && s.ackStores > 0) {
       const ackTargets = stores.slice(0, s.ackStores);
       for (const store of ackTargets) {
+        const userId = managerByStore.get(store.id)!;
         await prisma.bulletinAck.upsert({
-          where: { bulletinId_storeId: { bulletinId: s.id, storeId: store.id } },
+          where: { bulletinId_userId: { bulletinId: s.id, userId } },
           update: {},
-          create: { bulletinId: s.id, storeId: store.id, userId: ackUserId },
+          create: { bulletinId: s.id, storeId: store.id, userId },
         });
         ackCount++;
       }
@@ -1052,8 +1079,14 @@ async function seedCreateGuide(ctx: {
   for (const f of GUIDE_FIXTURES) {
     const fixture = await prisma.fixture.upsert({
       where: { orgId_name: { orgId, name: f.name } },
-      update: { kind: f.kind, department: f.department },
-      create: { orgId, name: f.name, kind: f.kind, department: f.department },
+      update: { kind: f.kind, department: f.department, projectId: MYER_PROJECT_ID },
+      create: {
+        orgId,
+        name: f.name,
+        kind: f.kind,
+        department: f.department,
+        projectId: MYER_PROJECT_ID,
+      },
     });
     fixtureByName.set(f.name, fixture.id);
   }
@@ -1332,10 +1365,10 @@ async function seedManagerWorkspace(ctx: {
   const firstStore = stores[0];
   const showcaseNames = [
     firstStore?.name,
-    'Chadstone Myer',
-    'Melbourne City Myer',
-    'Sydney City Myer',
-    'Bondi Myer',
+    'Chadstone Myer — The Custom Chef',
+    'Melbourne City Myer — The Custom Chef',
+    'Sydney City Myer — The Custom Chef',
+    'Bondi Myer — The Custom Chef',
   ].filter((n): n is string => Boolean(n));
   // De-dup while keeping order (first store might already be in the list).
   const showcaseStores = [...new Set(showcaseNames)]
@@ -1389,7 +1422,7 @@ async function seedManagerWorkspace(ctx: {
   // SalesEntry, so we log across MANY products (every Nth sku) to avoid zeroing
   // the rest of that store's tiles. unitPrice = salePrice ?? rrp ?? 0;
   // fixtureId = the product's guide-fixture.
-  const salesStores = [firstStore?.name, 'Chadstone Myer']
+  const salesStores = [firstStore?.name, 'Chadstone Myer — The Custom Chef']
     .filter((n): n is string => Boolean(n))
     .map((n) => byName(n))
     .filter((s): s is { id: string; name: string } => Boolean(s));
@@ -1447,7 +1480,11 @@ async function seedManagerWorkspace(ctx: {
   // For ~3 stores, seed a handful of captures across applicable fixtures to give
   // the floor map variety. A few needsPhoto todos (no photo), and 2–3 scored
   // verdicts (PASS / NEEDS_REVIEW / FAIL). Most fixtures stay un-captured.
-  const captureStores = [firstStore?.name, 'Chadstone Myer', 'Bondi Myer']
+  const captureStores = [
+    firstStore?.name,
+    'Chadstone Myer — The Custom Chef',
+    'Bondi Myer — The Custom Chef',
+  ]
     .filter((n): n is string => Boolean(n))
     .map((n) => byName(n))
     .filter((s): s is { id: string; name: string } => Boolean(s));
@@ -1698,11 +1735,19 @@ async function seedAmbiente(ctx: { orgId: string }): Promise<void> {
   let sheets = 0;
   for (let i = 0; i < AMBIENTE_FIXTURES.length; i++) {
     const f = AMBIENTE_FIXTURES[i];
-    // Fixture library (upsert on orgId+name; department null — not a Myer dept).
+    // Fixture library (upsert on orgId+name; department null — not a Myer dept;
+    // owned by the Ambiente project so it never leaks into Myer's library).
     const fixture = await prisma.fixture.upsert({
       where: { orgId_name: { orgId, name: f.name } },
-      update: { kind: f.kind, department: null },
-      create: { id: f.id, orgId, name: f.name, kind: f.kind, department: null },
+      update: { kind: f.kind, department: null, projectId: project.id },
+      create: {
+        id: f.id,
+        orgId,
+        name: f.name,
+        kind: f.kind,
+        department: null,
+        projectId: project.id,
+      },
     });
     fixtureIds.push(fixture.id);
 

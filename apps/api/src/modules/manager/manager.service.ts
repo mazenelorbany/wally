@@ -1,7 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CampaignStatus, CaptureVerdict, TaskStatus } from '@prisma/client';
-import type { FixtureCapture, Task } from '@prisma/client';
 import type {
+  FixtureCapture,
+  FixtureCaptureAttempt,
+  Task,
+} from '@prisma/client';
+import type {
+  CaptureAttempt,
   CaptureVerdict as CaptureVerdictDto,
   ComplianceState,
   Department,
@@ -10,6 +15,7 @@ import type {
   FixtureKind,
   ManagerFixture,
   ManagerHome,
+  ManagerPreferences,
   ProductDto,
   SalesFixtureGroup,
   SalesLine,
@@ -51,6 +57,22 @@ import { ComplianceScorer } from './compliance-scorer.service';
 // manager's phone photo is accepted the same way on both surfaces.
 const MAX_PHOTO_BYTES = 15 * 1024 * 1024; // 15 MB
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+/** The minimal actor projection the capture reads select for stamps. */
+type ActorRef = { name: string | null; email: string } | null;
+
+/** An attempt row enriched with the manager who took it (for the history list). */
+type AttemptWithActor = FixtureCaptureAttempt & { capturedBy?: ActorRef };
+
+/**
+ * A FixtureCapture (the CURRENT pointer) joined with its reviewer actors and the
+ * full reshoot history — the read shape the presenters consume.
+ */
+type CaptureWithHistory = FixtureCapture & {
+  requestedBy?: ActorRef;
+  reviewedBy?: ActorRef;
+  attempts?: AttemptWithActor[];
+};
 
 @Injectable()
 export class ManagerService {
@@ -97,8 +119,10 @@ export class ManagerService {
       return store;
     }
 
+    // The org's first ACTIVE store (closed stores are retired — never the
+    // default landing for the ADMIN/REVIEWER store switcher).
     const first = await this.prisma.store.findFirst({
-      where: { orgId: user.orgId },
+      where: { orgId: user.orgId, closedAt: null },
       orderBy: [{ brand: 'asc' }, { name: 'asc' }],
       select: { id: true, name: true, projectId: true },
     });
@@ -167,17 +191,32 @@ export class ManagerService {
   async home(user: SessionUser, storeId?: string): Promise<ManagerHome> {
     const { store, campaign } = await this.resolveContext(user, storeId);
 
-    const [openTasks, unseenTasks, checklist, sales, tasks] = await Promise.all([
-      this.prisma.task.count({
-        where: { storeId: store.id, status: TaskStatus.OPEN },
-      }),
-      this.prisma.task.count({
-        where: { storeId: store.id, status: TaskStatus.OPEN, seenAt: null },
-      }),
-      this.checklist(store.id, campaign.id),
-      this.salesSummary(store.id, campaign.id),
-      this.tasksFor(store.id),
-    ]);
+    const [openTasks, unseenTasks, overdueTasks, checklist, sales, tasks] =
+      await Promise.all([
+        this.prisma.task.count({
+          where: { storeId: store.id, status: TaskStatus.OPEN },
+        }),
+        // PER-USER unread count: OPEN tasks for this store with no TaskRead row
+        // for THIS user. A co-manager opening Tasks no longer clears this badge.
+        this.prisma.task.count({
+          where: {
+            storeId: store.id,
+            status: TaskStatus.OPEN,
+            reads: { none: { userId: user.id } },
+          },
+        }),
+        // Overdue: OPEN tasks whose dueAt is already in the past.
+        this.prisma.task.count({
+          where: {
+            storeId: store.id,
+            status: TaskStatus.OPEN,
+            dueAt: { not: null, lt: new Date() },
+          },
+        }),
+        this.checklist(store.id, campaign.id),
+        this.salesSummary(store.id, campaign.id),
+        this.tasksFor(store.id, user.id),
+      ]);
 
     return {
       storeId: store.id,
@@ -188,6 +227,7 @@ export class ManagerService {
       department: null,
       openTasks,
       unseenTasks,
+      overdueTasks,
       checklist,
       sales,
       tasks,
@@ -221,46 +261,87 @@ export class ManagerService {
     return { total, done: distinct.length };
   }
 
-  /** Sales snapshot: total revenue/units and the count of logged products. */
+  /**
+   * Sales snapshot for the manager home tile. Returns BOTH windows so the tile
+   * can show today's revenue/units (matching what the linked Sales Log opens to)
+   * as the primary figure and the campaign-to-date running total as a labelled
+   * secondary figure — the two surfaces never silently disagree.
+   *
+   * `today` uses the same `dayUtc()` convention as `sales`/`logSale` so the tile
+   * and the day-scoped log share one definition of "today".
+   *
+   * `loggedProducts` is the DISTINCT count of products with logged units
+   * campaign-to-date (a groupBy on productId), so a product logged on N separate
+   * days counts once — not N times as a raw row count would.
+   */
   private async salesSummary(
     storeId: string,
     campaignId: string,
-  ): Promise<{ totalRevenue: number; totalUnits: number; loggedProducts: number }> {
-    const [agg, loggedProducts] = await Promise.all([
+  ): Promise<{
+    today: { totalRevenue: number; totalUnits: number };
+    campaignToDate: { totalRevenue: number; totalUnits: number };
+    loggedProducts: number;
+  }> {
+    const today = dayUtc();
+    const [todayAgg, campaignAgg, distinctProducts] = await Promise.all([
+      this.prisma.salesEntry.aggregate({
+        where: { storeId, campaignId, soldOn: today },
+        _sum: { revenue: true, units: true },
+      }),
       this.prisma.salesEntry.aggregate({
         where: { storeId, campaignId },
         _sum: { revenue: true, units: true },
       }),
-      this.prisma.salesEntry.count({
+      this.prisma.salesEntry.groupBy({
+        by: ['productId'],
         where: { storeId, campaignId, units: { gt: 0 } },
       }),
     ]);
     return {
-      totalRevenue: agg._sum.revenue ?? 0,
-      totalUnits: agg._sum.units ?? 0,
-      loggedProducts,
+      today: {
+        totalRevenue: todayAgg._sum.revenue ?? 0,
+        totalUnits: todayAgg._sum.units ?? 0,
+      },
+      campaignToDate: {
+        totalRevenue: campaignAgg._sum.revenue ?? 0,
+        totalUnits: campaignAgg._sum.units ?? 0,
+      },
+      loggedProducts: distinctProducts.length,
     };
   }
 
   // ----- tasks --------------------------------------------------------------
 
-  /** The store's tasks: OPEN first then DONE, newest first within each band. */
+  /**
+   * The store's tasks for the requesting user: OPEN first then DONE. Within OPEN,
+   * sort by dueAt ascending (soonest first) with NULL dueAt last, then newest
+   * first; DONE is newest first. The per-user `seen` flag comes from TaskRead.
+   */
   async tasks(user: SessionUser, storeId?: string): Promise<TaskDto[]> {
     const store = await this.resolveStore(user, storeId);
-    return this.tasksFor(store.id);
+    return this.tasksFor(store.id, user.id);
   }
 
-  private async tasksFor(storeId: string): Promise<TaskDto[]> {
+  private async tasksFor(storeId: string, userId: string): Promise<TaskDto[]> {
     const tasks = await this.prisma.task.findMany({
       where: { storeId },
-      // OPEN sorts before DONE (alphabetical: DONE < OPEN, so desc puts OPEN
-      // first), then newest first.
-      orderBy: [{ status: 'desc' }, { createdAt: 'desc' }],
+      // OPEN before DONE (alphabetical: DONE < OPEN, so desc puts OPEN first).
+      // dueAt asc puts the soonest-due first; Prisma sorts NULLs last on asc, so
+      // undated tasks fall after dated ones. createdAt desc breaks ties.
+      orderBy: [{ status: 'desc' }, { dueAt: 'asc' }, { createdAt: 'desc' }],
+      include: {
+        reads: { where: { userId }, select: { id: true } },
+        completedBy: { select: { name: true, email: true } },
+        assignedTo: { select: { name: true, email: true } },
+      },
     });
     return tasks.map(toTaskDto);
   }
 
-  /** Mark one task DONE (verified to belong to the resolved store + org). */
+  /**
+   * Mark one task DONE (verified to belong to the resolved store + org). Stamps
+   * the acting user as `completedById` for the audit trail.
+   */
   async completeTask(
     user: SessionUser,
     taskId: string,
@@ -275,17 +356,91 @@ export class ManagerService {
 
     await this.prisma.task.update({
       where: { id: task.id },
-      data: { status: TaskStatus.DONE, completedAt: new Date() },
+      data: {
+        status: TaskStatus.DONE,
+        completedAt: new Date(),
+        completedById: user.id,
+      },
     });
   }
 
-  /** Mark every OPEN, unseen task for the store as seen (clears the badge). */
+  /**
+   * Reopen a DONE task (DONE → OPEN), clearing completedAt/completedById so a
+   * mis-tapped completion is recoverable. No-op if it's already OPEN.
+   */
+  async reopenTask(
+    user: SessionUser,
+    taskId: string,
+    storeId?: string,
+  ): Promise<void> {
+    const store = await this.resolveStore(user, storeId);
+    const task = await this.prisma.task.findFirst({
+      where: { id: taskId, storeId: store.id, orgId: user.orgId },
+      select: { id: true },
+    });
+    if (!task) throw new NotFoundException('task not found');
+
+    await this.prisma.task.update({
+      where: { id: task.id },
+      data: {
+        status: TaskStatus.OPEN,
+        completedAt: null,
+        completedById: null,
+      },
+    });
+  }
+
+  /**
+   * Mark every OPEN task for the store as seen BY THIS USER (clears their badge).
+   * Upserts one TaskRead per open task for `user.id`, so the read state is
+   * per-user — a co-manager's badge is untouched.
+   */
   async markTasksSeen(user: SessionUser, storeId?: string): Promise<void> {
     const store = await this.resolveStore(user, storeId);
-    await this.prisma.task.updateMany({
-      where: { storeId: store.id, status: TaskStatus.OPEN, seenAt: null },
-      data: { seenAt: new Date() },
+    const openTasks = await this.prisma.task.findMany({
+      where: {
+        storeId: store.id,
+        status: TaskStatus.OPEN,
+        reads: { none: { userId: user.id } },
+      },
+      select: { id: true },
     });
+    if (openTasks.length === 0) return;
+    // createMany + skipDuplicates is atomic and idempotent against the
+    // (taskId, userId) unique — concurrent opens never collide.
+    await this.prisma.taskRead.createMany({
+      data: openTasks.map((t) => ({ taskId: t.id, userId: user.id })),
+      skipDuplicates: true,
+    });
+  }
+
+  // ----- preferences --------------------------------------------------------
+
+  /** The signed-in user's notification preferences. */
+  async getPreferences(user: SessionUser): Promise<ManagerPreferences> {
+    const row = await this.prisma.user.findFirst({
+      where: { id: user.id, orgId: user.orgId },
+      select: { notifyOnNewTask: true },
+    });
+    if (!row) throw new NotFoundException('user not found');
+    return { notifyOnNewTask: row.notifyOnNewTask };
+  }
+
+  /** Patch the signed-in user's notification preferences. */
+  async updatePreferences(
+    user: SessionUser,
+    input: { notifyOnNewTask?: boolean },
+  ): Promise<ManagerPreferences> {
+    const row = await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        ...(input.notifyOnNewTask !== undefined
+          ? { notifyOnNewTask: input.notifyOnNewTask }
+          : {}),
+      },
+      select: { notifyOnNewTask: true },
+    });
+    return { notifyOnNewTask: row.notifyOnNewTask };
   }
 
   // ----- fixtures -----------------------------------------------------------
@@ -490,10 +645,16 @@ export class ManagerService {
   }
 
   /**
-   * Set the units sold for one product (store × active campaign). Idempotent
-   * upsert on the unique (storeId, campaignId, productId): recomputes unitPrice
-   * (salePrice → rrp → 0), revenue, and the denormalised fixtureId so the Money
-   * Map rolls up by fixture. The product must belong to the caller's org.
+   * Set the units sold for one product (store × active campaign × day).
+   * Idempotent upsert on the unique (storeId, campaignId, productId, soldOn).
+   *
+   * Price is snapshotted ONCE, when the day's entry is first created
+   * (salePrice → rrp → 0); a later edit to that same day keeps the original
+   * `unitPrice` and only recomputes `revenue = units × existingUnitPrice`, so a
+   * mid-campaign price change never silently rewrites an already-logged day's
+   * recorded value. `loggedById` records the acting user on both branches, and
+   * the denormalised `fixtureId` keeps the Money Map's by-fixture rollup cheap.
+   * The product must belong to the caller's org.
    */
   async logSale(
     user: SessionUser,
@@ -511,9 +672,6 @@ export class ManagerService {
     });
     if (!product) throw new NotFoundException('product not found');
 
-    const unitPrice = product.salePrice ?? product.rrp ?? 0;
-    const revenue = units * unitPrice;
-
     // The product's fixture in this campaign (via Merchandise → GuideFixture).
     // Denormalised onto the entry so the Money Map groups by fixture cheaply.
     const merch = await this.prisma.merchandise.findFirst({
@@ -526,15 +684,25 @@ export class ManagerService {
     });
     const fixtureId = merch?.guideFixture.fixtureId ?? null;
 
+    const dayKey = {
+      storeId: store.id,
+      campaignId: campaign.id,
+      productId: product.id,
+      soldOn,
+    };
+
+    // Keep the day's existing price snapshot on edit; only snapshot fresh on the
+    // first log of the day. Read the current row to decide which.
+    const existing = await this.prisma.salesEntry.findUnique({
+      where: { storeId_campaignId_productId_soldOn: dayKey },
+      select: { unitPrice: true },
+    });
+    const createPrice = product.salePrice ?? product.rrp ?? 0;
+    const unitPrice = existing?.unitPrice ?? createPrice;
+    const revenue = units * unitPrice;
+
     await this.prisma.salesEntry.upsert({
-      where: {
-        storeId_campaignId_productId_soldOn: {
-          storeId: store.id,
-          campaignId: campaign.id,
-          productId: product.id,
-          soldOn,
-        },
-      },
+      where: { storeId_campaignId_productId_soldOn: dayKey },
       create: {
         orgId: user.orgId,
         storeId: store.id,
@@ -545,12 +713,14 @@ export class ManagerService {
         units,
         unitPrice,
         revenue,
+        loggedById: user.id,
       },
       update: {
         units,
-        unitPrice,
+        // unitPrice intentionally NOT updated — keep the day's original snapshot.
         revenue,
         fixtureId,
+        loggedById: user.id,
       },
     });
   }
@@ -606,6 +776,12 @@ export class ManagerService {
     const rows: FixtureCompliance[] = placements.map((p) => {
       const capture = captureByFixture.get(p.fixtureId);
       const state = captureState(capture);
+      const aiVerdict = capture?.verdict
+        ? toCaptureVerdict(capture.verdict)
+        : null;
+      const overrideVerdict = capture?.overrideVerdict
+        ? toCaptureVerdict(capture.overrideVerdict)
+        : null;
       return {
         fixtureId: p.fixtureId,
         label: p.label || p.fixture.name,
@@ -613,7 +789,10 @@ export class ManagerService {
         department: toDepartment(p.fixture.department),
         needsPhoto: state === 'todo' || capture?.needsPhoto === true,
         state,
-        overall: capture?.verdict ? toCaptureVerdict(capture.verdict) : null,
+        overall: aiVerdict,
+        overrideVerdict,
+        // Override beats the AI verdict — this is what the floor map should trust.
+        effectiveVerdict: overrideVerdict ?? aiVerdict,
         hasReference: refByFixture.get(p.fixtureId) ?? false,
         // Floor-plan geometry so the visualization can place the fixture …
         x: p.x,
@@ -654,15 +833,12 @@ export class ManagerService {
       fixtureId,
     );
 
-    const capture = await this.prisma.fixtureCapture.findUnique({
-      where: {
-        storeId_campaignId_fixtureId: {
-          storeId: store.id,
-          campaignId: campaign.id,
-          fixtureId,
-        },
-      },
-    });
+    const capture = await this.loadCaptureDetail(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
 
     const { notes, reference } = await this.guideFor(
       user.orgId,
@@ -778,6 +954,7 @@ export class ManagerService {
       fixtureLabel: placement.label || placement.fixture.name,
     });
 
+    const verdict = fromCaptureVerdict(scored.verdict);
     const capture = await this.prisma.fixtureCapture.update({
       where: {
         storeId_campaignId_fixtureId: {
@@ -787,7 +964,7 @@ export class ManagerService {
         },
       },
       data: {
-        verdict: fromCaptureVerdict(scored.verdict),
+        verdict,
         aiNotes: scored.notes,
         confidence: scored.confidence,
         modelId: scored.modelId,
@@ -795,7 +972,173 @@ export class ManagerService {
       },
     });
 
-    return this.presentComplianceDetail(placement, capture, notes, reference);
+    // HISTORY: preserve THIS shot as an immutable attempt so a re-shoot never
+    // erases the prior verdict. The FixtureCapture row above is the CURRENT
+    // pointer (latest); the attempt rows are the full reshoot history.
+    await this.prisma.fixtureCaptureAttempt.create({
+      data: {
+        orgId: user.orgId,
+        captureId: capture.id,
+        storageKey,
+        verdict,
+        aiNotes: scored.notes,
+        confidence: scored.confidence,
+        modelId: scored.modelId,
+        capturedById: user.id,
+      },
+    });
+
+    const detail = await this.loadCaptureDetail(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+    return this.presentComplianceDetail(placement, detail, notes, reference);
+  }
+
+  /**
+   * REVIEWER/ADMIN: re-request a photo for a fixture ("redo this"). Raises
+   * needsPhoto and stamps requestedById/At. Idempotent — re-requesting just
+   * re-stamps. 404 if the fixture isn't placed for this store + campaign.
+   */
+  async requestCapturePhoto(
+    user: SessionUser,
+    fixtureId: string,
+    storeId?: string,
+  ): Promise<FixtureComplianceDetail> {
+    const { store, campaign } = await this.resolveContext(user, storeId);
+    const placement = await this.requirePlacement(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+
+    // Upsert so a reviewer can request a photo for a fixture that has no capture
+    // row yet (the manager has never shot it) — the request is the prompt to shoot.
+    await this.prisma.fixtureCapture.upsert({
+      where: {
+        storeId_campaignId_fixtureId: {
+          storeId: store.id,
+          campaignId: campaign.id,
+          fixtureId,
+        },
+      },
+      create: {
+        orgId: user.orgId,
+        storeId: store.id,
+        campaignId: campaign.id,
+        fixtureId,
+        needsPhoto: true,
+        requestedById: user.id,
+        requestedAt: new Date(),
+      },
+      update: {
+        needsPhoto: true,
+        requestedById: user.id,
+        requestedAt: new Date(),
+      },
+    });
+
+    const { notes, reference } = await this.guideFor(
+      user.orgId,
+      campaign.id,
+      fixtureId,
+    );
+    const detail = await this.loadCaptureDetail(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+    return this.presentComplianceDetail(placement, detail, notes, reference);
+  }
+
+  /**
+   * REVIEWER/ADMIN: override the AI verdict for a fixture's capture with a human
+   * decision. The EFFECTIVE verdict (overrideVerdict ?? verdict) is what
+   * compliance / money-map / the UI display. Stamps reviewedById/At + the
+   * optional note. 404 if the fixture isn't placed, or has no capture to judge.
+   */
+  async overrideCapture(
+    user: SessionUser,
+    fixtureId: string,
+    input: { verdict: CaptureVerdictDto; note?: string },
+    storeId?: string,
+  ): Promise<FixtureComplianceDetail> {
+    const { store, campaign } = await this.resolveContext(user, storeId);
+    const placement = await this.requirePlacement(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+
+    const existing = await this.prisma.fixtureCapture.findUnique({
+      where: {
+        storeId_campaignId_fixtureId: {
+          storeId: store.id,
+          campaignId: campaign.id,
+          fixtureId,
+        },
+      },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('no capture to override for this fixture');
+    }
+
+    await this.prisma.fixtureCapture.update({
+      where: { id: existing.id },
+      data: {
+        overrideVerdict: fromCaptureVerdict(input.verdict),
+        overrideNote: input.note ?? null,
+        reviewedById: user.id,
+        reviewedAt: new Date(),
+      },
+    });
+
+    const { notes, reference } = await this.guideFor(
+      user.orgId,
+      campaign.id,
+      fixtureId,
+    );
+    const detail = await this.loadCaptureDetail(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+    return this.presentComplianceDetail(placement, detail, notes, reference);
+  }
+
+  /**
+   * The CURRENT capture for (store, campaign, fixture) with the reviewer actors
+   * and the full attempt history (newest first). Null when no row exists yet.
+   */
+  private async loadCaptureDetail(
+    orgId: string,
+    storeId: string,
+    campaignId: string,
+    fixtureId: string,
+  ): Promise<CaptureWithHistory | null> {
+    void orgId;
+    return this.prisma.fixtureCapture.findUnique({
+      where: {
+        storeId_campaignId_fixtureId: { storeId, campaignId, fixtureId },
+      },
+      include: {
+        requestedBy: { select: { name: true, email: true } },
+        reviewedBy: { select: { name: true, email: true } },
+        attempts: {
+          orderBy: { capturedAt: 'desc' },
+          include: {
+            capturedBy: { select: { name: true, email: true } },
+          },
+        },
+      },
+    });
   }
 
   /**
@@ -860,10 +1203,14 @@ export class ManagerService {
       label: string;
       fixture: { name: string; kind: string; department: string | null };
     },
-    capture: FixtureCapture | null,
+    capture: CaptureWithHistory | null,
     notes: string,
     reference: { storageKey: string; caption: string | null } | null,
   ): FixtureComplianceDetail {
+    const aiVerdict = capture?.verdict ? toCaptureVerdict(capture.verdict) : null;
+    const overrideVerdict = capture?.overrideVerdict
+      ? toCaptureVerdict(capture.overrideVerdict)
+      : null;
     return {
       fixtureId: placement.fixtureId,
       label: placement.label || placement.fixture.name,
@@ -876,10 +1223,36 @@ export class ManagerService {
         ? this.storage.signedGetUrl(capture.storageKey)
         : null,
       state: captureState(capture),
-      overall: capture?.verdict ? toCaptureVerdict(capture.verdict) : null,
+      overall: aiVerdict,
       aiNotes: capture?.aiNotes ?? null,
       confidence: capture?.confidence ?? null,
       scoredAt: capture?.scoredAt ? capture.scoredAt.toISOString() : null,
+      needsPhoto: capture?.needsPhoto ?? true,
+      // The human override (if any) and the EFFECTIVE verdict the UI/money-map
+      // should trust: override beats the AI verdict.
+      overrideVerdict,
+      overrideNote: capture?.overrideNote ?? null,
+      reviewedByName: actorName(capture?.reviewedBy),
+      reviewedAt: capture?.reviewedAt ? capture.reviewedAt.toISOString() : null,
+      requestedByName: actorName(capture?.requestedBy),
+      requestedAt: capture?.requestedAt ? capture.requestedAt.toISOString() : null,
+      effectiveVerdict: overrideVerdict ?? aiVerdict,
+      attempts: (capture?.attempts ?? []).map((a) =>
+        this.presentAttempt(a),
+      ),
+    };
+  }
+
+  /** Shape one history attempt → CaptureAttempt (signed thumb + actor name). */
+  private presentAttempt(a: AttemptWithActor): CaptureAttempt {
+    return {
+      id: a.id,
+      photoUrl: a.storageKey ? this.storage.signedGetUrl(a.storageKey) : null,
+      verdict: a.verdict ? toCaptureVerdict(a.verdict) : null,
+      aiNotes: a.aiNotes ?? null,
+      confidence: a.confidence ?? null,
+      capturedAt: a.capturedAt.toISOString(),
+      capturedByName: actorName(a.capturedBy),
     };
   }
 }
@@ -902,8 +1275,20 @@ function toDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * A Task row optionally enriched with the requesting user's read receipt and the
+ * completed-by / assigned-to actors. `reads` is pre-filtered to the one user, so
+ * a non-empty array means "seen by them". A bare Task (e.g. just created) maps to
+ * `seen: false` with no actor names — the honest default.
+ */
+type TaskWithRelations = Task & {
+  reads?: { id: string }[];
+  completedBy?: { name: string | null; email: string } | null;
+  assignedTo?: { name: string | null; email: string } | null;
+};
+
 /** Map a Task row to the shared TaskDto, dates → ISO strings, null preserved. */
-export function toTaskDto(t: Task): TaskDto {
+export function toTaskDto(t: TaskWithRelations): TaskDto {
   return {
     id: t.id,
     kind: (TASK_KINDS as readonly string[]).includes(t.kind)
@@ -916,8 +1301,14 @@ export function toTaskDto(t: Task): TaskDto {
     body: t.body,
     fixtureKey: t.fixtureKey,
     dueAt: t.dueAt ? t.dueAt.toISOString() : null,
-    seenAt: t.seenAt ? t.seenAt.toISOString() : null,
+    seen: (t.reads?.length ?? 0) > 0,
     completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+    completedByName: t.completedBy
+      ? (t.completedBy.name ?? t.completedBy.email)
+      : null,
+    assignedToName: t.assignedTo
+      ? (t.assignedTo.name ?? t.assignedTo.email)
+      : null,
     createdAt: t.createdAt.toISOString(),
   };
 }
@@ -961,6 +1352,14 @@ function captureState(capture: FixtureCapture | null | undefined): ComplianceSta
   if (capture?.scoredAt) return 'scored';
   if (capture?.storageKey) return 'submitted';
   return 'todo';
+}
+
+/** Display name for an actor projection (name → email → null). */
+function actorName(
+  actor: { name: string | null; email: string } | null | undefined,
+): string | null {
+  if (!actor) return null;
+  return actor.name ?? actor.email;
 }
 
 // The DB enum (UPPERCASE) and the @wally/types CaptureVerdict union are the same

@@ -10,10 +10,14 @@
 // =============================================================================
 
 import * as React from 'react';
-import { Navigate, type RouteObject } from 'react-router-dom';
+import { Navigate, Outlet, type RouteObject } from 'react-router-dom';
 
 import { RequireRole } from '../components/RequireRole';
 import { StudioShell } from './components/StudioShell';
+import { useSetStudioTopBar } from './components/StudioContext';
+import { ConsolePage } from '../console/ConsolePage';
+import { StoreDetailPage } from '../console/StoreDetailPage';
+import { FixtureReviewPage } from '../console/FixtureReviewPage';
 import { HomeView } from './views/HomeView';
 import { FloorPlanView } from './views/FloorPlanView';
 import { FixturesView } from './views/FixturesView';
@@ -28,6 +32,7 @@ import { CampaignsView } from './views/CampaignsView';
 import { StoreDirectoryView } from './views/StoreDirectoryView';
 import { UsersView } from './views/UsersView';
 import { RubricsView } from './views/RubricsView';
+import { FlyersView } from './views/FlyersView';
 import { ProjectsView } from './views/ProjectsView';
 import { BulletinsView } from './views/BulletinsView';
 import { ResourcesView } from './views/ResourcesView';
@@ -48,6 +53,19 @@ export const studioRoutes: RouteObject = {
     { path: 'fixtures', element: <FixturesView /> },
     { path: 'products', element: <ProductsView /> },
     { path: 'gallery', element: <GalleryView /> },
+    // Reviewer surface — the queue → store → fixture review flow. Lives INSIDE
+    // the studio shell (sidebar + top bar) so reviewers never jump chrome; the
+    // pages themselves are in ../console. ReviewSection supplies the studio's
+    // standard page padding and a contextual top-bar title.
+    {
+      path: 'review',
+      element: <ReviewSection />,
+      children: [
+        { index: true, element: <ConsolePage /> },
+        { path: 'store/:id', element: <StoreDetailPage /> },
+        { path: 'fixture/:fixtureId', element: <FixtureReviewPage /> },
+      ],
+    },
     { path: 'bulletins', element: <BulletinsView /> },
     { path: 'resources', element: <ResourcesView /> },
     { path: 'money-map', element: <MoneyMapView /> },
@@ -91,8 +109,31 @@ export const studioRoutes: RouteObject = {
         </RequireRole>
       ),
     },
+    {
+      path: 'flyers',
+      element: (
+        <RequireRole roles={['ADMIN']}>
+          <FlyersView />
+        </RequireRole>
+      ),
+    },
     { path: ':campaignId/store/:storeId', element: <FloorPlanView /> },
     // Unknown studio sub-path → back to the studio home.
     { path: '*', element: <Navigate to="/studio" replace /> },
   ],
 };
+
+/**
+ * Layout wrapper for the reviewer flow. StudioShell's <main> is unpadded (each
+ * view owns its container), so this supplies the studio's standard page gutters
+ * for the console pages and publishes a contextual top-bar title for the whole
+ * section. Set once here — the child pages keep their own in-page headers.
+ */
+function ReviewSection() {
+  useSetStudioTopBar({ guideName: 'Review', eyebrow: 'Reviewer', stores: [] });
+  return (
+    <div className="mx-auto max-w-6xl px-6 py-8">
+      <Outlet />
+    </div>
+  );
+}

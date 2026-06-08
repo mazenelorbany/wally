@@ -31,7 +31,7 @@ export function ChaseList({ stores }: { stores: StoreScore[] }) {
           {chase.map(({ store, missing }) => (
             <li key={store.storeId}>
               <Link
-                to={`/console/store/${encodeURIComponent(store.storeId)}`}
+                to={`/studio/review/store/${encodeURIComponent(store.storeId)}`}
                 className="tap block rounded-md px-2 py-1.5 hover:bg-paper"
               >
                 <div className="flex items-baseline justify-between gap-2">

@@ -1,16 +1,47 @@
 import * as React from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Map, Plus, Trash2, X } from 'lucide-react';
-import { Badge, Button, Dialog, DialogContent, Spinner } from '@wally/ui';
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Copy,
+  EyeOff,
+  Map,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react';
+import {
+  Badge,
+  Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Spinner,
+} from '@wally/ui';
+import type { PlacedFixture } from '@wally/types';
 
 import { EmptyState, ErrorState } from '../../components/states';
-import { useFixtures, useFloorPlan, usePlacementMove } from '../lib/hooks';
+import {
+  useCopyLayout,
+  useFixtures,
+  useFloorPlan,
+  usePlacementMove,
+  usePlacementPatch,
+  usePublishCampaign,
+} from '../lib/hooks';
 import { useSetStudioTopBar } from '../components/StudioContext';
 import { useProject } from '../ProjectContext';
 import { sqk } from '../lib/queryKeys';
 import { studio } from '../lib/sdk';
 import { api } from '../../lib/api';
+import { errorMessage } from '../../lib/api';
 import { useToast } from '../../lib/toast';
 import { fixtureKindMeta } from '../lib/fixtureKind';
 import { FloorPlanCanvas, PLAN_W, PLAN_H } from '../components/FloorPlanCanvas';
@@ -35,9 +66,13 @@ export function FloorPlanView() {
   const move = usePlacementMove(campaignId, storeId);
   const plan = planQ.data;
 
+  // The project this floor plan belongs to — scopes the fixture palette so you
+  // can only place this project's (or shared) fixtures, never another entity's.
+  const { projectId } = useProject();
+
   // Layout builder: add/remove fixtures on the canvas.
   const [building, setBuilding] = React.useState(false);
-  const fixturesQ = useFixtures();
+  const fixturesQ = useFixtures(projectId);
   const invalidatePlan = () => {
     if (campaignId && storeId) {
       void qc.invalidateQueries({ queryKey: sqk.floorplan(campaignId, storeId) });
@@ -51,7 +86,11 @@ export function FloorPlanView() {
   // Create a brand-new library fixture and drop it straight onto this plan.
   const createAndPlace = useMutation({
     mutationFn: async (input: { name: string; kind: import('@wally/types').FixtureKind }) => {
-      const fixture = await studio.fixtures.create(input);
+      // Own the new fixture to this plan's project so it stays scoped here.
+      const fixture = await studio.fixtures.create({
+        ...input,
+        projectId: projectId ?? null,
+      });
       await studio.placements.create(campaignId!, storeId!, { fixtureId: fixture.id });
     },
     onSuccess: () => {
@@ -63,10 +102,16 @@ export function FloorPlanView() {
     mutationFn: (id: string) => studio.placements.remove(id),
     onSuccess: invalidatePlan,
   });
+  // Per-placement edits: applicable toggle, inline rename, checklist reorder.
+  const patchPlacement = usePlacementPatch(campaignId, storeId);
+  // Copy another store's whole layout onto this one.
+  const copyLayout = useCopyLayout(campaignId, storeId);
+  const [copyOpen, setCopyOpen] = React.useState(false);
+  // Publish & notify.
+  const publish = usePublishCampaign(campaignId);
 
   // Every venue in this project — populates the top-bar store switcher so you
   // can jump between venues' floor plans.
-  const { projectId } = useProject();
   const storesQ = useQuery({
     queryKey: ['studio', 'project-venues', projectId],
     queryFn: () => api.projects.venues(projectId!),
@@ -90,13 +135,19 @@ export function FloorPlanView() {
       storeName: s.storeName,
     })),
     storeId,
+    publishing: publish.isPending,
     onStoreChange: (id) => {
       if (id && id !== storeId) navigate(`/studio/${campaignId}/store/${id}`);
     },
     onPublish: () => {
-      // Publish/notify pipeline is a separate build; until then give honest,
-      // app-native feedback instead of a browser alert.
-      toast.info('Publish & notify stores — coming soon.');
+      if (!campaignId || publish.isPending) return;
+      publish.mutate(undefined, {
+        onSuccess: ({ notified }) =>
+          toast.success(
+            `Published — ${notified} store${notified === 1 ? '' : 's'} notified.`,
+          ),
+        onError: (err) => toast.error(errorMessage(err)),
+      });
     },
   });
 
@@ -119,6 +170,34 @@ export function FloorPlanView() {
     move.mutate({
       id,
       geometry: { x: nx, y: ny, w: p.w, h: p.h, rotation: p.rotation },
+    });
+  };
+
+  const onResize = (
+    id: string,
+    box: { x: number; y: number; w: number; h: number },
+  ) => {
+    const p = plan?.placements.find((pp) => pp.id === id);
+    if (!p) return;
+    // Keep the resized box on the canvas — cap size to the plane, then clamp
+    // its origin so it stays fully inside.
+    const w = Math.round(Math.min(box.w, PLAN_W));
+    const h = Math.round(Math.min(box.h, PLAN_H));
+    const nx = Math.round(Math.max(0, Math.min(box.x, PLAN_W - w)));
+    const ny = Math.round(Math.max(0, Math.min(box.y, PLAN_H - h)));
+    // Same no-overlap rule as moves: a resize that lands on a neighbour snaps
+    // back to the prior size.
+    const proposed = { x: nx, y: ny, w, h };
+    const collides = (plan?.placements ?? []).some(
+      (o) => o.id !== id && rectsOverlap(proposed, o),
+    );
+    if (collides) {
+      toast.info(`${p.label} can’t overlap another fixture — kept its size.`);
+      return;
+    }
+    move.mutate({
+      id,
+      geometry: { x: nx, y: ny, w, h, rotation: p.rotation },
     });
   };
 
@@ -177,6 +256,16 @@ export function FloorPlanView() {
             <Badge variant="muted" className="uppercase tracking-brand">
               {plan.campaignKey}
             </Badge>
+            {building ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setCopyOpen(true)}
+              >
+                <Copy className="h-4 w-4" />
+                Copy layout
+              </Button>
+            ) : null}
             <Button
               size="sm"
               variant={building ? undefined : 'outline'}
@@ -208,32 +297,45 @@ export function FloorPlanView() {
               <FloorPlanCanvas
                 placements={plan.placements}
                 selectedId={selectedId}
+                editable={building}
                 onSelect={setSelectedId}
                 onMove={onMove}
+                onResize={onResize}
                 onClearSelection={() => setSelectedId(undefined)}
               />
             </div>
-            <div className="mt-3 flex shrink-0 items-center justify-between gap-3">
-              <p className="text-xs text-steel">
-                {building
-                  ? 'Add fixtures from the palette · drag to position · select one to remove.'
-                  : 'Drag a fixture to reposition it · click to open its instruction sheet.'}
-              </p>
+            <div className="mt-3 shrink-0">
               {building && selected ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-signal"
-                  onClick={() => {
+                <PlacementControls
+                  key={selected.id}
+                  placement={selected}
+                  placements={plan.placements}
+                  busy={patchPlacement.isPending}
+                  onRename={(label) =>
+                    patchPlacement.mutate({ id: selected.id, label })
+                  }
+                  onToggleApplicable={() =>
+                    patchPlacement.mutate({
+                      id: selected.id,
+                      applicable: !selected.applicable,
+                    })
+                  }
+                  onReorder={(order) =>
+                    patchPlacement.mutate({ id: selected.id, order })
+                  }
+                  onRemove={() => {
                     removePlacement.mutate(selected.id);
                     setSelectedId(undefined);
                   }}
-                  loading={removePlacement.isPending}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Remove {selected.label}
-                </Button>
-              ) : null}
+                  removing={removePlacement.isPending}
+                />
+              ) : (
+                <p className="text-xs text-steel">
+                  {building
+                    ? 'Add fixtures from the palette · drag to position · drag a selected box’s corners to resize · select one to rename, mark n/a, reorder, or remove.'
+                    : 'Drag a fixture to reposition it · click to open its instruction sheet.'}
+                </p>
+              )}
             </div>
           </>
         ) : (
@@ -266,7 +368,256 @@ export function FloorPlanView() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      {/* Copy another store's whole layout onto this one. */}
+      <CopyLayoutDialog
+        open={copyOpen}
+        targetStoreId={storeId}
+        otherStores={(storesQ.data ?? []).filter((s) => s.storeId !== storeId)}
+        busy={copyLayout.isPending}
+        error={copyLayout.error}
+        onCancel={() => {
+          copyLayout.reset();
+          setCopyOpen(false);
+        }}
+        onConfirm={(fromStoreId) =>
+          copyLayout.mutate(fromStoreId, {
+            onSuccess: (plan) => {
+              setCopyOpen(false);
+              copyLayout.reset();
+              const n = plan.placements.length;
+              toast.success(
+                `Copied ${n} fixture${n === 1 ? '' : 's'} onto ${plan.storeName}.`,
+              );
+            },
+          })
+        }
+      />
     </>
+  );
+}
+
+/**
+ * The selected-placement edit bar (layout editor). Inline rename, a colour-blind-
+ * safe applicable toggle (icon + label, never hue alone), checklist reorder
+ * up/down, and remove. `order` is the placement's index in applicable order; we
+ * compute the neighbour swap from the canvas order.
+ */
+function PlacementControls({
+  placement,
+  placements,
+  busy,
+  onRename,
+  onToggleApplicable,
+  onReorder,
+  onRemove,
+  removing,
+}: {
+  placement: PlacedFixture;
+  placements: PlacedFixture[];
+  busy: boolean;
+  onRename: (label: string) => void;
+  onToggleApplicable: () => void;
+  onReorder: (order: number) => void;
+  onRemove: () => void;
+  removing: boolean;
+}) {
+  const [editingName, setEditingName] = React.useState(false);
+  const [draft, setDraft] = React.useState(placement.label);
+  React.useEffect(() => setDraft(placement.label), [placement.label]);
+
+  // Ordered list (stable) → this placement's neighbours, for move up/down.
+  const ordered = [...placements];
+  const idx = ordered.findIndex((p) => p.id === placement.id);
+  const prev = idx > 0 ? ordered[idx - 1] : undefined;
+  const next = idx < ordered.length - 1 ? ordered[idx + 1] : undefined;
+
+  const commitRename = () => {
+    const name = draft.trim();
+    setEditingName(false);
+    if (name && name !== placement.label) onRename(name);
+    else setDraft(placement.label);
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-mist/70 bg-surface/40 px-3 py-2">
+      {editingName ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitRename}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitRename();
+            if (e.key === 'Escape') {
+              setDraft(placement.label);
+              setEditingName(false);
+            }
+          }}
+          maxLength={120}
+          aria-label="Fixture label"
+          className="min-w-0 flex-1 rounded-md border border-mist bg-paper px-2.5 py-1 text-sm font-medium text-ink focus:border-steel focus:outline-none"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditingName(true)}
+          className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-sm font-semibold text-ink hover:text-graphite"
+          title="Rename this fixture"
+        >
+          <span className="truncate">{placement.label}</span>
+          <Pencil className="h-3.5 w-3.5 shrink-0 text-steel" aria-hidden="true" />
+        </button>
+      )}
+
+      <div className="ml-auto flex items-center gap-1.5">
+        {/* Reorder up/down — moves the fixture in the manager checklist order. */}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy || !prev}
+          onClick={() => prev && onReorder(idx - 1)}
+          aria-label="Move up in checklist"
+          title="Move up in the manager checklist"
+        >
+          <ArrowUp className="h-4 w-4" />
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy || !next}
+          onClick={() => next && onReorder(idx + 1)}
+          aria-label="Move down in checklist"
+          title="Move down in the manager checklist"
+        >
+          <ArrowDown className="h-4 w-4" />
+        </Button>
+
+        {/* Applicable toggle — colour-blind-safe: distinct icon + explicit label. */}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={onToggleApplicable}
+          loading={busy}
+        >
+          {placement.applicable ? (
+            <>
+              <EyeOff className="h-4 w-4" />
+              Mark not applicable
+            </>
+          ) : (
+            <>
+              <Check className="h-4 w-4" />
+              Mark applicable
+            </>
+          )}
+        </Button>
+
+        <Button
+          size="sm"
+          variant="outline"
+          className="text-signal"
+          onClick={onRemove}
+          loading={removing}
+        >
+          <Trash2 className="h-4 w-4" />
+          Remove
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Pick another store and copy its whole floor-plan layout onto this one. */
+function CopyLayoutDialog({
+  open,
+  targetStoreId,
+  otherStores,
+  busy,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  targetStoreId: string | undefined;
+  otherStores: { storeId: string; storeName: string }[];
+  busy: boolean;
+  error: unknown;
+  onCancel: () => void;
+  onConfirm: (fromStoreId: string) => void;
+}) {
+  const [from, setFrom] = React.useState('');
+  React.useEffect(() => {
+    if (open) setFrom('');
+  }, [open]);
+
+  void targetStoreId;
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o && !busy) onCancel();
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Copy layout from another store</DialogTitle>
+          <DialogDescription>
+            Copies every placed fixture (position, size, label) from the chosen
+            store onto this one. Fixtures already here are overwritten in place,
+            not duplicated.
+          </DialogDescription>
+        </DialogHeader>
+
+        {otherStores.length === 0 ? (
+          <p className="rounded-md border border-dashed border-mist/70 px-3 py-3 text-sm text-steel">
+            No other store in this project to copy from yet.
+          </p>
+        ) : (
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-graphite">
+              Copy from
+            </span>
+            <select
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="w-full rounded-md border border-mist/70 bg-paper px-3 py-2 text-sm text-ink focus:border-graphite focus:outline-none"
+            >
+              <option value="" disabled>
+                Choose a store…
+              </option>
+              {otherStores.map((s) => (
+                <option key={s.storeId} value={s.storeId}>
+                  {s.storeName}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {error ? (
+          <p className="text-sm text-fail">{errorMessage(error)}</p>
+        ) : null}
+
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="ghost" type="button" disabled={busy}>
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button
+            onClick={() => from && onConfirm(from)}
+            disabled={!from || busy}
+            loading={busy}
+          >
+            <Copy className="h-4 w-4" />
+            Copy layout
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -311,9 +662,14 @@ function FixturePalette({
   const [newName, setNewName] = React.useState('');
   const [newKind, setNewKind] = React.useState<import('@wally/types').FixtureKind>('bay');
   const term = q.trim().toLowerCase();
-  const list = fixtures.filter(
-    (f) => !term || f.name.toLowerCase().includes(term) || f.kind.includes(term),
+  // The palette is for *adding*, so only show fixtures not yet on the plan —
+  // placed ones are already visible on the canvas below and just add noise.
+  const available = fixtures.filter(
+    (f) =>
+      !placedFixtureIds.has(f.id) &&
+      (!term || f.name.toLowerCase().includes(term) || f.kind.includes(term)),
   );
+  const placedCount = fixtures.length - fixtures.filter((f) => !placedFixtureIds.has(f.id)).length;
 
   const submitNew = () => {
     const name = newName.trim();
@@ -326,7 +682,10 @@ function FixturePalette({
     <div className="mb-4 rounded-lg border border-mist/70 bg-surface/40 p-3">
       <div className="mb-2.5 flex items-center justify-between gap-3">
         <p className="text-[11px] font-medium uppercase tracking-brand text-steel">
-          Add fixtures · {list.length}
+          Add fixtures · {available.length} available
+          {placedCount > 0 ? (
+            <span className="text-mist"> · {placedCount} placed</span>
+          ) : null}
         </p>
         <div className="relative">
           <input
@@ -376,33 +735,30 @@ function FixturePalette({
         </Button>
       </div>
       <div className="flex flex-wrap gap-2">
-        {list.map((f) => {
+        {available.map((f) => {
           const meta = fixtureKindMeta(f.kind);
           const Icon = meta.icon;
-          const placed = placedFixtureIds.has(f.id);
           return (
             <button
               key={f.id}
               type="button"
-              disabled={placed || adding}
+              disabled={adding}
               onClick={() => onAdd(f.id)}
-              title={placed ? 'Already on the plan' : `Add ${f.name}`}
+              title={`Add ${f.name}`}
               className="inline-flex items-center gap-1.5 rounded-md border border-mist bg-paper px-2.5 py-1.5 text-xs font-medium text-graphite transition-colors hover:border-steel hover:text-ink disabled:opacity-40"
             >
               <Icon className="h-3.5 w-3.5 text-steel" />
               {f.name}
-              {placed ? (
-                <span className="text-[10px] uppercase tracking-brand text-pass">
-                  ✓
-                </span>
-              ) : (
-                <Plus className="h-3 w-3 text-steel" />
-              )}
+              <Plus className="h-3 w-3 text-steel" />
             </button>
           );
         })}
-        {list.length === 0 ? (
-          <p className="py-2 text-xs text-steel">No fixtures match.</p>
+        {available.length === 0 ? (
+          <p className="py-2 text-xs text-steel">
+            {term
+              ? 'No available fixtures match — try the library search or create a new one.'
+              : 'Every fixture is on the plan. Create a new one above to add more.'}
+          </p>
         ) : null}
       </div>
     </div>

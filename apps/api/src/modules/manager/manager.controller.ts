@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -17,6 +18,7 @@ import type {
   FixtureComplianceDetail,
   ManagerFixture,
   ManagerHome,
+  ManagerPreferences,
   ProductDto,
   SalesLog,
   SessionUser,
@@ -25,16 +27,21 @@ import type {
 
 import { CurrentUser } from '../auth/current-user.decorator';
 import { NoViewerGuard } from '../auth/no-viewer.guard';
+import { Roles } from '../auth/roles.decorator';
 import { SessionGuard } from '../auth/session.guard';
 import { ZodValidationPipe } from '../org/zod-validation.pipe';
 
 import {
   LogSaleSchema,
+  OverrideCaptureSchema,
   SalesQuerySchema,
   StoreScopeSchema,
+  UpdatePreferencesSchema,
   type LogSaleInput,
+  type OverrideCaptureInput,
   type SalesQueryInput,
   type StoreScopeInput,
+  type UpdatePreferencesInput,
 } from './manager.dto';
 import { ManagerService } from './manager.service';
 
@@ -97,6 +104,39 @@ export class ManagerController {
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<void> {
     return this.manager.completeTask(user, id, q.storeId);
+  }
+
+  /** Reopen a completed task (DONE → OPEN) — recover a mis-tapped completion. */
+  @Post('tasks/:id/reopen')
+  @UseGuards(NoViewerGuard)
+  @HttpCode(204)
+  reopenTask(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
+  ): Promise<void> {
+    return this.manager.reopenTask(user, id, q.storeId);
+  }
+
+  // ----- preferences --------------------------------------------------------
+
+  /** The signed-in user's notification preferences. */
+  @Get('preferences')
+  getPreferences(
+    @CurrentUser() user: SessionUser,
+  ): Promise<ManagerPreferences> {
+    return this.manager.getPreferences(user);
+  }
+
+  /** Patch the signed-in user's notification preferences. */
+  @Patch('preferences')
+  @UseGuards(NoViewerGuard)
+  updatePreferences(
+    @CurrentUser() user: SessionUser,
+    @Body(new ZodValidationPipe(UpdatePreferencesSchema))
+    body: UpdatePreferencesInput,
+  ): Promise<ManagerPreferences> {
+    return this.manager.updatePreferences(user, body);
   }
 
   @Get('fixtures')
@@ -180,5 +220,34 @@ export class ManagerController {
       },
       q.storeId,
     );
+  }
+
+  /**
+   * REVIEWER/ADMIN: re-request a photo for a fixture ("redo this") — raises
+   * needsPhoto and stamps the requester. Returns the updated compliance sheet.
+   */
+  @Post('fixtures/:fixtureId/request-photo')
+  @Roles('REVIEWER', 'ADMIN')
+  requestCapturePhoto(
+    @CurrentUser() user: SessionUser,
+    @Param('fixtureId') fixtureId: string,
+    @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
+  ): Promise<FixtureComplianceDetail> {
+    return this.manager.requestCapturePhoto(user, fixtureId, q.storeId);
+  }
+
+  /**
+   * REVIEWER/ADMIN: override a fixture-capture's AI verdict with a human
+   * decision (the EFFECTIVE verdict compliance/money-map/UI show). Optional note.
+   */
+  @Post('fixtures/:fixtureId/override')
+  @Roles('REVIEWER', 'ADMIN')
+  overrideCapture(
+    @CurrentUser() user: SessionUser,
+    @Param('fixtureId') fixtureId: string,
+    @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
+    @Body(new ZodValidationPipe(OverrideCaptureSchema)) body: OverrideCaptureInput,
+  ): Promise<FixtureComplianceDetail> {
+    return this.manager.overrideCapture(user, fixtureId, body, q.storeId);
   }
 }

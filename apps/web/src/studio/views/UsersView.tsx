@@ -116,7 +116,25 @@ function UserRow({
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
-  const busy = update.isPending;
+  const remove = useMutation({
+    mutationFn: () => api.adminUsers.remove(u.id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['studio', 'admin-users'] });
+      toast.success('User removed');
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const busy = update.isPending || remove.isPending;
+
+  const confirmRemove = () => {
+    if (
+      window.confirm(
+        `Remove ${u.name || u.email}? This permanently deletes their account.`,
+      )
+    ) {
+      remove.mutate();
+    }
+  };
 
   return (
     <li
@@ -182,6 +200,17 @@ function UserRow({
         className={u.disabled ? '' : 'text-fail'}
       >
         {u.disabled ? 'Reactivate' : 'Deactivate'}
+      </Button>
+
+      {/* Permanent delete — confirmed; blocked for self (also enforced server-side) */}
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={busy || isSelf}
+        onClick={confirmRemove}
+        className="text-fail"
+      >
+        Remove
       </Button>
     </li>
   );

@@ -150,7 +150,7 @@ export function DashboardView() {
               return (
                 <Link
                   key={s.storeId}
-                  to={`/console/store/${encodeURIComponent(s.storeId)}`}
+                  to={`/studio/review/store/${encodeURIComponent(s.storeId)}`}
                   className="flex items-center gap-3 px-4 py-3 hover:bg-surface/50"
                 >
                   <Icon className={`h-4 w-4 shrink-0 ${meta.cls}`} />

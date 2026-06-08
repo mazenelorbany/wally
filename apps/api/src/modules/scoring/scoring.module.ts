@@ -1,6 +1,7 @@
 import { Module, type Provider } from '@nestjs/common';
 
 import { AnthropicVisionProvider } from './anthropic.provider';
+import { OllamaVisionProvider } from './ollama.provider';
 import { ScoringService } from './scoring.service';
 import { VISION_PROVIDER, type VisionProvider } from './vision';
 
@@ -25,6 +26,9 @@ const visionProvider: Provider = {
     switch (choice) {
       case 'anthropic':
         return new AnthropicVisionProvider();
+      case 'ollama':
+        // Local/offline vision — no cloud key, image bytes never leave the box.
+        return new OllamaVisionProvider();
       default:
         // env.ts already constrains the enum, but fail loudly if it ever drifts
         // — a missing provider must never silently degrade scoring.

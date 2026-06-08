@@ -51,3 +51,23 @@ export const ReorderPlanogramSchema = z
   );
 
 export type ReorderPlanogramInput = z.infer<typeof ReorderPlanogramSchema>;
+
+// POST /guide-fixtures/:id/example-images — the caption is an optional text field
+// sent alongside the multipart `file`. Empty/whitespace collapses to no caption.
+export const AddExampleImageSchema = z
+  .object({
+    caption: z.string().trim().max(280).optional(),
+  })
+  .strict();
+
+export type AddExampleImageInput = z.infer<typeof AddExampleImageSchema>;
+
+// PATCH /guide-fixtures/:id/example-images/:imageId — edit the caption. An empty
+// string clears it (null in the DB).
+export const UpdateExampleImageSchema = z
+  .object({
+    caption: z.string().trim().max(280),
+  })
+  .strict();
+
+export type UpdateExampleImageInput = z.infer<typeof UpdateExampleImageSchema>;

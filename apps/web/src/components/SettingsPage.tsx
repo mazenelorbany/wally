@@ -22,7 +22,6 @@ export function SettingsPage() {
   const { user } = useSession();
   const logout = useLogout();
   const navigate = useNavigate();
-  const [notify, setNotify] = React.useState(true);
 
   const signOut = async () => {
     await logout.mutateAsync();
@@ -53,29 +52,7 @@ export function SettingsPage() {
       <h2 className="mb-2 mt-6 text-[11px] uppercase tracking-brand text-steel">
         Notifications
       </h2>
-      <Card className="p-4">
-        <label className="flex items-center justify-between gap-4">
-          <span className="flex items-center gap-2.5">
-            <Bell className="h-4 w-4 text-graphite" />
-            <span className="text-sm text-ink">Email me when stores need chasing</span>
-          </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={notify}
-            onClick={() => setNotify((v) => !v)}
-            className={`relative h-6 w-10 rounded-full transition-colors ${
-              notify ? 'bg-ink' : 'bg-mist'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-5 w-5 rounded-full bg-paper transition-transform ${
-                notify ? 'translate-x-[18px]' : 'translate-x-0.5'
-              }`}
-            />
-          </button>
-        </label>
-      </Card>
+      <ChaseEmailToggle />
 
       <Button
         variant="outline"
@@ -169,6 +146,69 @@ function OrgSettings() {
         )}
       </Card>
     </>
+  );
+}
+
+/**
+ * The chase-email opt-out (admin/reviewer). Loads the current value from
+ * `me/preferences` and persists each flip optimistically; the API filters the
+ * daily chase by this flag, so opting out actually mutes the email.
+ */
+function ChaseEmailToggle() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const prefsQ = useQuery({
+    queryKey: ['me', 'preferences'],
+    queryFn: () => api.me.preferences(),
+  });
+
+  const update = useMutation({
+    mutationFn: (chaseEmails: boolean) =>
+      api.me.updatePreferences({ chaseEmails }),
+    onMutate: async (chaseEmails) => {
+      await qc.cancelQueries({ queryKey: ['me', 'preferences'] });
+      const prev = qc.getQueryData(['me', 'preferences']);
+      qc.setQueryData(['me', 'preferences'], { chaseEmails });
+      return { prev };
+    },
+    onError: (e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['me', 'preferences'], ctx.prev);
+      toast.error(errorMessage(e));
+    },
+    onSuccess: (data) => qc.setQueryData(['me', 'preferences'], data),
+  });
+
+  const on = prefsQ.data?.chaseEmails ?? true;
+  const disabled = prefsQ.isLoading || update.isPending;
+
+  return (
+    <Card className="p-4">
+      <label className="flex items-center justify-between gap-4">
+        <span className="flex items-center gap-2.5">
+          <Bell className="h-4 w-4 text-graphite" />
+          <span className="text-sm text-ink">
+            Email me when stores need chasing
+          </span>
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          aria-label="Email me when stores need chasing"
+          disabled={disabled}
+          onClick={() => update.mutate(!on)}
+          className={`relative h-6 w-10 rounded-full transition-colors disabled:opacity-50 ${
+            on ? 'bg-ink' : 'bg-mist'
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-5 w-5 rounded-full bg-paper transition-transform ${
+              on ? 'translate-x-[18px]' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
+      </label>
+    </Card>
   );
 }
 

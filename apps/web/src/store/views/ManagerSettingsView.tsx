@@ -1,8 +1,11 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, LogOut, Mail, Store as StoreIcon, UserRound } from 'lucide-react';
-import { Button, Card } from '@wally/ui';
+import { Button, Card, Spinner } from '@wally/ui';
 
+import { api, errorMessage } from '../../lib/api';
+import { useToast } from '../../lib/toast';
 import { useLogout, useSession } from '../../lib/auth';
 import { useManagerStore } from '../ManagerStoreContext';
 
@@ -12,8 +15,33 @@ export function ManagerSettingsView() {
   const { stores, storeId } = useManagerStore();
   const logout = useLogout();
   const navigate = useNavigate();
+  const qc = useQueryClient();
+  const toast = useToast();
 
-  const [notify, setNotify] = React.useState(true);
+  // The "New task alerts" preference is real now: a User.notifyOnNewTask column
+  // read/written through the manager-preferences endpoint.
+  const prefsQ = useQuery({
+    queryKey: ['manager', 'preferences'],
+    queryFn: () => api.manager.preferences(),
+  });
+  const notify = prefsQ.data?.notifyOnNewTask ?? true;
+
+  const setNotify = useMutation({
+    mutationFn: (value: boolean) =>
+      api.manager.updatePreferences({ notifyOnNewTask: value }),
+    onMutate: async (value) => {
+      // Optimistic flip so the switch responds instantly.
+      await qc.cancelQueries({ queryKey: ['manager', 'preferences'] });
+      const prev = qc.getQueryData(['manager', 'preferences']);
+      qc.setQueryData(['manager', 'preferences'], { notifyOnNewTask: value });
+      return { prev };
+    },
+    onError: (e, _value, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['manager', 'preferences'], ctx.prev);
+      toast.error(errorMessage(e));
+    },
+    onSuccess: (data) => qc.setQueryData(['manager', 'preferences'], data),
+  });
 
   const storeName =
     stores.find((s) => s.id === storeId)?.name ?? user?.storeId ?? '—';
@@ -47,22 +75,33 @@ export function ManagerSettingsView() {
               <Bell className="h-4 w-4 text-graphite" />
               <span className="text-sm text-ink">New task alerts</span>
             </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={notify}
-              onClick={() => setNotify((v) => !v)}
-              className={`relative h-6 w-10 rounded-full transition-colors ${
-                notify ? 'bg-ink' : 'bg-mist'
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-paper transition-transform ${
-                  notify ? 'translate-x-[18px]' : 'translate-x-0.5'
+            {prefsQ.isLoading ? (
+              <Spinner className="text-base text-steel" />
+            ) : (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={notify}
+                aria-label="New task alerts"
+                disabled={setNotify.isPending || prefsQ.isError}
+                onClick={() => setNotify.mutate(!notify)}
+                className={`relative h-6 w-10 rounded-full transition-colors disabled:opacity-60 ${
+                  notify ? 'bg-ink' : 'bg-mist'
                 }`}
-              />
-            </button>
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-paper transition-transform ${
+                    notify ? 'translate-x-[18px]' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            )}
           </label>
+          {prefsQ.isError ? (
+            <p className="mt-2 text-xs text-signal">
+              Couldn't load your notification preference.
+            </p>
+          ) : null}
         </Card>
       </section>
 

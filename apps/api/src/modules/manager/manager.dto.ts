@@ -37,3 +37,24 @@ export const LogSaleSchema = z
   .strict();
 
 export type LogSaleInput = z.infer<typeof LogSaleSchema>;
+
+// PATCH /manager/preferences — the signed-in user's own notification prefs.
+export const UpdatePreferencesSchema = z
+  .object({
+    notifyOnNewTask: z.boolean().optional(),
+  })
+  .strict();
+
+export type UpdatePreferencesInput = z.infer<typeof UpdatePreferencesSchema>;
+
+// POST /manager/fixtures/:fixtureId/override — a REVIEWER/ADMIN's human verdict
+// that supersedes the AI verdict for this fixture's capture (with an optional
+// rationale). The store-scope query is carried separately, as on the other routes.
+export const OverrideCaptureSchema = z
+  .object({
+    verdict: z.enum(['PASS', 'NEEDS_REVIEW', 'FAIL']),
+    note: z.string().trim().max(2000).optional(),
+  })
+  .strict();
+
+export type OverrideCaptureInput = z.infer<typeof OverrideCaptureSchema>;

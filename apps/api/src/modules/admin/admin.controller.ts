@@ -1,13 +1,16 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import type { SessionUser, TaskDto } from '@wally/types';
+import type { AdminTaskDto, SessionUser, TaskDto } from '@wally/types';
 
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
@@ -15,10 +18,14 @@ import { SessionGuard } from '../auth/session.guard';
 import { ZodValidationPipe } from '../org/zod-validation.pipe';
 
 import {
+  BulkCreateTaskSchema,
+  type BulkCreateTaskInput,
   CreateTaskSchema,
   type CreateTaskInput,
   InviteUserSchema,
   type InviteUserInput,
+  UpdateTaskSchema,
+  type UpdateTaskInput,
   UpdateUserSchema,
   type UpdateUserInput,
 } from './admin.dto';
@@ -46,6 +53,48 @@ export class AdminController {
     return this.admin.createTask(user, storeId, body);
   }
 
+  /** Assign one task to many stores at once (the bulk "assign to all"). */
+  @Post('tasks/bulk')
+  @Roles('ADMIN')
+  bulkCreateTasks(
+    @CurrentUser() user: SessionUser,
+    @Body(new ZodValidationPipe(BulkCreateTaskSchema)) body: BulkCreateTaskInput,
+  ): Promise<{ created: number }> {
+    return this.admin.bulkCreateTasks(user, body);
+  }
+
+  /** List the org's tasks (optionally one store) for the Studio task view. */
+  @Get('tasks')
+  @Roles('ADMIN')
+  listTasks(
+    @CurrentUser() user: SessionUser,
+    @Query('storeId') storeId?: string,
+  ): Promise<AdminTaskDto[]> {
+    return this.admin.listTasks(user.orgId, storeId);
+  }
+
+  /** Edit a task: title / body / due date / status. */
+  @Patch('tasks/:id')
+  @Roles('ADMIN')
+  updateTask(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateTaskSchema)) body: UpdateTaskInput,
+  ): Promise<TaskDto> {
+    return this.admin.updateTask(user, id, body);
+  }
+
+  /** Cancel (delete) a mistaken task. */
+  @Delete('tasks/:id')
+  @Roles('ADMIN')
+  @HttpCode(204)
+  deleteTask(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+  ): Promise<void> {
+    return this.admin.deleteTask(user.orgId, id);
+  }
+
   // ----- user & role management (ADMIN) ------------------------------------
 
   @Get('users')
@@ -71,5 +120,16 @@ export class AdminController {
     @Body(new ZodValidationPipe(UpdateUserSchema)) body: UpdateUserInput,
   ) {
     return this.admin.updateUser(user, id, body);
+  }
+
+  /** Hard-delete a user. ADMIN; org-scoped; can't delete self or the last admin. */
+  @Delete('users/:id')
+  @Roles('ADMIN')
+  @HttpCode(204)
+  deleteUser(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+  ): Promise<void> {
+    return this.admin.deleteUser(user, id);
   }
 }

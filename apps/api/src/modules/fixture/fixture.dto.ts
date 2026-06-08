@@ -21,6 +21,9 @@ export const CreateFixtureSchema = z
     name: z.string().min(1).max(120),
     kind: z.enum(FIXTURE_KINDS).default('bay'),
     department: z.enum(DEPARTMENTS).optional(),
+    // The owning project. Omit (or send null) for a shared fixture visible in
+    // every project; an id scopes it to that one project's library.
+    projectId: z.string().min(1).max(64).nullable().optional(),
   })
   .strict();
 
@@ -35,10 +38,12 @@ export const UpdateFixtureSchema = z
     name: z.string().min(1).max(120).optional(),
     kind: z.enum(FIXTURE_KINDS).optional(),
     department: z.enum(DEPARTMENTS).nullable().optional(),
+    // Re-home the fixture: an id moves it to that project, null makes it shared.
+    projectId: z.string().min(1).max(64).nullable().optional(),
   })
   .strict()
   .refine((v) => Object.keys(v).length > 0, {
-    message: 'provide at least one of name, kind, department',
+    message: 'provide at least one of name, kind, department, projectId',
   });
 
 export type UpdateFixtureInput = z.infer<typeof UpdateFixtureSchema>;

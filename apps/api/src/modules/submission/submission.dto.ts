@@ -31,3 +31,31 @@ export type UploadPhotoInput = z.infer<typeof UploadPhotoSchema>;
 export const SetBestInClassSchema = z.object({ value: z.boolean() }).strict();
 
 export type SetBestInClassInput = z.infer<typeof SetBestInClassSchema>;
+
+// OPTIONAL analytics date window for the queue / turnaround surfaces. Both
+// bounds are optional query params (`?from=…&to=…`, ISO dates). When absent the
+// surface is all-time — the unchanged, backward-compatible behaviour. Invalid
+// dates are rejected (a 400) rather than silently dropped.
+const isoDate = z
+  .string()
+  .datetime({ offset: true })
+  .or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected an ISO date'));
+
+export const AnalyticsWindowSchema = z
+  .object({
+    from: isoDate.optional(),
+    to: isoDate.optional(),
+  })
+  .strict();
+
+export type AnalyticsWindowInput = z.infer<typeof AnalyticsWindowSchema>;
+
+/** Parse `{from?, to?}` query strings into a Date window (undefined when both absent). */
+export function toDateWindow(
+  q: AnalyticsWindowInput,
+): { from?: Date; to?: Date } | undefined {
+  const from = q.from ? new Date(q.from) : undefined;
+  const to = q.to ? new Date(q.to) : undefined;
+  if (!from && !to) return undefined;
+  return { from, to };
+}

@@ -9,6 +9,9 @@ import type { StudioStore } from './TopBar';
 export interface StudioTopBarState {
   guideName: string;
   guideKey?: string;
+  /** Small label above the title. Authoring pages leave it as 'Create guide';
+   *  non-authoring surfaces (e.g. the reviewer queue) override it. */
+  eyebrow?: string;
   stores: StudioStore[];
   storeId?: string;
   onStoreChange?: (storeId: string) => void;
@@ -58,6 +61,7 @@ export function useSetStudioTopBar(next: StudioTopBarState): void {
   const signature = JSON.stringify({
     guideName: next.guideName,
     guideKey: next.guideKey,
+    eyebrow: next.eyebrow,
     stores: next.stores,
     storeId: next.storeId,
     publishing: next.publishing,

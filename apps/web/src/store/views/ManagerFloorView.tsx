@@ -2,13 +2,16 @@ import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Camera, CheckCircle2, CircleDashed, Info } from 'lucide-react';
-import { Spinner } from '@wally/ui';
+import { cn, Spinner } from '@wally/ui';
 import type { FixtureCompliance, PlacedFixture } from '@wally/sdk';
 
 import { api } from '../../lib/api';
 import { ErrorState } from '../../components/states';
+import { fixtureKindMeta } from '../../studio/lib/fixtureKind';
 import { useManagerStore } from '../ManagerStoreContext';
 
+// Logical floor-plan plane — same units as the studio canvas (FloorPlanCanvas),
+// so the manager sees the SAME block layout admins lay out, just read-only.
 const PLAN_W = 1000;
 const PLAN_H = 640;
 
@@ -146,54 +149,57 @@ function FloorCanvas({
 
   return (
     <div ref={wrapRef} className="w-full">
+      {/* Same plane + subtle grid as the studio FloorPlanCanvas, so the manager
+          sees the admin's block layout — but read-only (tap to open, no edit). */}
       <div
         className="relative overflow-hidden rounded-xl border border-mist/70 bg-paper shadow-card"
-        style={{ width: `${PLAN_W * scale}px`, height: `${PLAN_H * scale}px` }}
+        style={{
+          width: `${PLAN_W * scale}px`,
+          height: `${PLAN_H * scale}px`,
+          backgroundImage:
+            'linear-gradient(to right, rgba(190,189,182,0.16) 1px, transparent 1px), linear-gradient(to bottom, rgba(190,189,182,0.16) 1px, transparent 1px)',
+          backgroundSize: `${40 * scale}px ${40 * scale}px`,
+        }}
       >
         {placements.map((p) => {
           const st = statusByFixture.get(p.fixtureId);
           const needs = st?.needsPhoto;
           const scored = st?.state === 'scored';
+          const submitted = st?.state === 'submitted';
+          const meta = fixtureKindMeta(p.kind);
+          const Icon = meta.icon;
           return (
             <button
               key={p.id}
               type="button"
               onClick={() => onPick(p)}
-              aria-label={`${p.label}${needs ? ' — needs a photo' : scored ? ' — scored' : ''}`}
-              className="absolute flex flex-col items-center justify-center gap-0.5 overflow-hidden rounded-md border bg-surface/80 text-center transition-shadow hover:shadow-lift"
+              aria-label={`${p.label} — ${meta.label}${
+                needs ? ' — needs a photo' : scored ? ' — scored' : submitted ? ' — awaiting score' : ''
+              }`}
+              className={cn(
+                'group absolute flex flex-col items-center justify-center gap-0.5 overflow-hidden rounded-md border bg-surface text-center outline-none transition-shadow duration-base ease-out hover:shadow-card focus-visible:ring-2 focus-visible:ring-ink',
+                // Needs-photo is the one call to action — flag it with the stop
+                // colour AND an icon (never colour alone; colour-blind safe).
+                needs ? 'border-signal' : 'border-graphite/70',
+              )}
               style={{
                 left: `${p.x * scale}px`,
                 top: `${p.y * scale}px`,
                 width: `${p.w * scale}px`,
                 height: `${p.h * scale}px`,
                 transform: p.rotation ? `rotate(${p.rotation}deg)` : undefined,
-                borderColor: needs ? '#B23A2E' : 'rgba(60,59,54,0.30)',
-                borderWidth: needs ? 2 : 1,
               }}
             >
-              {/* The setter's actual photo, so the map shows the real setup */}
-              {st?.photoUrl ? (
-                <>
-                  <img
-                    src={st.photoUrl}
-                    alt=""
-                    className="absolute inset-0 h-full w-full object-cover"
-                    loading="lazy"
-                  />
-                  <span className="absolute inset-0 bg-ink/35" />
-                </>
-              ) : null}
-              <span
-                className={`relative z-10 px-1 text-[10px] font-semibold leading-tight ${
-                  st?.photoUrl ? 'text-paper' : 'text-ink'
-                }`}
-              >
+              <Icon className="h-4 w-4 shrink-0 text-graphite" aria-hidden="true" />
+              <span className="px-1 font-display text-[11px] font-semibold leading-tight tracking-tight text-ink">
                 {p.label}
               </span>
               {needs ? (
-                <Camera className="relative z-10 h-3.5 w-3.5 text-signal" />
+                <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-signal">
+                  <Camera className="h-3 w-3" /> Needs photo
+                </span>
               ) : scored ? (
-                <span className="relative z-10 inline-flex items-center gap-0.5 rounded-full bg-paper/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase">
+                <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold uppercase tracking-tight text-steel">
                   <CheckCircle2 className="h-3 w-3 text-pass" />
                   {st?.overall === 'FAIL'
                     ? 'Fail'
@@ -201,8 +207,10 @@ function FloorCanvas({
                       ? 'Review'
                       : 'Pass'}
                 </span>
-              ) : st?.state === 'submitted' ? (
-                <CircleDashed className="relative z-10 h-3.5 w-3.5 text-steel" />
+              ) : submitted ? (
+                <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-steel">
+                  <CircleDashed className="h-3 w-3" /> Awaiting
+                </span>
               ) : null}
             </button>
           );

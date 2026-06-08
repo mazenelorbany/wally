@@ -16,6 +16,7 @@ import type {
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { resolveActiveRubric } from '../rubric/rubric.resolve';
 
 import { applyConfidenceFloor, fixtureRollup } from './rollup';
 import { PROMPT_VERSION } from './prompt';
@@ -119,10 +120,13 @@ export class ScoringService {
       data: { status: PhotoStatus.SCORING },
     });
 
-    // ----- resolve the rubric (latest version for campaign + fixtureKey) -----
-    const rubric = await this.prisma.rubric.findFirst({
-      where: { campaignId: campaign.id, fixtureKey: photo.fixtureKey },
-      orderBy: { version: 'desc' },
+    // ----- resolve the rubric (ACTIVE version for campaign + fixtureKey) -----
+    // The active pointer is the live grading standard; we fall back to the
+    // highest version when none is flagged active (legacy/seeded rows), so this
+    // keeps grading without a data migration. See resolveActiveRubric.
+    const rubric = await resolveActiveRubric(this.prisma, {
+      campaignId: campaign.id,
+      fixtureKey: photo.fixtureKey,
     });
     if (!rubric) {
       throw new NotFoundException(

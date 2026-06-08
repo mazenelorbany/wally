@@ -66,12 +66,14 @@ export class BulletinController {
 
   @Patch('bulletins/:id')
   @UseGuards(NoViewerGuard)
+  @UseInterceptors(FileInterceptor('file', ATTACHMENT_UPLOAD))
   update(
     @CurrentUser() user: SessionUser,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(UpdateBulletinSchema)) dto: UpdateBulletinInput,
+    @UploadedFile() file: UploadedAttachment | undefined,
   ) {
-    return this.bulletins.update(user, id, dto);
+    return this.bulletins.update(user, id, dto, file);
   }
 
   @Delete('bulletins/:id')
@@ -108,5 +110,15 @@ export class BulletinManagerController {
     @Query(new ZodValidationPipe(BulletinScopeSchema)) q: BulletinScopeInput,
   ) {
     return this.bulletins.acknowledge(user, id, q.storeId);
+  }
+
+  @Delete('bulletins/:id/ack')
+  @UseGuards(NoViewerGuard)
+  unacknowledge(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(BulletinScopeSchema)) q: BulletinScopeInput,
+  ) {
+    return this.bulletins.unacknowledge(user, id, q.storeId);
   }
 }

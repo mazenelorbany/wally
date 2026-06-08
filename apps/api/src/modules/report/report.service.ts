@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Overall as DbOverall } from '@prisma/client';
+import { CaptureVerdict } from '@prisma/client';
 import type { Overall } from '@wally/types';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { captureVerdictToOverall } from '../scoring/store-compliance';
 
 import type {
   ReportData,
@@ -15,32 +16,32 @@ import type {
 // =============================================================================
 //
 // Pure data assembly; rendering lives in report.render.ts. We pull the store,
-// the campaign, every applicable StoreFixture, the freshest scored photo per
-// fixture and its verdict (overall + flagged criteria with evidence), and we
-// carry the rubric stamps for the footer (reproducibility — CLAUDE.md).
+// the campaign, every applicable Placement (the EXPECTED fixtures on the store's
+// floor plan), the FixtureCapture per fixture (its submitted photo + AI notes +
+// EFFECTIVE verdict), and the campaign's live rubric versions for the footer
+// (reproducibility — CLAUDE.md).
 //
-// No image bytes are loaded here. The PDF renders verdict text + flags, not the
+// MIGRATED to the live FixtureCapture+Placement pipeline (from the legacy
+// Submission/Photo/Verdict pipeline). A store doing its work via the floor-plan
+// loop (FixtureCapture) used to render an EMPTY PDF because this read the orphaned
+// Submission row; it now reads the SAME source the manager floor map writes to:
+//   - EXPECTED fixtures = the store's applicable Placements for the campaign
+//     (Placement.applicable=true; label = placement.label || fixture.name).
+//   - VERDICT per fixture = its FixtureCapture's EFFECTIVE verdict
+//     (`overrideVerdict ?? verdict`), mapped CaptureVerdict → core Overall:
+//     PASS→good, FAIL→not_good, NEEDS_REVIEW→needs_review. A capture counts as
+//     scored only when it has BOTH a photo (storageKey) and an effective verdict.
+//
+// The report's OUTPUT/render contract (report.types) is preserved — only the
+// data SOURCE changed. FixtureCapture carries no per-criterion results, so the
+// per-fixture flag list is derived from the model's compare notes (aiNotes) for a
+// non-passing verdict (one evidence line), and the rubricVersion stamp comes from
+// the campaign's live rubric versions (FixtureCapture has no per-shot rubric FK),
+// mirroring SubmissionService.buildStoreScore.
+//
+// No image bytes are loaded here. The PDF renders verdict text + notes, not the
 // photographs (a person could be in shot; bytes are signed-token-only).
 // =============================================================================
-
-// Exhaustive DB-enum → core mapping; throws on an unknown value rather than
-// producing undefined.
-function dbOverallToCore(db: DbOverall): Overall {
-  switch (db) {
-    case DbOverall.PERFECT:
-      return 'perfect';
-    case DbOverall.GOOD:
-      return 'good';
-    case DbOverall.NOT_GOOD:
-      return 'not_good';
-    case DbOverall.NEEDS_REVIEW:
-      return 'needs_review';
-    default: {
-      const _exhaustive: never = db;
-      throw new Error(`unmapped Overall enum value: ${String(_exhaustive)}`);
-    }
-  }
-}
 
 // Display order for the per-fixture list: failures first, then review, then the
 // passes — same attention-first spirit as the reviewer queue.
@@ -52,6 +53,16 @@ const FIXTURE_SORT: Record<string, number> = {
   perfect: 4,
   not_applicable: 5,
 };
+
+/** A FixtureCapture row narrowed to what the report renders. */
+interface CaptureRow {
+  fixtureId: string;
+  storageKey: string | null;
+  verdict: CaptureVerdict | null;
+  overrideVerdict: CaptureVerdict | null;
+  aiNotes: string | null;
+  confidence: number | null;
+}
 
 @Injectable()
 export class ReportService {
@@ -78,100 +89,74 @@ export class ReportService {
     });
     if (!campaign) throw new NotFoundException('campaign not found');
 
-    const fixtures = await this.prisma.storeFixture.findMany({
+    // EXPECTED fixtures = the store's applicable + not-applicable Placements for
+    // this campaign (the floor-plan loop's source of truth). Applicable first,
+    // then placement order — the same order the manager compliance sheet uses.
+    const placements = await this.prisma.placement.findMany({
       where: { storeId, campaignId },
-      orderBy: { order: 'asc' },
+      orderBy: [{ applicable: 'desc' }, { order: 'asc' }],
+      include: { fixture: { select: { name: true } } },
     });
-    if (fixtures.length === 0) {
-      throw new NotFoundException('store has no fixtures configured for this campaign');
+    if (placements.length === 0) {
+      throw new NotFoundException(
+        'store has no fixtures configured for this campaign',
+      );
     }
 
-    const submission = await this.prisma.submission.findUnique({
-      where: { storeId_campaignId: { storeId, campaignId } },
-      include: {
-        photos: {
-          orderBy: { createdAt: 'desc' },
-          include: {
-            verdict: {
-              include: {
-                rubric: { select: { fixtureKey: true, version: true } },
-              },
-            },
-          },
-        },
+    // The captures for these fixtures, keyed by fixtureId (the unique row per
+    // store+campaign+fixture). One query, then a Map lookup per placement.
+    const captures = (await this.prisma.fixtureCapture.findMany({
+      where: { storeId, campaignId },
+      select: {
+        fixtureId: true,
+        storageKey: true,
+        verdict: true,
+        overrideVerdict: true,
+        aiNotes: true,
+        confidence: true,
       },
-    });
+    })) as CaptureRow[];
+    const captureByFixture = new Map(captures.map((c) => [c.fixtureId, c]));
 
-    // Index the freshest verdict-bearing photo per fixtureKey.
-    const scoredByFixture = new Map<
-      string,
-      {
-        overall: Overall;
-        confidence: number;
-        modelId: string;
-        promptVersion: string;
-        rubricVersion: string;
-        flags: ReportFlag[];
-      }
-    >();
-    const rubricVersions = new Set<string>();
+    // The campaign's live rubric versions stamp the footer (reproducibility).
+    // FixtureCapture carries no per-shot rubric FK, so — like buildStoreScore —
+    // the report is stamped with the campaign's active grading versions.
+    const rubricVersions = await this.rubricVersionsForCampaign(
+      campaign.id,
+      campaign.key,
+    );
 
-    for (const photo of submission?.photos ?? []) {
-      if (scoredByFixture.has(photo.fixtureKey)) continue; // newest wins
-      const v = photo.verdict;
-      if (!v) continue;
-
-      const stamp = `${v.rubric.fixtureKey}.${campaign.key}.v${v.rubric.version}`;
-      rubricVersions.add(stamp);
-
-      // Flagged criteria = the failing / unsure results, with their evidence.
-      const results = (v.results as unknown as {
-        id: string;
-        verdict: string;
-        confidence: number;
-        evidence: string;
-      }[]) ?? [];
-      const flags: ReportFlag[] = results
-        .filter((r) => r.verdict === 'fail' || r.verdict === 'unsure')
-        .map((r) => ({
-          criterionId: r.id,
-          verdict: r.verdict === 'fail' ? 'fail' : 'unsure',
-          confidence: r.confidence,
-          evidence: r.evidence,
-        }));
-
-      scoredByFixture.set(photo.fixtureKey, {
-        overall: dbOverallToCore(v.overall),
-        confidence: v.confidence,
-        modelId: v.modelId,
-        promptVersion: v.promptVersion,
-        rubricVersion: stamp,
-        flags,
-      });
-    }
-
-    const reportFixtures: ReportFixture[] = fixtures.map((f) => {
-      if (!f.applicable) {
+    const reportFixtures: ReportFixture[] = placements.map((p) => {
+      const label = p.label || p.fixture.name;
+      if (!p.applicable) {
         return {
-          fixtureKey: f.fixtureKey,
-          label: f.label,
+          fixtureKey: p.fixtureId,
+          label,
           status: 'not_applicable',
         };
       }
-      const scored = scoredByFixture.get(f.fixtureKey);
-      if (scored) {
+
+      const capture = captureByFixture.get(p.fixtureId);
+      // The EFFECTIVE verdict the floor map trusts: a human override beats the AI.
+      const effective = capture?.overrideVerdict ?? capture?.verdict ?? null;
+
+      // Scored = a capture with BOTH a photo and an effective verdict (same rule
+      // as loadStoreCompliance). Otherwise the fixture is still outstanding.
+      if (capture && capture.storageKey && effective) {
+        const overall = captureVerdictToOverall(effective);
         return {
-          fixtureKey: f.fixtureKey,
-          label: f.label,
-          status: scored.overall,
-          confidence: scored.confidence,
-          rubricVersion: scored.rubricVersion,
-          flags: scored.flags,
+          fixtureKey: p.fixtureId,
+          label,
+          status: overall,
+          ...(capture.confidence != null ? { confidence: capture.confidence } : {}),
+          ...(rubricVersions.length > 0 ? { rubricVersion: rubricVersions[0] } : {}),
+          flags: captureFlags(overall, capture.aiNotes, capture.confidence),
         };
       }
+
       return {
-        fixtureKey: f.fixtureKey,
-        label: f.label,
+        fixtureKey: p.fixtureId,
+        label,
         status: 'not_submitted',
       };
     });
@@ -192,6 +177,10 @@ export class ReportService {
     ).length;
 
     return {
+      // `generatedAt` is the moment the PDF is produced (its real meaning). The
+      // store-level "is this store done" signal now lives in the submitted/expected
+      // counts + the derived band below, both sourced from the capture pipeline —
+      // there is no submission-level submittedAt in the floor-plan loop.
       generatedAt: new Date(),
       store: {
         id: store.id,
@@ -204,9 +193,65 @@ export class ReportService {
       submitted,
       expected: applicable.length,
       fixtures: reportFixtures,
-      rubricVersions: [...rubricVersions].sort(),
+      rubricVersions,
     };
   }
+
+  /**
+   * The distinct rubric stamps (`<fixtureKey>.<campaignKey>.v<version>`) for a
+   * campaign's ACTIVE rubric versions — the live grading standards the capture
+   * scorer resolves (active row per fixtureKey, else highest version). Mirrors
+   * SubmissionService.rubricVersionsForCampaign: FixtureCapture has no rubric FK,
+   * so the report stamps the campaign's live versions. Returns [] when none.
+   */
+  private async rubricVersionsForCampaign(
+    campaignId: string,
+    campaignKey: string,
+  ): Promise<string[]> {
+    const rubrics = await this.prisma.rubric.findMany({
+      where: { campaignId },
+      select: { fixtureKey: true, version: true, active: true },
+      orderBy: { version: 'desc' },
+    });
+    const byFixture = new Map<string, number>();
+    for (const r of rubrics) {
+      const cur = byFixture.get(r.fixtureKey);
+      if (cur === undefined) {
+        byFixture.set(r.fixtureKey, r.version);
+      }
+      if (r.active) {
+        byFixture.set(r.fixtureKey, r.version);
+      }
+    }
+    const stamps = [...byFixture.entries()].map(
+      ([fixtureKey, version]) => `${fixtureKey}.${campaignKey}.v${version}`,
+    );
+    return [...new Set(stamps)].sort();
+  }
+}
+
+/**
+ * Derive the report's per-fixture flags from a capture. FixtureCapture has no
+ * per-criterion result list (unlike the legacy Verdict), so a non-passing fixture
+ * surfaces ONE flag carrying the model's compare notes as its evidence — enough
+ * for the PDF to show "why" without inventing criterion ids. A passing fixture
+ * has no flags (the renderer prints "No flagged criteria.").
+ */
+function captureFlags(
+  overall: Overall,
+  aiNotes: string | null,
+  confidence: number | null,
+): ReportFlag[] {
+  if (overall === 'good' || overall === 'perfect') return [];
+  const evidence = aiNotes && aiNotes.trim().length > 0 ? aiNotes.trim() : 'No compare notes recorded.';
+  return [
+    {
+      criterionId: 'compliance',
+      verdict: overall === 'not_good' ? 'fail' : 'unsure',
+      confidence: confidence ?? 0,
+      evidence,
+    },
+  ];
 }
 
 function isScored(status: ReportFixture['status']): boolean {

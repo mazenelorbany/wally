@@ -65,11 +65,16 @@ model Project {
   slug      String
   kind      ProjectKind @default(RETAIL)
   createdAt DateTime    @default(now())
+  // Soft-delete: set when an admin archives the project, so it leaves the working
+  // list but keeps its history (a typo'd name / wrong kind doesn't pollute forever).
+  // Null = active.
+  archivedAt DateTime?
 
   org       Org        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   campaigns Campaign[]
   stores    Store[]
   bulletins Bulletin[]
+  fixtures  Fixture[]
 
   @@unique([orgId, slug])
   @@index([orgId])
@@ -84,11 +89,23 @@ model User {
   googleId   String?  @unique
   storeId    String?  // store managers belong to a store (set via magic-link)
   disabledAt DateTime? // deactivated by an admin — blocked from resolving a session
+  // Who disabled this user (the acting admin), stamped on the false→true
+  // transition and cleared on re-enable — a minimal who/when audit for the
+  // deactivation lifecycle. Nullable + no FK relation kept deliberately light.
+  disabledById String?
   createdAt  DateTime @default(now())
+  // @default(now()) backfills existing rows on `db push` (the column is added
+  // NOT NULL); @updatedAt keeps it current on every write thereafter.
+  updatedAt  DateTime @default(now()) @updatedAt
 
   // Notification preference: should this user's task badge alert on new tasks?
   // Store managers toggle it in their settings; defaults on for everyone.
   notifyOnNewTask Boolean @default(true)
+
+  // Notification preference: should this admin/reviewer receive the daily
+  // "store still owes photos" chase email? Toggled in their Settings; defaults
+  // on. ChaseService filters recipients by this so opting out actually mutes it.
+  chaseEmails Boolean @default(true)
 
   org             Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
   store           Store?    @relation(fields: [storeId], references: [id], onDelete: SetNull)
@@ -99,6 +116,10 @@ model User {
   taskReads        TaskRead[]
   completedTasks   Task[]    @relation("TaskCompletedBy")
   assignedTasks    Task[]    @relation("TaskAssignedTo")
+  requestedCaptures FixtureCapture[] @relation("CaptureRequestedBy")
+  reviewedCaptures  FixtureCapture[] @relation("CaptureReviewedBy")
+  capturedAttempts  FixtureCaptureAttempt[] @relation("AttemptCapturedBy")
+  bulletinAcks      BulletinAck[]
 
   @@index([orgId])
   @@index([storeId])
@@ -142,6 +163,7 @@ model Store {
   region      String?  // segmentation: state / area, e.g. "NSW", "VIC"
   areaManager String?  // segmentation: the field manager who owns the store
   storeType   String?  // segmentation: "Full line" | "Express" | ...
+  closedAt    DateTime? // set when the store is deactivated/retired (lifecycle); null = active
   createdAt   DateTime @default(now())
 
   org           Org            @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -182,6 +204,10 @@ model Campaign {
   activatedAt DateTime?
   closedAt    DateTime?
   archivedAt  DateTime?
+  // When the guide (floor plans + fixture sheets) was last published to stores.
+  // Publishing stamps this and fans out an UPLOAD_PHOTO task to every store in
+  // the campaign's project, so managers are notified the layout is ready.
+  publishedAt DateTime?
 
   org         Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
@@ -198,6 +224,15 @@ model Campaign {
   @@index([orgId])
 }
 
+// How a ComplianceSnapshot row was written. The nightly cron is the canonical
+// author (CRON); an admin "capture now" is MANUAL. The write rule keeps a cron
+// row canonical for its day: a MANUAL capture never overwrites a CRON row (so a
+// mid-day manual capture can't clobber the authoritative end-of-day value).
+enum SnapshotSource {
+  CRON
+  MANUAL
+}
+
 // A daily point-in-time rollup of a campaign's compliance, so the dashboard can
 // chart pass-rate / completion over time. Written by the snapshot cron (and an
 // admin "capture now" button); upsert-keyed by (campaignId, dateKey) so one run
@@ -208,6 +243,9 @@ model ComplianceSnapshot {
   campaignId  String
   dateKey     String // 'YYYY-MM-DD' (UTC) — one snapshot per campaign per day
   capturedAt  DateTime @default(now())
+  // Who wrote this point. Existing rows default to CRON (the canonical author),
+  // so the additive column needs no backfill.
+  source      SnapshotSource @default(CRON)
   storeCount  Int
   onTrack     Int // stores in perfect + good
   needsReview Int
@@ -234,6 +272,11 @@ model Rubric {
   criteria       Json     // [{ id, kind, critical, text }]
   rollupRule     Json     @default("{\"not_good_if_any_critical_fails\":true,\"good_if_only_noncritical_fails\":true}")
   referenceKey   String?  // storage key of the reference/standard image
+  // The live grading version for (campaignId, fixtureKey). Exactly one row per
+  // pair should be active; the scorer resolves it. Seeded/legacy rows are all
+  // false — the scorer falls back to highest version when none is flagged, so no
+  // data migration is needed.
+  active         Boolean  @default(false)
   createdAt      DateTime @default(now())
 
   org      Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -403,6 +446,10 @@ model Review {
 model Fixture {
   id         String   @id @default(cuid())
   orgId      String
+  // The project (venue group) that owns this fixture. Null = a SHARED fixture
+  // visible in every project. Myer and Ambiente keep their own fixtures so the
+  // library and floor-plan palette never mix one entity's fixtures into another.
+  projectId  String?
   name       String
   kind       String   @default("bay") // bay | table | stand | window | dais | trolley
   department String? // Myer department: "The Custom Chef" | "The Cook Shop"
@@ -410,6 +457,9 @@ model Fixture {
   archivedAt DateTime? // soft-delete: hidden from the library, placements kept
 
   org             Org              @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  // SetNull (not Cascade): archiving/deleting a project turns its fixtures into
+  // shared fixtures rather than destroying library entries other guides may use.
+  project         Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
   placements      Placement[]
   guideFixtures   GuideFixture[]
   captures        FixtureCapture[]
@@ -417,6 +467,7 @@ model Fixture {
 
   @@unique([orgId, name])
   @@index([orgId])
+  @@index([orgId, projectId])
 }
 
 // A fixture placed on one store's floor plan for one guide (its x/y/w/h on the
@@ -485,6 +536,9 @@ model Product {
   rrp       Float?   // recommended retail price
   salePrice Float?   // current sale/ticket price — the per-unit price sales log against
   createdAt DateTime @default(now())
+  // Soft-delete: an archived product leaves the working catalog (and the picker)
+  // but its merchandise placements + sales history stay intact. Null = active.
+  archivedAt DateTime?
 
   org             Org              @relation(fields: [orgId], references: [id], onDelete: Cascade)
   merchandise     Merchandise[]
@@ -658,13 +712,23 @@ model FixtureCapture {
   campaignId String
   fixtureId  String
   needsPhoto Boolean         @default(true) // requested this sale / by a reviewer
-  storageKey String? // the manager's uploaded photo
+  storageKey String? // the manager's uploaded photo (CURRENT — latest shot)
   uploadedAt DateTime?
-  verdict    CaptureVerdict?
+  verdict    CaptureVerdict? // the AI verdict for the CURRENT photo
   aiNotes    String? // the model's compare notes
   confidence Float?
   modelId    String? // e.g. "gemini-2.5-flash" or "stub"
   scoredAt   DateTime?
+  // ----- reviewer override / request loop (REVIEWER/ADMIN) -----
+  // A reviewer can REQUEST a re-shoot (needsPhoto=true + stamp), or OVERRIDE the
+  // AI verdict with a human decision. The EFFECTIVE verdict the floor/money-map/UI
+  // shows is `overrideVerdict ?? verdict` — the human call supersedes the model.
+  requestedById  String? // reviewer who asked for a fresh photo
+  requestedAt    DateTime?
+  reviewedById   String? // reviewer who set the override
+  reviewedAt     DateTime?
+  overrideVerdict CaptureVerdict? // human decision that supersedes `verdict`
+  overrideNote    String? // optional reviewer rationale for the override
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
@@ -672,9 +736,35 @@ model FixtureCapture {
   store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   fixture  Fixture  @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  requestedBy User? @relation("CaptureRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  reviewedBy  User? @relation("CaptureReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  attempts FixtureCaptureAttempt[]
 
   @@unique([storeId, campaignId, fixtureId])
   @@index([storeId, campaignId])
+}
+
+// One preserved shot in a fixture's capture history. `FixtureCapture` is the
+// CURRENT pointer (latest photo + its AI verdict); every upload+score also writes
+// one immutable FixtureCaptureAttempt so a FAIL→reshoot→PASS sequence is never
+// erased (mirrors the SalesEntry day-snapshot pattern — the current row is the
+// latest, the history rows preserve every prior state).
+model FixtureCaptureAttempt {
+  id           String          @id @default(cuid())
+  orgId        String
+  captureId    String
+  storageKey   String // the photo bytes for THIS shot
+  verdict      CaptureVerdict? // the AI verdict scored for this shot
+  aiNotes      String?
+  confidence   Float?
+  modelId      String?
+  capturedById String? // the manager who took this shot
+  capturedAt   DateTime        @default(now())
+
+  capture    FixtureCapture @relation(fields: [captureId], references: [id], onDelete: Cascade)
+  capturedBy User?          @relation("AttemptCapturedBy", fields: [capturedById], references: [id], onDelete: SetNull)
+
+  @@index([captureId, capturedAt])
 }
 
 // ═══════════════════════════════════════════ BULLETINS
@@ -709,6 +799,9 @@ model Bulletin {
 }
 
 // One store manager's acknowledgement of a bulletin (the read receipt).
+// Keyed per USER, not per store: "every store manager must read + acknowledge",
+// so one co-manager's ack must not clear the must-read for the others. storeId is
+// kept on the row for roster grouping / context (which venue the manager owns).
 model BulletinAck {
   id             String   @id @default(cuid())
   bulletinId     String
@@ -718,8 +811,9 @@ model BulletinAck {
 
   bulletin Bulletin @relation(fields: [bulletinId], references: [id], onDelete: Cascade)
   store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([bulletinId, storeId])
+  @@unique([bulletinId, userId])
   @@index([bulletinId])
 }
 

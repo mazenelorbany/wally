@@ -303,6 +303,8 @@ function RubricEditor({
 }) {
   const toast = useToast();
   const fileRef = React.useRef<HTMLInputElement>(null);
+  // IDs are model-facing plumbing — hidden by default, revealed for power edits.
+  const [showIds, setShowIds] = React.useState(false);
 
   // Upload a reference image → set the draft's referenceKey + preview URL.
   const upload = useMutation({
@@ -330,7 +332,10 @@ function RubricEditor({
       criteria: draft.criteria.map((c, j) => (j === i ? { ...c, ...patch } : c)),
     });
 
-  const addCriterion = () => {
+  // New criteria land in the group their "Add" button belongs to (critical =
+  // must-pass). The id is auto-generated plumbing the author rarely touches —
+  // editable via the "Show IDs" toggle, not surfaced by default.
+  const addCriterion = (critical: boolean) => {
     const used = new Set(draft.criteria.map((c) => c.id));
     let n = draft.criteria.length + 1;
     while (used.has(`c${n}`)) n += 1;
@@ -338,7 +343,7 @@ function RubricEditor({
       ...draft,
       criteria: [
         ...draft.criteria,
-        { id: `c${n}`, kind: 'presence', critical: false, text: '' },
+        { id: `c${n}`, kind: 'presence', critical, text: '' },
       ],
     });
   };
@@ -378,67 +383,145 @@ function RubricEditor({
         </button>
       </div>
 
-      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-brand text-steel">
-        Criteria
-      </p>
-      <div className="flex flex-col gap-2">
-        {draft.criteria.map((c, i) => (
+      {(() => {
+        // Group is derived from `critical` — the same flag the scorer rolls up.
+        // We map over the real array first so each row keeps its true index for
+        // setCriterion/removeCriterion regardless of which group it renders in.
+        const rows = draft.criteria.map((c, i) => ({ c, i }));
+        const mustPass = rows.filter((r) => r.c.critical);
+        const quality = rows.filter((r) => !r.c.critical);
+        const onlyOne = draft.criteria.length === 1;
+
+        const renderRow = ({ c, i }: { c: Criterion; i: number }) => (
           <div
             key={i}
-            className="flex flex-wrap items-center gap-2 rounded-md border border-mist/60 bg-paper p-2"
+            className={cn(
+              'rounded-md border border-mist/60 bg-paper p-3',
+              // Must-pass carries the one signal accent — red = stop, the exact
+              // semantic of a critical criterion (fail it → the fixture fails).
+              c.critical && 'border-l-2 border-l-signal/60',
+            )}
           >
-            <input
-              value={c.id}
-              onChange={(e) => setCriterion(i, { id: e.target.value })}
-              placeholder="id"
-              aria-label="Criterion id"
-              className={cn(fieldCls, 'w-20')}
-            />
-            <input
+            <textarea
               value={c.text}
               onChange={(e) => setCriterion(i, { text: e.target.value })}
-              placeholder="What good looks like…"
-              aria-label="Criterion text"
-              className={cn(fieldCls, 'min-w-0 flex-1')}
+              placeholder="Describe what good looks like…"
+              aria-label="Criterion description"
+              rows={2}
+              className={cn(fieldCls, 'block w-full resize-y leading-snug')}
             />
-            <select
-              value={c.kind}
-              onChange={(e) =>
-                setCriterion(i, {
-                  kind: e.target.value as Criterion['kind'],
-                })
-              }
-              aria-label="Criterion kind"
-              className={fieldCls}
-            >
-              <option value="presence">Presence</option>
-              <option value="aesthetic">Aesthetic</option>
-            </select>
-            <label className="flex items-center gap-1.5 text-xs text-graphite">
-              <input
-                type="checkbox"
-                checked={c.critical}
-                onChange={(e) =>
-                  setCriterion(i, { critical: e.target.checked })
-                }
-              />
-              Critical
-            </label>
-            <button
-              type="button"
-              onClick={() => removeCriterion(i)}
-              disabled={draft.criteria.length === 1}
-              aria-label="Remove criterion"
-              className="rounded-md p-1.5 text-steel hover:text-fail disabled:opacity-40"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <div className="inline-flex overflow-hidden rounded-md border border-mist/70">
+                {(['presence', 'aesthetic'] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setCriterion(i, { kind: k })}
+                    aria-pressed={c.kind === k}
+                    className={cn(
+                      'px-2.5 py-1 text-xs capitalize transition-colors',
+                      c.kind === k
+                        ? 'bg-ink text-paper'
+                        : 'text-steel hover:bg-surface',
+                    )}
+                  >
+                    {k}
+                  </button>
+                ))}
+              </div>
+              {showIds ? (
+                <input
+                  value={c.id}
+                  onChange={(e) => setCriterion(i, { id: e.target.value })}
+                  placeholder="id"
+                  aria-label="Criterion id"
+                  className={cn(fieldCls, 'w-28 font-mono text-xs')}
+                />
+              ) : null}
+              <span className="flex-1" />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCriterion(i, { critical: !c.critical })}
+              >
+                {c.critical ? 'Make optional' : 'Make must-pass'}
+              </Button>
+              <button
+                type="button"
+                onClick={() => removeCriterion(i)}
+                disabled={onlyOne}
+                aria-label="Remove criterion"
+                className="rounded-md p-1.5 text-steel hover:text-fail disabled:opacity-40"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
           </div>
-        ))}
-      </div>
-      <Button variant="ghost" size="sm" className="mt-2" onClick={addCriterion}>
-        <Plus className="h-3.5 w-3.5" /> Add criterion
-      </Button>
+        );
+
+        const emptyHint = (text: string) => (
+          <p className="rounded-md border border-dashed border-mist/70 px-3 py-2 text-xs text-steel">
+            {text}
+          </p>
+        );
+
+        return (
+          <>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[11px] font-medium uppercase tracking-brand text-steel">
+                Criteria
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowIds((v) => !v)}
+                className="text-[11px] text-steel underline-offset-2 hover:text-ink hover:underline"
+              >
+                {showIds ? 'Hide IDs' : 'Show IDs'}
+              </button>
+            </div>
+
+            <p className="mb-1.5 flex flex-wrap items-baseline gap-x-2 text-xs font-semibold text-ink">
+              Must pass
+              <span className="font-normal text-steel">
+                fail any of these → the fixture fails
+              </span>
+            </p>
+            <div className="flex flex-col gap-2">
+              {mustPass.length
+                ? mustPass.map(renderRow)
+                : emptyHint('No must-pass criteria yet.')}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2"
+              onClick={() => addCriterion(true)}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add must-pass
+            </Button>
+
+            <p className="mb-1.5 mt-5 flex flex-wrap items-baseline gap-x-2 text-xs font-semibold text-ink">
+              Quality
+              <span className="font-normal text-steel">
+                won't fail the fixture on its own
+              </span>
+            </p>
+            <div className="flex flex-col gap-2">
+              {quality.length
+                ? quality.map(renderRow)
+                : emptyHint('No quality criteria yet.')}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2"
+              onClick={() => addCriterion(false)}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add quality criterion
+            </Button>
+          </>
+        );
+      })()}
 
       {/* Reference / standard image — what the AI compares photos against */}
       <p className="mb-1.5 mt-4 text-[11px] font-medium uppercase tracking-brand text-steel">

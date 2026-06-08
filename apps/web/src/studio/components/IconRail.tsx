@@ -39,8 +39,7 @@ const RAIL: RailItem[] = [
   {
     label: 'Review',
     icon: ClipboardCheck,
-    to: () => '/console',
-    external: true,
+    to: () => '/studio/review',
   },
   {
     label: 'Money Map',

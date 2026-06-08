@@ -16,6 +16,7 @@ export interface StudioStore {
 export function TopBar({
   guideName,
   guideKey,
+  eyebrow = 'Create guide',
   stores,
   storeId,
   onStoreChange,
@@ -24,6 +25,7 @@ export function TopBar({
 }: {
   guideName: string;
   guideKey?: string;
+  eyebrow?: string;
   stores: StudioStore[];
   storeId?: string;
   onStoreChange?: (storeId: string) => void;
@@ -74,22 +76,22 @@ export function TopBar({
           ) : null}
         </div>
         <p className="text-[11px] uppercase tracking-brand text-steel">
-          Create guide
+          {eyebrow}
         </p>
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
-        <Button
-          variant="gold"
-          size="md"
-          onClick={onPublish}
-          loading={publishing}
-        >
-          <Send className="h-4 w-4" aria-hidden="true" />
-          <span className="hidden sm:inline">Publish &amp; notify stores</span>
-          <span className="sm:hidden">Publish</span>
-        </Button>
-      </div>
+      {/* Publish is an authoring action — only the surfaces that wire a handler
+          (Floor Plan, Rubrics) show it. Read-only surfaces (Gallery, analytics,
+          the reviewer queue) pass no onPublish and get no stray button. */}
+      {onPublish ? (
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="gold" size="md" onClick={onPublish} loading={publishing}>
+            <Send className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">Publish &amp; notify stores</span>
+            <span className="sm:hidden">Publish</span>
+          </Button>
+        </div>
+      ) : null}
     </header>
   );
 }

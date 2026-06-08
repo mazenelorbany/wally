@@ -19,14 +19,19 @@ export const PLAN_H = 640;
 export function FloorPlanCanvas({
   placements,
   selectedId,
+  editable = false,
   onSelect,
   onMove,
+  onResize,
   onClearSelection,
 }: {
   placements: PlacedFixture[];
   selectedId?: string;
+  /** Edit-layout mode: enables drag-to-resize handles on the selected box. */
+  editable?: boolean;
   onSelect: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
+  onResize: (id: string, box: { x: number; y: number; w: number; h: number }) => void;
   onClearSelection: () => void;
 }) {
   const wrapRef = React.useRef<HTMLDivElement>(null);
@@ -71,8 +76,10 @@ export function FloorPlanCanvas({
             placement={p}
             selected={p.id === selectedId}
             scale={scale}
+            editable={editable}
             onSelect={onSelect}
             onMove={onMove}
+            onResize={onResize}
           />
         ))}
       </div>

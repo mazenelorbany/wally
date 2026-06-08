@@ -1,6 +1,13 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus, Store as StoreIcon } from 'lucide-react';
+import {
+  Archive,
+  ClipboardPlus,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Store as StoreIcon,
+} from 'lucide-react';
 import {
   Badge,
   Button,
@@ -13,27 +20,69 @@ import {
   DialogTitle,
   Spinner,
 } from '@wally/ui';
-import type { StoreDto } from '@wally/types';
+import type { ProjectDto, StoreDto, StoreSegments, TaskKind } from '@wally/types';
 
 import { api, errorMessage } from '../../lib/api';
 import { useToast } from '../../lib/toast';
 import { EmptyState, ErrorState } from '../../components/states';
 import { useSetStudioTopBar } from '../components/StudioContext';
+import { useProject } from '../ProjectContext';
 
 const fieldCls =
   'w-full rounded-md border border-mist/70 bg-paper px-3 py-2 text-sm text-ink transition-colors focus:border-graphite focus:outline-none';
 
 type Editing = StoreDto | 'new' | null;
 
+/** Assigning a task: to one store, or to the whole listed roster ('all'). */
+type Assigning = { store: StoreDto } | { all: StoreDto[] } | null;
+
 /** Admin: the store roster + segmentation metadata (region, manager, type). */
 export function StoreDirectoryView() {
   useSetStudioTopBar({ guideName: 'Store directory', stores: [] });
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { project: activeProject } = useProject();
   const storesQ = useQuery({
     queryKey: ['studio', 'admin-stores'],
     queryFn: () => api.stores.list(),
   });
+  // Projects power the create/edit project picker (and the row's project label).
+  const projectsQ = useQuery({
+    queryKey: ['studio', 'projects'],
+    queryFn: () => api.projects.list(),
+  });
+  // Existing distinct segmentation values back the directory comboboxes.
+  const segmentsQ = useQuery({
+    queryKey: ['studio', 'store-segments'],
+    queryFn: () => api.stores.segments(),
+  });
   const [editing, setEditing] = React.useState<Editing>(null);
+  const [assigning, setAssigning] = React.useState<Assigning>(null);
   const stores = storesQ.data ?? [];
+  const projects = projectsQ.data ?? [];
+  const segments = segmentsQ.data;
+  const projectName = React.useMemo(
+    () => new Map(projects.map((p) => [p.id, p.name])),
+    [projects],
+  );
+
+  // Active stores drive "Assign to all" — never assign a task to a closed store.
+  const activeStores = React.useMemo(
+    () => stores.filter((s) => !s.closedAt),
+    [stores],
+  );
+
+  const lifecycle = useMutation({
+    mutationFn: ({ id, close }: { id: string; close: boolean }) =>
+      close ? api.stores.deactivate(id) : api.stores.reactivate(id),
+    onSuccess: (s) => {
+      void qc.invalidateQueries({ queryKey: ['studio', 'admin-stores'] });
+      // Closed stores leave the venue lists / switchers — refresh them.
+      void qc.invalidateQueries({ queryKey: ['studio', 'projects'] });
+      toast.success(s.closedAt ? `“${s.name}” deactivated` : `“${s.name}” reactivated`);
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
@@ -48,9 +97,19 @@ export function StoreDirectoryView() {
             store type drive the analytics filters.
           </p>
         </div>
-        <Button onClick={() => setEditing('new')}>
-          <Plus className="h-4 w-4" /> Add store
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {activeStores.length > 0 ? (
+            <Button
+              variant="outline"
+              onClick={() => setAssigning({ all: activeStores })}
+            >
+              <ClipboardPlus className="h-4 w-4" /> Assign to all
+            </Button>
+          ) : null}
+          <Button onClick={() => setEditing('new')}>
+            <Plus className="h-4 w-4" /> Add store
+          </Button>
+        </div>
       </header>
 
       {storesQ.isLoading ? (
@@ -71,51 +130,131 @@ export function StoreDirectoryView() {
         />
       ) : (
         <ul className="divide-y divide-mist/50 overflow-hidden rounded-lg border border-mist/60 bg-paper">
-          {stores.map((s) => (
-            <li key={s.id} className="flex items-center gap-3 px-5 py-3.5">
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-display text-[15px] font-semibold text-ink">
-                  {s.name}{' '}
-                  <span className="font-normal text-steel">· {s.brand}</span>
-                </span>
-                <span className="mt-1 flex flex-wrap gap-1.5">
-                  {s.region ? <Badge variant="muted">{s.region}</Badge> : null}
-                  {s.storeType ? (
-                    <Badge variant="muted">{s.storeType}</Badge>
-                  ) : null}
-                  {s.areaManager ? (
-                    <Badge variant="muted">AM: {s.areaManager}</Badge>
-                  ) : null}
-                  {!s.region && !s.storeType && !s.areaManager ? (
-                    <span className="text-xs text-steel">
-                      No segmentation set
-                    </span>
-                  ) : null}
-                </span>
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setEditing(s)}
-                aria-label={`Edit ${s.name}`}
+          {stores.map((s) => {
+            const closed = Boolean(s.closedAt);
+            const busy = lifecycle.isPending && lifecycle.variables?.id === s.id;
+            return (
+              <li
+                key={s.id}
+                className={`flex items-center gap-3 px-5 py-3.5${closed ? ' opacity-60' : ''}`}
               >
-                <Pencil className="h-4 w-4" /> Edit
-              </Button>
-            </li>
-          ))}
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span className="block truncate font-display text-[15px] font-semibold text-ink">
+                      {s.name}{' '}
+                      <span className="font-normal text-steel">· {s.brand}</span>
+                    </span>
+                    {closed ? (
+                      // Colour-blind-safe: icon + explicit "Closed" label, not colour alone.
+                      <Badge variant="warn">
+                        <Archive className="h-3 w-3" aria-hidden /> Closed
+                      </Badge>
+                    ) : null}
+                  </span>
+                  <span className="mt-1 flex flex-wrap gap-1.5">
+                    {s.projectId ? (
+                      <Badge variant="outline">
+                        {projectName.get(s.projectId) ?? 'Project'}
+                      </Badge>
+                    ) : (
+                      <Badge variant="muted" className="text-warn">
+                        No project
+                      </Badge>
+                    )}
+                    {s.region ? <Badge variant="muted">{s.region}</Badge> : null}
+                    {s.storeType ? (
+                      <Badge variant="muted">{s.storeType}</Badge>
+                    ) : null}
+                    {s.areaManager ? (
+                      <Badge variant="muted">AM: {s.areaManager}</Badge>
+                    ) : null}
+                    {!s.region && !s.storeType && !s.areaManager ? (
+                      <span className="text-xs text-steel">
+                        No segmentation set
+                      </span>
+                    ) : null}
+                  </span>
+                </span>
+                {!closed ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setAssigning({ store: s })}
+                    aria-label={`Assign a task to ${s.name}`}
+                  >
+                    <ClipboardPlus className="h-4 w-4" /> Assign
+                  </Button>
+                ) : null}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditing(s)}
+                  aria-label={`Edit ${s.name}`}
+                >
+                  <Pencil className="h-4 w-4" /> Edit
+                </Button>
+                {closed ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => lifecycle.mutate({ id: s.id, close: false })}
+                    aria-label={`Reactivate ${s.name}`}
+                  >
+                    <RotateCcw className="h-4 w-4" /> Reactivate
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-fail"
+                    disabled={busy}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Deactivate “${s.name}”? It will be hidden from the store switcher, rosters and reports. You can reactivate it later.`,
+                        )
+                      ) {
+                        lifecycle.mutate({ id: s.id, close: true });
+                      }
+                    }}
+                    aria-label={`Deactivate ${s.name}`}
+                  >
+                    <Archive className="h-4 w-4" /> Deactivate
+                  </Button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      <StoreFormDialog editing={editing} onClose={() => setEditing(null)} />
+      <StoreFormDialog
+        editing={editing}
+        projects={projects}
+        segments={segments}
+        defaultProjectId={activeProject?.id}
+        onClose={() => setEditing(null)}
+      />
+      <AssignTaskDialog
+        assigning={assigning}
+        onClose={() => setAssigning(null)}
+      />
     </div>
   );
 }
 
 function StoreFormDialog({
   editing,
+  projects,
+  segments,
+  defaultProjectId,
   onClose,
 }: {
   editing: Editing;
+  projects: ProjectDto[];
+  segments: StoreSegments | undefined;
+  defaultProjectId: string | undefined;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
@@ -125,27 +264,33 @@ function StoreFormDialog({
 
   const [name, setName] = React.useState('');
   const [brand, setBrand] = React.useState('');
+  const [projectId, setProjectId] = React.useState('');
   const [externalRef, setExternalRef] = React.useState('');
   const [region, setRegion] = React.useState('');
   const [areaManager, setAreaManager] = React.useState('');
   const [storeType, setStoreType] = React.useState('');
 
   // Seed the form whenever the dialog opens (edit = prefill; create = blank).
+  // New stores default to the studio's current project, else the only/first one.
   React.useEffect(() => {
     if (!open) return;
     setName(store?.name ?? '');
     setBrand(store?.brand ?? '');
+    // Edit → the store's own project; create → the studio's current project,
+    // else the first project in the list (covers the common single-project org).
+    setProjectId(store?.projectId ?? defaultProjectId ?? projects[0]?.id ?? '');
     setExternalRef(store?.externalRef ?? '');
     setRegion(store?.region ?? '');
     setAreaManager(store?.areaManager ?? '');
     setStoreType(store?.storeType ?? '');
-  }, [open, store]);
+  }, [open, store, defaultProjectId, projects]);
 
   const save = useMutation({
     mutationFn: () => {
       const body = {
         name: name.trim(),
         brand: brand.trim(),
+        projectId: projectId || null,
         externalRef: externalRef.trim() || null,
         region: region.trim() || null,
         areaManager: areaManager.trim() || null,
@@ -156,6 +301,7 @@ function StoreFormDialog({
         : api.stores.create({
             name: body.name,
             brand: body.brand,
+            ...(body.projectId ? { projectId: body.projectId } : {}),
             ...(body.externalRef ? { externalRef: body.externalRef } : {}),
             ...(body.region ? { region: body.region } : {}),
             ...(body.areaManager ? { areaManager: body.areaManager } : {}),
@@ -164,6 +310,9 @@ function StoreFormDialog({
     },
     onSuccess: (s) => {
       void qc.invalidateQueries({ queryKey: ['studio', 'admin-stores'] });
+      // A store joining/leaving a project changes venue lists + segments.
+      void qc.invalidateQueries({ queryKey: ['studio', 'projects'] });
+      void qc.invalidateQueries({ queryKey: ['studio', 'store-segments'] });
       toast.success(store ? `“${s.name}” updated` : `“${s.name}” added`);
       onClose();
     },
@@ -187,16 +336,62 @@ function StoreFormDialog({
         <DialogHeader>
           <DialogTitle>{store ? 'Edit store' : 'Add store'}</DialogTitle>
           <DialogDescription>
-            Region / area manager / store type power the analytics segmentation.
+            Project scopes the store's campaign and venue list; region / area
+            manager / store type power the analytics segmentation.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="mt-1 space-y-3">
+          {/* Project picker — a project-less store resolves the wrong campaign
+              and never appears in its venue list, so surface it prominently. */}
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-graphite">
+              Project
+            </span>
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              className={fieldCls}
+            >
+              <option value="">No project</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            {!projectId ? (
+              <span className="mt-1 block text-xs text-warn">
+                Without a project this store won't appear in any venue list and
+                resolves the org's fallback campaign.
+              </span>
+            ) : null}
+          </label>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Name" value={name} onChange={setName} autoFocus />
             <Field label="Brand" value={brand} onChange={setBrand} />
-            <Field label="Region" value={region} onChange={setRegion} placeholder="NSW" />
-            <Field label="Store type" value={storeType} onChange={setStoreType} placeholder="Full line" />
-            <Field label="Area manager" value={areaManager} onChange={setAreaManager} />
+            <Field
+              label="Region"
+              value={region}
+              onChange={setRegion}
+              placeholder="NSW"
+              list="store-region-options"
+              options={segments?.regions}
+            />
+            <Field
+              label="Store type"
+              value={storeType}
+              onChange={setStoreType}
+              placeholder="Full line"
+              list="store-type-options"
+              options={segments?.storeTypes}
+            />
+            <Field
+              label="Area manager"
+              value={areaManager}
+              onChange={setAreaManager}
+              list="store-am-options"
+              options={segments?.areaManagers}
+            />
             <Field label="External ref" value={externalRef} onChange={setExternalRef} />
           </div>
           {save.isError ? (
@@ -221,18 +416,191 @@ function StoreFormDialog({
   );
 }
 
+const TASK_KINDS: { value: TaskKind; label: string }[] = [
+  { value: 'GENERAL', label: 'General ask' },
+  { value: 'UPLOAD_PHOTO', label: 'Upload a fixture photo' },
+  { value: 'LOG_SALES', label: 'Log sales' },
+];
+
+/** Assign one task to a single store, or in bulk to the whole listed roster. */
+function AssignTaskDialog({
+  assigning,
+  onClose,
+}: {
+  assigning: Assigning;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const open = assigning !== null;
+  const target =
+    assigning && 'store' in assigning
+      ? { label: assigning.store.name, count: 1 }
+      : assigning
+        ? { label: `all ${assigning.all.length} stores`, count: assigning.all.length }
+        : { label: '', count: 0 };
+
+  const [kind, setKind] = React.useState<TaskKind>('GENERAL');
+  const [title, setTitle] = React.useState('');
+  const [body, setBody] = React.useState('');
+  const [fixtureKey, setFixtureKey] = React.useState('');
+  const [dueAt, setDueAt] = React.useState('');
+
+  // Reset the form each time the dialog opens.
+  React.useEffect(() => {
+    if (!open) return;
+    setKind('GENERAL');
+    setTitle('');
+    setBody('');
+    setFixtureKey('');
+    setDueAt('');
+  }, [open]);
+
+  const assign = useMutation({
+    mutationFn: () => {
+      const base = {
+        kind,
+        title: title.trim(),
+        ...(body.trim() ? { body: body.trim() } : {}),
+        // <input type="date"> gives YYYY-MM-DD; the API wants a full ISO datetime.
+        ...(dueAt ? { dueAt: new Date(`${dueAt}T00:00:00`).toISOString() } : {}),
+        ...(kind === 'UPLOAD_PHOTO' && fixtureKey.trim()
+          ? { fixtureKey: fixtureKey.trim() }
+          : {}),
+      };
+      if (assigning && 'store' in assigning) {
+        return api.adminTasks.create(assigning.store.id, base).then(() => 1);
+      }
+      const storeIds = assigning ? assigning.all.map((s) => s.id) : [];
+      return api.adminTasks
+        .bulkCreate({ storeIds, ...base })
+        .then((r) => r.created);
+    },
+    onSuccess: (n) => {
+      void qc.invalidateQueries({ queryKey: ['manager', 'tasks'] });
+      void qc.invalidateQueries({ queryKey: ['manager', 'home'] });
+      toast.success(n === 1 ? 'Task assigned' : `Task assigned to ${n} stores`);
+      onClose();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim() || assign.isPending) return;
+    assign.mutate();
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Assign a task</DialogTitle>
+          <DialogDescription>
+            To {target.label}. It appears on the store manager's home and Tasks
+            list.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="mt-1 space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-graphite">
+              Type
+            </span>
+            <select
+              value={kind}
+              onChange={(e) => setKind(e.target.value as TaskKind)}
+              className={fieldCls}
+            >
+              {TASK_KINDS.map((k) => (
+                <option key={k.value} value={k.value}>
+                  {k.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Field
+            label="Title"
+            value={title}
+            onChange={setTitle}
+            autoFocus
+            placeholder="e.g. Re-shoot the storefront"
+          />
+          {kind === 'UPLOAD_PHOTO' ? (
+            <Field
+              label="Fixture key (optional)"
+              value={fixtureKey}
+              onChange={setFixtureKey}
+              placeholder="storefront"
+            />
+          ) : null}
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-graphite">
+              Details (optional)
+            </span>
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={3}
+              className={fieldCls}
+              placeholder="What you're asking the manager to do."
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-graphite">
+              Due date (optional)
+            </span>
+            <input
+              type="date"
+              value={dueAt}
+              onChange={(e) => setDueAt(e.target.value)}
+              className={fieldCls}
+            />
+          </label>
+          {assign.isError ? (
+            <p className="text-sm text-fail">{errorMessage(assign.error)}</p>
+          ) : null}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost" type="button">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit" disabled={!title.trim() || assign.isPending}>
+              {assign.isPending
+                ? 'Assigning…'
+                : target.count > 1
+                  ? `Assign to ${target.count} stores`
+                  : 'Assign task'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function Field({
   label,
   value,
   onChange,
   placeholder,
   autoFocus,
+  list,
+  options,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  /** When set with `options`, renders a combobox (free entry + suggestions). */
+  list?: string;
+  options?: string[];
 }) {
   return (
     <label className="block">
@@ -245,7 +613,16 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className={fieldCls}
+        list={list}
       />
+      {/* Datalist nudges reuse of existing segment values; free entry still works. */}
+      {list && options && options.length > 0 ? (
+        <datalist id={list}>
+          {options.map((o) => (
+            <option key={o} value={o} />
+          ))}
+        </datalist>
+      ) : null}
     </label>
   );
 }

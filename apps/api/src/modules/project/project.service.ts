@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -8,7 +9,7 @@ import type { ProjectDto, ProjectKind, SessionUser } from '@wally/types';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
-import type { CreateProjectInput } from './project.dto';
+import type { CreateProjectInput, UpdateProjectInput } from './project.dto';
 
 // =============================================================================
 // ProjectService — the admin's top-level containers.
@@ -32,10 +33,16 @@ export class ProjectService {
    * Every project in the caller's org as a ProjectDto: its active campaign, its
    * venue count, and setup progress (applicable placements vs captured photos)
    * across the project's stores for that campaign. RETAIL first, then by name.
+   *
+   * Archived projects are excluded by default so they leave the working list;
+   * pass `includeArchived` to keep them (the history view + the unarchive flow).
    */
-  async list(user: SessionUser): Promise<ProjectDto[]> {
+  async list(user: SessionUser, includeArchived = false): Promise<ProjectDto[]> {
     const projects = await this.prisma.project.findMany({
-      where: { orgId: user.orgId },
+      where: {
+        orgId: user.orgId,
+        ...(includeArchived ? {} : { archivedAt: null }),
+      },
       orderBy: [{ name: 'asc' }],
     });
 
@@ -69,7 +76,9 @@ export class ProjectService {
     });
     if (!project) throw new NotFoundException('project not found');
     const stores = await this.prisma.store.findMany({
-      where: { projectId: id, orgId: user.orgId },
+      // Active venues only — a closed store is retired from the venue list (and
+      // the studio store switcher that reads it).
+      where: { projectId: id, orgId: user.orgId, closedAt: null },
       orderBy: { name: 'asc' },
       select: { id: true, name: true },
     });
@@ -97,6 +106,93 @@ export class ProjectService {
       },
     });
     return this.toProjectDto(project);
+  }
+
+  /**
+   * Rename a project and/or change its kind (ADMIN; org-scoped, 404 across
+   * tenants). The `slug` is deliberately left untouched — it's the project's
+   * stable per-org key, so a rename never rewrites links/lookups. Only the keys
+   * the caller sent are written. Returns the refreshed ProjectDto.
+   */
+  async update(
+    orgId: string,
+    id: string,
+    input: UpdateProjectInput,
+  ): Promise<ProjectDto> {
+    const existing = await this.prisma.project.findFirst({
+      where: { id, orgId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('project not found');
+
+    const data: { name?: string; kind?: ProjectKind } = {};
+    if (input.name !== undefined) data.name = input.name;
+    if (input.kind !== undefined) data.kind = input.kind;
+
+    const updated = await this.prisma.project.update({
+      where: { id: existing.id },
+      data,
+    });
+    return this.toProjectDto(updated);
+  }
+
+  /**
+   * Soft-delete: stamp archivedAt so the project leaves the working list (and
+   * the studio project switcher) while its campaigns/stores/bulletins stay
+   * intact — reversible via unarchive. Org-scoped; 404 if not found/already
+   * archived.
+   */
+  async archive(orgId: string, id: string): Promise<ProjectDto> {
+    const res = await this.prisma.project.updateMany({
+      where: { id, orgId, archivedAt: null },
+      data: { archivedAt: new Date() },
+    });
+    if (res.count === 0) throw new NotFoundException('project not found');
+    return this.get({ orgId } as SessionUser, id);
+  }
+
+  /** Restore an archived project back into the working list. Org-scoped. */
+  async unarchive(orgId: string, id: string): Promise<ProjectDto> {
+    const res = await this.prisma.project.updateMany({
+      where: { id, orgId, archivedAt: { not: null } },
+      data: { archivedAt: null },
+    });
+    if (res.count === 0) {
+      throw new NotFoundException('project not found or not archived');
+    }
+    return this.get({ orgId } as SessionUser, id);
+  }
+
+  /**
+   * Hard-delete: remove the project row. Org-scoped; 404 if not found.
+   *
+   * SAFETY: a Project owns its campaigns, stores, and bulletins (and everything
+   * that hangs off them — floor plans, captures, sales, …). So if the project
+   * still owns ANY of those, we refuse the hard delete (409) and steer the
+   * caller to Archive, which keeps that history intact. Only an empty project
+   * (no campaigns, stores, or bulletins) can be hard-deleted.
+   */
+  async remove(orgId: string, id: string): Promise<void> {
+    const project = await this.prisma.project.findFirst({
+      where: { id, orgId },
+      select: { id: true },
+    });
+    if (!project) throw new NotFoundException('project not found');
+
+    const [campaigns, stores, bulletins] = await Promise.all([
+      this.prisma.campaign.count({ where: { projectId: id } }),
+      this.prisma.store.count({ where: { projectId: id } }),
+      this.prisma.bulletin.count({ where: { projectId: id } }),
+    ]);
+
+    if (campaigns > 0 || stores > 0 || bulletins > 0) {
+      throw new ConflictException(
+        'this project still owns stores, campaigns, or bulletins — archive it ' +
+          'instead to keep that history intact',
+      );
+    }
+
+    await this.prisma.project.delete({ where: { id: project.id } });
   }
 
   // ----- helpers ------------------------------------------------------------
@@ -143,12 +239,14 @@ export class ProjectService {
     name: string;
     slug: string;
     kind: string;
+    archivedAt?: Date | null;
   }): Promise<ProjectDto> {
     const campaign = await this.activeCampaign(project.id);
 
-    // Venues = the project's stores. Computed even with no campaign.
+    // Venues = the project's ACTIVE stores. Computed even with no campaign;
+    // closed (retired) stores are excluded so the count matches the venue list.
     const venueCount = await this.prisma.store.count({
-      where: { projectId: project.id },
+      where: { projectId: project.id, closedAt: null },
     });
 
     // Setup progress only has meaning against a campaign (the guide). With no
@@ -158,7 +256,7 @@ export class ProjectService {
     if (campaign) {
       const storeIds = (
         await this.prisma.store.findMany({
-          where: { projectId: project.id },
+          where: { projectId: project.id, closedAt: null },
           select: { id: true },
         })
       ).map((s) => s.id);
@@ -190,6 +288,7 @@ export class ProjectService {
       name: project.name,
       slug: project.slug,
       kind: toProjectKind(project.kind),
+      archivedAt: project.archivedAt ? project.archivedAt.toISOString() : null,
       campaignId: campaign?.id ?? null,
       campaignKey: campaign?.key ?? null,
       campaignName: campaign?.name ?? null,

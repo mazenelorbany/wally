@@ -15,6 +15,7 @@ import {
   Layers,
   Users,
   ClipboardList,
+  LayoutTemplate,
   Megaphone,
   GraduationCap,
   LogOut,
@@ -69,8 +70,7 @@ const GROUPS: NavGroup[] = [
       {
         label: 'Review',
         icon: ClipboardCheck,
-        to: () => '/console',
-        external: true,
+        to: () => '/studio/review',
       },
     ],
   },
@@ -111,6 +111,7 @@ const GROUPS: NavGroup[] = [
       },
       { label: 'Users', icon: Users, to: () => '/studio/users' },
       { label: 'Rubrics', icon: ClipboardList, to: () => '/studio/rubrics' },
+      { label: 'Flyers', icon: LayoutTemplate, to: () => '/studio/flyers' },
     ],
   },
 ];

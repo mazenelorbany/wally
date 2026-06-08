@@ -43,10 +43,9 @@ const PILLARS: Pillar[] = [
   },
   {
     label: 'Review',
-    desc: 'Score and sign off store submissions in the console.',
+    desc: 'Score and sign off store submissions.',
     icon: ClipboardCheck,
-    to: '/console',
-    external: true,
+    to: '/studio/review',
   },
   {
     label: 'Money Map',

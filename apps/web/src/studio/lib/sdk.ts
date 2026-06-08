@@ -11,11 +11,13 @@
 // =============================================================================
 
 import type {
+  CreateProductBody,
   Fixture,
   FloorPlan,
   GuideFixtureDetail,
   ProductDto,
-} from '@wally/types';
+  UpdateProductBody,
+} from '@wally/sdk';
 
 import { api } from '../../lib/api';
 
@@ -34,13 +36,15 @@ export interface ProductFilters {
   brand?: string;
   category?: string;
   color?: string;
+  /** Include archived (soft-deleted) products in the result. Default: hidden. */
+  includeArchived?: boolean;
 }
 
 /** The guide-author surface of the Wally API (added to createClient by builder C). */
 export interface StudioApi {
   fixtures: {
-    /** The org's reusable fixture library. */
-    list(): Promise<Fixture[]>;
+    /** The fixture library, scoped to a project (its own + shared) when given. */
+    list(projectId?: string): Promise<Fixture[]>;
   };
   floorplan: {
     /** A store's floor plan for one campaign: placed fixtures laid out. */
@@ -71,10 +75,42 @@ export interface StudioApi {
       guideFixtureId: string,
       body: { shelves: { row: string; merchandiseIds: string[] }[] },
     ): Promise<GuideFixtureDetail>;
+    /** Upload a "what good looks like" reference image (optional caption). */
+    addExampleImage(
+      guideFixtureId: string,
+      file: Blob | File,
+      caption?: string,
+    ): Promise<GuideFixtureDetail>;
+    /** Edit an example image's caption (empty string clears it). */
+    updateExampleImageCaption(
+      guideFixtureId: string,
+      imageId: string,
+      caption: string,
+    ): Promise<GuideFixtureDetail>;
+    /** Mark an example image best-in-class (unsets its siblings). */
+    setExampleImageBestInClass(
+      guideFixtureId: string,
+      imageId: string,
+    ): Promise<GuideFixtureDetail>;
+    /** Remove an example image. */
+    removeExampleImage(
+      guideFixtureId: string,
+      imageId: string,
+    ): Promise<GuideFixtureDetail>;
   };
   products: {
     /** The merchandising catalog, optionally filtered. */
     list(filters?: ProductFilters): Promise<ProductDto[]>;
+    /** Add a product to the catalog. ADMIN; 409 on a duplicate sku. */
+    create(body: CreateProductBody): Promise<ProductDto>;
+    /** Edit a product (sku editable, still unique-checked). ADMIN; 409 on collision. */
+    update(id: string, body: UpdateProductBody): Promise<ProductDto>;
+    /** Soft-delete: leave the working catalog, keep merchandise + sales. ADMIN. */
+    archive(id: string): Promise<ProductDto>;
+    /** Restore an archived product back into the working catalog. ADMIN. */
+    unarchive(id: string): Promise<ProductDto>;
+    /** Hard-delete. ADMIN; 409 if the product is merchandised or has sales. */
+    remove(id: string): Promise<void>;
   };
 }
 

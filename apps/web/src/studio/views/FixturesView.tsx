@@ -1,8 +1,9 @@
 import * as React from 'react';
-import { Boxes, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Boxes, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import {
   Badge,
   Button,
+  cn,
   Card,
   Dialog,
   DialogClose,
@@ -42,6 +43,7 @@ import { fixtureKindMeta } from '../lib/fixtureKind';
 import { ProductThumb } from '../components/ProductThumb';
 import { PlanogramEditor } from '../components/PlanogramEditor';
 import { useSetStudioTopBar } from '../components/StudioContext';
+import { useProject } from '../ProjectContext';
 
 const KINDS: FixtureKind[] = [
   'bay',
@@ -59,10 +61,39 @@ const fieldCls =
 
 /** The org's fixture library — add, browse, and remove reusable fixtures. */
 export function FixturesView() {
-  const fixturesQ = useFixtures();
+  // Scope the library to the project the admin is working in: its own fixtures
+  // plus shared ones. Myer and Ambiente keep separate libraries this way.
+  const { projectId, project } = useProject();
+  const fixturesQ = useFixtures(projectId);
   const fixtures = fixturesQ.data ?? [];
 
   useSetStudioTopBar({ guideName: 'Fixture library', stores: [] });
+
+  const [searchInput, setSearchInput] = React.useState('');
+  const [kind, setKind] = React.useState<FixtureKind | ''>('');
+  // '' = all departments, '__none' = unclassified only, else a department value.
+  const [department, setDepartment] = React.useState<Department | '' | '__none'>(
+    '',
+  );
+
+  const hasFilters = Boolean(searchInput || kind || department);
+  const clearAll = () => {
+    setSearchInput('');
+    setKind('');
+    setDepartment('');
+  };
+
+  const filtered = React.useMemo(() => {
+    const q = searchInput.trim().toLowerCase();
+    return fixtures.filter((f) => {
+      if (q && !f.name.toLowerCase().includes(q)) return false;
+      if (kind && f.kind !== kind) return false;
+      if (department === '__none' && f.department) return false;
+      if (department && department !== '__none' && f.department !== department)
+        return false;
+      return true;
+    });
+  }, [fixtures, searchInput, kind, department]);
 
   const [addOpen, setAddOpen] = React.useState(false);
   const [pendingDelete, setPendingDelete] = React.useState<Fixture | null>(
@@ -95,6 +126,63 @@ export function FixturesView() {
         ) : null}
       </header>
 
+      {/* Controls — filter the library by name, type, and department. Hidden
+          until there's something to filter (and never on error). */}
+      {!fixturesQ.isLoading && !fixturesQ.isError && fixtures.length > 0 ? (
+        <div className="mb-5 flex flex-wrap items-center gap-2.5">
+          <div className="relative min-w-[14rem] flex-1">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-steel"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search fixtures by name…"
+              aria-label="Search fixtures"
+              className="h-9 w-full rounded-md border border-mist bg-surface/50 pl-9 pr-3 font-sans text-sm text-ink placeholder:text-steel transition-colors hover:bg-surface focus-visible:bg-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
+            />
+          </div>
+
+          <FilterSelect
+            label="Type"
+            value={kind}
+            onChange={(v) => setKind(v as FixtureKind | '')}
+            options={[
+              { value: '', label: 'All types' },
+              ...KINDS.map((k) => ({
+                value: k,
+                label: fixtureKindMeta(k).label,
+              })),
+            ]}
+          />
+          <FilterSelect
+            label="Department"
+            value={department}
+            onChange={(v) => setDepartment(v as Department | '' | '__none')}
+            options={[
+              { value: '', label: 'All departments' },
+              ...DEPARTMENTS.map((d) => ({ value: d, label: d })),
+              { value: '__none', label: 'Unclassified' },
+            ]}
+          />
+
+          {hasFilters ? (
+            <Button variant="ghost" size="sm" onClick={clearAll}>
+              <X className="h-3.5 w-3.5" />
+              Clear
+            </Button>
+          ) : null}
+
+          <span className="ml-auto text-xs text-steel">
+            {`${filtered.length} of ${fixtures.length} fixture${
+              fixtures.length === 1 ? '' : 's'
+            }`}
+          </span>
+        </div>
+      ) : null}
+
       {fixturesQ.isLoading ? (
         <Grid>
           {Array.from({ length: 8 }).map((_, i) => (
@@ -109,9 +197,19 @@ export function FixturesView() {
           title="No fixtures yet"
           body="Add your first fixture and it'll be available to place on any store's floor plan."
         />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={Boxes}
+          title="No matches"
+          body="No fixtures match these filters. Try a broader search or clear them."
+        >
+          <Button variant="outline" size="sm" onClick={clearAll}>
+            Clear filters
+          </Button>
+        </EmptyState>
       ) : (
         <Grid>
-          {fixtures.map((f) => {
+          {filtered.map((f) => {
             const meta = fixtureKindMeta(f.kind);
             const Icon = meta.icon;
             const inner = (
@@ -133,6 +231,14 @@ export function FixturesView() {
                     {f.department ? (
                       <Badge variant="outline" className="tracking-tight">
                         {f.department}
+                      </Badge>
+                    ) : null}
+                    {!f.projectId ? (
+                      <Badge
+                        variant="outline"
+                        className="tracking-tight text-steel"
+                      >
+                        Shared
                       </Badge>
                     ) : null}
                   </div>
@@ -193,10 +299,17 @@ export function FixturesView() {
         </Grid>
       )}
 
-      <AddFixtureDialog open={addOpen} onOpenChange={setAddOpen} />
+      <AddFixtureDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        projectId={projectId}
+        projectName={project?.name}
+      />
       <EditFixtureDialog
         fixture={editing}
         onClose={() => setEditing(null)}
+        projectId={projectId}
+        projectName={project?.name}
       />
       <DeleteFixtureDialog
         fixture={pendingDelete}
@@ -218,23 +331,97 @@ function Grid({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Create a new library fixture (name + kind). */
+/** Ownership control for the add/edit dialogs: own this project, or share it. */
+function OwnershipField({
+  shared,
+  setShared,
+  projectName,
+}: {
+  shared: boolean;
+  setShared: (v: boolean) => void;
+  projectName: string | undefined;
+}) {
+  return (
+    <div className="block">
+      <span className="mb-1.5 block text-xs font-medium text-graphite">
+        Availability
+      </span>
+      <label className="flex cursor-pointer select-none items-start gap-2 rounded-md border border-mist/70 bg-paper px-3 py-2 text-sm">
+        <input
+          type="checkbox"
+          checked={shared}
+          onChange={(e) => setShared(e.target.checked)}
+          className="mt-0.5 h-3.5 w-3.5 rounded border-mist accent-graphite"
+        />
+        <span className="text-graphite">
+          Shared across all projects
+          <span className="mt-0.5 block text-xs text-steel">
+            {shared
+              ? 'Appears in every project’s library and floor plans.'
+              : `Belongs to ${projectName ?? 'this project'} only.`}
+          </span>
+        </span>
+      </label>
+    </div>
+  );
+}
+
+/** A labelled dropdown for the library filter bar (value/label option pairs). */
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <select
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={cn(
+        'h-9 rounded-md border border-mist bg-surface/50 px-3 font-sans text-sm transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30',
+        value ? 'text-ink' : 'text-steel',
+      )}
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** Create a new library fixture (name + kind), owned by the current project. */
 function AddFixtureDialog({
   open,
   onOpenChange,
+  projectId,
+  projectName,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  projectId: string | undefined;
+  projectName: string | undefined;
 }) {
   const create = useCreateFixture();
   const [name, setName] = React.useState('');
   const [kind, setKind] = React.useState<FixtureKind>('bay');
   const [department, setDepartment] = React.useState<Department | ''>('');
+  // New fixtures belong to the current project by default; sharing lifts them
+  // into every project's library.
+  const [shared, setShared] = React.useState(false);
 
   const close = () => {
     setName('');
     setKind('bay');
     setDepartment('');
+    setShared(false);
     create.reset();
     onOpenChange(false);
   };
@@ -244,7 +431,13 @@ function AddFixtureDialog({
     const trimmed = name.trim();
     if (!trimmed || create.isPending) return;
     create.mutate(
-      { name: trimmed, kind, ...(department ? { department } : {}) },
+      {
+        name: trimmed,
+        kind,
+        ...(department ? { department } : {}),
+        // null = shared; otherwise scope to the project being viewed.
+        projectId: shared ? null : projectId ?? null,
+      },
       { onSuccess: close },
     );
   };
@@ -316,6 +509,12 @@ function AddFixtureDialog({
             </select>
           </label>
 
+          <OwnershipField
+            shared={shared}
+            setShared={setShared}
+            projectName={projectName}
+          />
+
           {create.isError ? (
             <p className="text-sm text-fail">{errorMessage(create.error)}</p>
           ) : null}
@@ -336,18 +535,23 @@ function AddFixtureDialog({
   );
 }
 
-/** Edit a library fixture — rename, re-kind, re-classify its department. */
+/** Edit a library fixture — rename, re-kind, re-classify, re-home its project. */
 function EditFixtureDialog({
   fixture,
   onClose,
+  projectId,
+  projectName,
 }: {
   fixture: Fixture | null;
   onClose: () => void;
+  projectId: string | undefined;
+  projectName: string | undefined;
 }) {
   const update = useUpdateFixture();
   const [name, setName] = React.useState('');
   const [kind, setKind] = React.useState<FixtureKind>('bay');
   const [department, setDepartment] = React.useState<Department | ''>('');
+  const [shared, setShared] = React.useState(false);
 
   // Seed the form whenever a new fixture opens.
   React.useEffect(() => {
@@ -355,6 +559,7 @@ function EditFixtureDialog({
       setName(fixture.name);
       setKind(fixture.kind);
       setDepartment(fixture.department ?? '');
+      setShared(!fixture.projectId);
       update.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -371,12 +576,15 @@ function EditFixtureDialog({
     const trimmed = name.trim();
     if (!trimmed || update.isPending) return;
     // `department` is tri-state: a value sets it, '' clears it (null).
+    // Ownership: shared → null; otherwise keep the fixture in its current
+    // project (falling back to the one being viewed).
     update.mutate(
       {
         id: fixture.id,
         name: trimmed,
         kind,
         department: department === '' ? null : department,
+        projectId: shared ? null : fixture.projectId ?? projectId ?? null,
       },
       { onSuccess: close },
     );
@@ -448,6 +656,12 @@ function EditFixtureDialog({
               ))}
             </select>
           </label>
+
+          <OwnershipField
+            shared={shared}
+            setShared={setShared}
+            projectName={projectName}
+          />
 
           {update.isError ? (
             <p className="text-sm text-fail">{errorMessage(update.error)}</p>

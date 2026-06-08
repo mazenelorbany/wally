@@ -5,10 +5,12 @@ import {
 } from '@nestjs/common';
 import {
   CampaignStatus,
+  CaptureVerdict,
   JobStatus,
   Overall as DbOverall,
   PhotoStatus,
   Prisma,
+  SnapshotSource,
   SubmissionStatus,
   type Photo,
 } from '@prisma/client';
@@ -19,10 +21,9 @@ import type {
   Criterion,
   CriterionResult,
   Flag,
-  FixtureOutcome,
-  FixtureStatus,
   Overall,
   SessionUser,
+  StoreSales,
   StoreScore,
 } from '@wally/types';
 import sharp from 'sharp';
@@ -30,6 +31,7 @@ import sharp from 'sharp';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { storeRollup, ApplicabilityError } from '../scoring/store-rollup';
+import { loadStoreCompliance } from '../scoring/store-compliance';
 
 // A Verdict joined with its Rubric (+ campaign key) — everything presentVerdict
 // needs to emit the reviewer-bench ScoreResult (the rubricVersion stamp and the
@@ -87,6 +89,16 @@ const STORE_BAND_RANK: Record<StoreScore['overall'], number> = {
   good: 3,
   perfect: 4,
 };
+
+/**
+ * An OPTIONAL analytics date window. Both bounds are optional and the whole
+ * object is optional — when nothing is supplied the surface is all-time (the
+ * unchanged, backward-compatible behaviour every existing caller relies on).
+ */
+export interface DateWindow {
+  from?: Date;
+  to?: Date;
+}
 
 const MAX_PHOTO_BYTES = 15 * 1024 * 1024; // 15 MB — generous for a phone photo.
 const ALLOWED_MIME = new Set([
@@ -301,11 +313,15 @@ export class SubmissionService {
    * with no applicable fixtures at all are surfaced as a soft "no fixtures" row
    * rather than crashing the whole queue on one mis-configured store.
    */
-  async campaignQueue(orgId: string, campaignId: string) {
+  async campaignQueue(orgId: string, campaignId: string, window?: DateWindow) {
     const campaign = await this.requireCampaign(orgId, campaignId);
 
+    // Only ACTIVE stores belong in the reviewer queue / leaderboard / snapshot
+    // counts — a closed store is retired, so it shouldn't drag pass-rate or
+    // appear as a row to action. (captureSnapshot + campaignTurnaround build on
+    // this same set, so all three roll-ups stay consistent.)
     const stores = await this.prisma.store.findMany({
-      where: { orgId },
+      where: { orgId, closedAt: null },
       orderBy: [{ brand: 'asc' }, { name: 'asc' }],
     });
 
@@ -313,13 +329,18 @@ export class SubmissionService {
     const skipped: { storeId: string; storeName: string; reason: string }[] = [];
 
     for (const store of stores) {
-      const built = await this.buildStoreScore(store.id, campaign.id, {
-        storeName: store.name,
-        campaignKey: campaign.key,
-        region: store.region,
-        areaManager: store.areaManager,
-        storeType: store.storeType,
-      });
+      const built = await this.buildStoreScore(
+        store.id,
+        campaign.id,
+        {
+          storeName: store.name,
+          campaignKey: campaign.key,
+          region: store.region,
+          areaManager: store.areaManager,
+          storeType: store.storeType,
+        },
+        window,
+      );
       if (built.kind === 'score') scores.push(built.score);
       else skipped.push({ storeId: store.id, storeName: store.name, reason: built.reason });
     }
@@ -334,41 +355,117 @@ export class SubmissionService {
   }
 
   /**
+   * Per-store sales rollup for a campaign — units + revenue logged across the
+   * (optional) window, used by the sales-primary leaderboard. The window bounds
+   * the sale DAY (SalesEntry.soldOn, date-only). Every ACTIVE store is returned,
+   * including ones with no sales yet (units/revenue = 0), so the leaderboard
+   * shows the full roster — consistent with the queue's ACTIVE-only store set.
+   */
+  async campaignSales(
+    orgId: string,
+    campaignId: string,
+    window?: DateWindow,
+  ): Promise<StoreSales[]> {
+    await this.requireCampaign(orgId, campaignId);
+
+    const stores = await this.prisma.store.findMany({
+      where: { orgId, closedAt: null },
+      select: { id: true, name: true, region: true },
+      orderBy: [{ brand: 'asc' }, { name: 'asc' }],
+    });
+
+    // soldOn is a date-only column; bound it by the window when supplied.
+    const soldOn =
+      window && (window.from || window.to)
+        ? {
+            ...(window.from ? { gte: window.from } : {}),
+            ...(window.to ? { lte: window.to } : {}),
+          }
+        : undefined;
+
+    const grouped = await this.prisma.salesEntry.groupBy({
+      by: ['storeId'],
+      where: { orgId, campaignId, ...(soldOn ? { soldOn } : {}) },
+      _sum: { units: true, revenue: true },
+    });
+    const byStore = new Map(grouped.map((g) => [g.storeId, g._sum]));
+
+    return stores.map((s) => {
+      const sum = byStore.get(s.id);
+      return {
+        storeId: s.id,
+        storeName: s.name,
+        region: s.region,
+        units: sum?.units ?? 0,
+        revenue: sum?.revenue ?? 0,
+      };
+    });
+  }
+
+  /**
    * Operational turnaround for a campaign: how fast AI verdicts get a reviewer
-   * action, and which stores needed the most rework (override/escalate).
+   * action, and which stores needed the most rework (override).
+   *
+   * MIGRATED to the live FixtureCapture pipeline (from the legacy
+   * Review/Verdict pipeline). A "review" is a FixtureCapture with a reviewer
+   * decision (`reviewedAt` not null — the reviewer-override fields on the capture):
+   *   - reviewedCount   = captures with reviewedAt set;
+   *   - turnaround time = uploadedAt → reviewedAt (per capture);
+   *   - revisionCount   = reviewed captures whose human override differs from the
+   *                       AI verdict (a genuine rework, vs. a confirm-in-place);
+   *   - awaitingReview  = captures whose EFFECTIVE verdict is NEEDS_REVIEW with
+   *                       reviewedAt null (the honest still-waiting backlog);
+   *   - oldestPendingAgeMinutes = the oldest such capture's uploadedAt/scoredAt age.
+   * The TurnaroundDto OUTPUT shape is unchanged.
    */
   async campaignTurnaround(
     orgId: string,
     campaignId: string,
+    window?: DateWindow,
   ): Promise<ComplianceTurnaround> {
     await this.requireCampaign(orgId, campaignId);
 
-    const reviews = await this.prisma.review.findMany({
-      where: { verdict: { photo: { submission: { campaignId } } } },
+    // All captures for the campaign with the store name (for mostRevised). The
+    // window (when supplied) bounds reviewedAt for the reviewed set and the
+    // capture's upload/score time for the pending set — applied in memory below
+    // since the two need different timestamp predicates.
+    const captures = await this.prisma.fixtureCapture.findMany({
+      where: { campaignId },
       select: {
-        action: true,
-        createdAt: true,
-        verdict: {
-          select: {
-            createdAt: true,
-            photo: {
-              select: {
-                submission: {
-                  select: {
-                    storeId: true,
-                    store: { select: { name: true } },
-                  },
-                },
-              },
-            },
-          },
-        },
+        storeId: true,
+        verdict: true,
+        overrideVerdict: true,
+        uploadedAt: true,
+        scoredAt: true,
+        reviewedAt: true,
+        store: { select: { name: true } },
       },
     });
 
-    const durations = reviews
-      .map((r) => (r.createdAt.getTime() - r.verdict.createdAt.getTime()) / 60000)
-      .filter((m) => m >= 0)
+    const inWin = (d: Date | null | undefined): boolean => {
+      if (!window || (!window.from && !window.to)) return true;
+      if (!d) return false;
+      if (window.from && d < window.from) return false;
+      if (window.to && d > window.to) return false;
+      return true;
+    };
+
+    // Reviewed = a human decision was stamped (reviewedAt). Window bounds the
+    // reviewer action time — absent window = all-time, unchanged.
+    const reviewed = captures.filter(
+      (c) => c.reviewedAt != null && inWin(c.reviewedAt),
+    );
+
+    // Turnaround per reviewed capture: uploadedAt → reviewedAt. A capture missing
+    // an uploadedAt (a reviewer judged a never-shot fixture) contributes no
+    // duration but still counts as reviewed.
+    const durations = reviewed
+      .map((c) =>
+        c.uploadedAt && c.reviewedAt
+          ? (c.reviewedAt.getTime() - c.uploadedAt.getTime()) / 60000
+          : null,
+      )
+      .filter((m): m is number => m != null && m >= 0)
       .sort((a, b) => a - b);
     const avg =
       durations.length > 0
@@ -379,30 +476,55 @@ export class SubmissionService {
         ? (durations[Math.floor((durations.length - 1) / 2)] ?? null)
         : null;
 
-    const revisions = reviews.filter((r) => r.action !== 'CONFIRM');
+    // A revision = a reviewed capture whose human override differs from the AI
+    // verdict (the reviewer changed the call — the FixtureCapture equivalent of a
+    // non-CONFIRM Review). An override that matches the AI verdict is a confirm.
+    const revisions = reviewed.filter(
+      (c) => c.overrideVerdict != null && c.overrideVerdict !== c.verdict,
+    );
     const byStore = new Map<
       string,
       { storeId: string; storeName: string; revisions: number }
     >();
-    for (const r of revisions) {
-      const sub = r.verdict.photo.submission;
-      const cur = byStore.get(sub.storeId) ?? {
-        storeId: sub.storeId,
-        storeName: sub.store.name,
+    for (const c of revisions) {
+      const cur = byStore.get(c.storeId) ?? {
+        storeId: c.storeId,
+        storeName: c.store.name,
         revisions: 0,
       };
       cur.revisions += 1;
-      byStore.set(sub.storeId, cur);
+      byStore.set(c.storeId, cur);
     }
     const mostRevised = [...byStore.values()]
       .sort((a, b) => b.revisions - a.revisions)
       .slice(0, 5);
 
+    // The actionable backlog the average hides: captures whose EFFECTIVE verdict
+    // (override ?? ai) is NEEDS_REVIEW with NO reviewer decision yet. The window
+    // bounds the capture's upload/score time so the backlog is for the period.
+    const pending = captures.filter((c) => {
+      const effective = c.overrideVerdict ?? c.verdict;
+      if (effective !== CaptureVerdict.NEEDS_REVIEW) return false;
+      if (c.reviewedAt != null) return false;
+      return inWin(c.uploadedAt ?? c.scoredAt);
+    });
+    const now = Date.now();
+    const pendingAges = pending
+      .map((c) => c.uploadedAt ?? c.scoredAt)
+      .filter((d): d is Date => d != null)
+      .map((d) => now - d.getTime());
+    const oldestPendingAgeMinutes =
+      pendingAges.length > 0
+        ? Math.round(Math.max(...pendingAges) / 60000)
+        : null;
+
     return {
-      reviewedCount: reviews.length,
+      reviewedCount: reviewed.length,
       avgReviewMinutes: avg,
       medianReviewMinutes: median,
       revisionCount: revisions.length,
+      awaitingReview: pending.length,
+      oldestPendingAgeMinutes,
       mostRevised,
     };
   }
@@ -411,10 +533,17 @@ export class SubmissionService {
    * Capture today's compliance rollup for a campaign as a snapshot (idempotent
    * per day via upsert on (campaignId, dateKey)). Reuses the live queue rollup,
    * so the snapshot matches exactly what the dashboard shows right now.
+   *
+   * `source` records who wrote the point. The write rule keeps the CRON row
+   * canonical: a MANUAL capture (the admin "capture now" button) refreshes its
+   * own MANUAL point but NEVER overwrites an existing CRON row for the same day —
+   * so an intra-day manual capture can't clobber the authoritative end-of-day
+   * value. CRON always writes (and may overwrite a same-day MANUAL placeholder).
    */
   async captureSnapshot(
     orgId: string,
     campaignId: string,
+    source: SnapshotSource = SnapshotSource.MANUAL,
   ): Promise<ComplianceTrendPoint> {
     const queue = await this.campaignQueue(orgId, campaignId);
     const stores = queue.stores;
@@ -437,12 +566,46 @@ export class SubmissionService {
       passing: stores.reduce((a, s) => a + passing(s), 0),
     };
     const dateKey = new Date().toISOString().slice(0, 10);
+
+    const existing = await this.prisma.complianceSnapshot.findUnique({
+      where: { campaignId_dateKey: { campaignId, dateKey } },
+      select: { source: true },
+    });
+    // Manual capture must not overwrite the day's canonical CRON row — return it
+    // untouched so the trend keeps the authoritative value.
+    if (
+      existing &&
+      existing.source === SnapshotSource.CRON &&
+      source === SnapshotSource.MANUAL
+    ) {
+      const row = await this.prisma.complianceSnapshot.findUniqueOrThrow({
+        where: { campaignId_dateKey: { campaignId, dateKey } },
+      });
+      return toTrendPoint(row);
+    }
+
     const row = await this.prisma.complianceSnapshot.upsert({
       where: { campaignId_dateKey: { campaignId, dateKey } },
-      create: { orgId, campaignId, dateKey, ...agg },
-      update: { ...agg, capturedAt: new Date() },
+      create: { orgId, campaignId, dateKey, source, ...agg },
+      update: { ...agg, source, capturedAt: new Date() },
     });
     return toTrendPoint(row);
+  }
+
+  /**
+   * Prune a single bad trend point by its dateKey (e.g. an empty-day capture
+   * skewing the line). ADMIN-only, org-scoped. No-op safe: a missing point is
+   * not an error — the goal state (point gone) is already met.
+   */
+  async deleteTrendPoint(
+    orgId: string,
+    campaignId: string,
+    dateKey: string,
+  ): Promise<void> {
+    await this.requireCampaign(orgId, campaignId);
+    await this.prisma.complianceSnapshot.deleteMany({
+      where: { orgId, campaignId, dateKey },
+    });
   }
 
   /** The campaign's compliance snapshots over time, oldest first. */
@@ -478,14 +641,24 @@ export class SubmissionService {
 
   /**
    * The shared core both queue and store-score use. Builds a FixtureOutcome[]
-   * from the store's StoreFixtures (applicability + order), the photos uploaded
-   * for each fixture, and their verdicts, then defers to the pure storeRollup().
+   * from the live FixtureCapture pipeline (the CANONICAL source the manager
+   * floor map writes to) and defers to the pure storeRollup().
    *
-   * Outcome status per fixture:
-   *   not_applicable → StoreFixture.applicable = false
-   *   scored         → has a photo with a verdict
-   *   not_submitted  → applicable but no scored photo yet (uploaded-but-pending
-   *                    also counts as not_submitted — nothing to grade on yet)
+   * SOURCE (migrated from the legacy Submission/Photo/Verdict pipeline):
+   *   - EXPECTED fixtures = the store's applicable Placements for the campaign
+   *     (Placement.applicable=true; label = placement.label || fixture.name;
+   *     fixtureKey = the stable fixtureId — the join key the capture loop uses).
+   *   - VERDICT per fixture = its FixtureCapture's EFFECTIVE verdict
+   *     (`overrideVerdict ?? verdict`), mapped CaptureVerdict → core Overall:
+   *     PASS→good, FAIL→not_good, NEEDS_REVIEW→needs_review.
+   *
+   * Outcome status per fixture (see loadStoreCompliance):
+   *   not_applicable → Placement.applicable = false
+   *   scored         → a capture with a photo + an effective verdict (in-window)
+   *   not_submitted  → applicable placement with no in-window scored capture yet
+   *
+   * The optional `window` bounds which captures count (by uploadedAt, falling
+   * back to scoredAt). Absent window = all-time (unchanged).
    */
   private async buildStoreScore(
     storeId: string,
@@ -497,74 +670,33 @@ export class SubmissionService {
       areaManager?: string | null;
       storeType?: string | null;
     },
+    window?: DateWindow,
   ): Promise<
     | { kind: 'score'; score: StoreScore }
     | { kind: 'empty'; reason: string }
   > {
-    const fixtures = await this.prisma.storeFixture.findMany({
-      where: { storeId, campaignId },
-      orderBy: { order: 'asc' },
-    });
+    const { outcomes, hasPlacements } = await loadStoreCompliance(
+      this.prisma,
+      storeId,
+      campaignId,
+      window,
+    );
 
-    if (fixtures.length === 0) {
+    if (!hasPlacements) {
       return {
         kind: 'empty',
         reason: `store has no fixtures configured for this campaign`,
       };
     }
 
-    // Pull the store's photos + verdicts for this campaign in one query, then
-    // index the freshest verdict-bearing photo per fixtureKey.
-    const submission = await this.prisma.submission.findUnique({
-      where: { storeId_campaignId: { storeId, campaignId } },
-      include: {
-        photos: {
-          orderBy: { createdAt: 'desc' },
-          include: { verdict: { select: { id: true, overall: true } } },
-        },
-      },
-    });
-
-    const scoredByFixture = new Map<string, { photoId: string; overall: Overall }>();
-    for (const photo of submission?.photos ?? []) {
-      if (scoredByFixture.has(photo.fixtureKey)) continue; // keep newest only
-      if (photo.verdict) {
-        scoredByFixture.set(photo.fixtureKey, {
-          photoId: photo.id,
-          overall: dbOverallToCore(photo.verdict.overall),
-        });
-      }
-    }
-
-    const outcomes: FixtureOutcome[] = fixtures.map((f) => {
-      if (!f.applicable) {
-        return {
-          fixture: f.fixtureKey,
-          label: f.label,
-          status: 'not_applicable' as FixtureStatus,
-        };
-      }
-      const scored = scoredByFixture.get(f.fixtureKey);
-      if (scored) {
-        return {
-          fixture: f.fixtureKey,
-          label: f.label,
-          status: 'scored' as FixtureStatus,
-          overall: scored.overall,
-          photoId: scored.photoId,
-        };
-      }
-      return {
-        fixture: f.fixtureKey,
-        label: f.label,
-        status: 'not_submitted' as FixtureStatus,
-      };
-    });
-
-    // rubricVersions stamp = the distinct rubric stamps backing the scored
-    // verdicts. Resolve them from the verdicts' rubrics so the StoreScore can be
-    // traced to exact rubric versions.
-    const rubricVersions = await this.rubricVersionsFor(submission?.id);
+    // rubricVersions stamp = the campaign's active rubric versions. FixtureCapture
+    // (unlike the legacy Verdict) carries no per-shot rubric FK, so the StoreScore
+    // is stamped with the campaign's live grading versions instead — the rubrics
+    // the capture scorer actually grades against (empty array when none exist).
+    const rubricVersions = await this.rubricVersionsForCampaign(
+      campaignId,
+      meta.campaignKey,
+    );
 
     try {
       const score = storeRollup({
@@ -576,9 +708,13 @@ export class SubmissionService {
       });
       return {
         kind: 'score',
+        // submissionId is retained on the contract but is no longer sourced from
+        // the legacy Submission row (the capture pipeline has no submission). The
+        // reviewer-console deep-link is migrated in a later batch; keep it null
+        // here rather than re-querying the orphaned Submission.
         score: {
           ...score,
-          submissionId: submission?.id ?? null,
+          submissionId: null,
           region: meta.region ?? null,
           areaManager: meta.areaManager ?? null,
           storeType: meta.storeType ?? null,
@@ -595,25 +731,36 @@ export class SubmissionService {
   }
 
   /**
-   * The distinct rubric stamps (`<fixtureKey>.<campaignKey>.v<version>`) behind a
-   * submission's verdicts. Returns [] when nothing is scored yet.
+   * The distinct rubric stamps (`<fixtureKey>.<campaignKey>.v<version>`) for a
+   * campaign's ACTIVE rubric versions — the live grading standards the capture
+   * scorer resolves (active row per fixtureKey, else highest version). This
+   * replaces the per-submission verdict-derived stamp: FixtureCapture has no
+   * rubric FK, so the StoreScore is stamped with the campaign's live rubric
+   * versions instead. Returns [] when the campaign has no rubrics.
    */
-  private async rubricVersionsFor(submissionId?: string): Promise<string[]> {
-    if (!submissionId) return [];
-    const verdicts = await this.prisma.verdict.findMany({
-      where: { photo: { submissionId } },
-      select: {
-        rubric: {
-          select: {
-            fixtureKey: true,
-            version: true,
-            campaign: { select: { key: true } },
-          },
-        },
-      },
+  private async rubricVersionsForCampaign(
+    campaignId: string,
+    campaignKey: string,
+  ): Promise<string[]> {
+    const rubrics = await this.prisma.rubric.findMany({
+      where: { campaignId },
+      select: { fixtureKey: true, version: true, active: true },
+      orderBy: { version: 'desc' },
     });
-    const stamps = verdicts.map(
-      (v) => `${v.rubric.fixtureKey}.${v.rubric.campaign.key}.v${v.rubric.version}`,
+    // One stamp per fixtureKey: the active version if any, else the highest —
+    // mirroring resolveActiveRubric's "active, else latest" live-version rule.
+    const byFixture = new Map<string, number>();
+    for (const r of rubrics) {
+      const cur = byFixture.get(r.fixtureKey);
+      if (cur === undefined) {
+        byFixture.set(r.fixtureKey, r.version);
+      }
+      if (r.active) {
+        byFixture.set(r.fixtureKey, r.version);
+      }
+    }
+    const stamps = [...byFixture.entries()].map(
+      ([fixtureKey, version]) => `${fixtureKey}.${campaignKey}.v${version}`,
     );
     return [...new Set(stamps)].sort();
   }
@@ -855,6 +1002,7 @@ function mimeToExt(mime: string): string {
 function toTrendPoint(r: {
   dateKey: string;
   capturedAt: Date;
+  source: SnapshotSource;
   storeCount: number;
   onTrack: number;
   needsReview: number;
@@ -867,6 +1015,7 @@ function toTrendPoint(r: {
   return {
     dateKey: r.dateKey,
     capturedAt: r.capturedAt.toISOString(),
+    source: r.source,
     storeCount: r.storeCount,
     onTrack: r.onTrack,
     needsReview: r.needsReview,

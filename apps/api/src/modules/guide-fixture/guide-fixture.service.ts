@@ -19,6 +19,11 @@ import type {
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import {
+  assertReadableImage,
+  imageExtFor,
+  type UploadedImageFile,
+} from '../storage/image-upload.util';
 import { toProductDto } from '../product/product.service';
 
 // =============================================================================
@@ -314,6 +319,137 @@ export class GuideFixtureService {
       exampleImages: gf.exampleImages.map((img) => this.toExampleImage(img)),
       merchandise: groupMerchandise(gf.merchandise),
     };
+  }
+
+  // ----- example images ("what good looks like") ---------------------------
+
+  /**
+   * Upload a "what good looks like" reference image for the sheet (org-scoped via
+   * the parent guide-fixture). Validates the bytes, stores them, and records the
+   * ExampleImage. The first image added becomes best-in-class automatically — so
+   * a freshly-authored fixture immediately has a reference the AI compares
+   * against, instead of "judging the notes alone". Returns the refreshed sheet.
+   */
+  async addExampleImage(
+    orgId: string,
+    guideFixtureId: string,
+    file: UploadedImageFile | undefined,
+    caption?: string,
+  ): Promise<GuideFixtureDetail> {
+    await this.getOwned(orgId, guideFixtureId);
+    await assertReadableImage(file);
+    const f = file as UploadedImageFile;
+
+    const storageKey = await this.storage.put(f.buffer, {
+      ext: imageExtFor(f.mimetype),
+      prefix: `example-images/${orgId}/${guideFixtureId}`,
+    });
+
+    // First reference on the sheet is best-in-class by default.
+    const existing = await this.prisma.exampleImage.count({
+      where: { guideFixtureId, orgId },
+    });
+    const trimmed = caption?.trim();
+
+    await this.prisma.exampleImage.create({
+      data: {
+        orgId,
+        guideFixtureId,
+        storageKey,
+        caption: trimmed ? trimmed : null,
+        bestInClass: existing === 0,
+      },
+    });
+
+    return this.detailByGuideFixtureId(orgId, guideFixtureId);
+  }
+
+  /** Edit an example image's caption (org-scoped). Empty string clears it. */
+  async updateExampleImageCaption(
+    orgId: string,
+    guideFixtureId: string,
+    imageId: string,
+    caption: string,
+  ): Promise<GuideFixtureDetail> {
+    await this.getOwned(orgId, guideFixtureId);
+    const trimmed = caption.trim();
+    const { count } = await this.prisma.exampleImage.updateMany({
+      where: { id: imageId, guideFixtureId, orgId },
+      data: { caption: trimmed ? trimmed : null },
+    });
+    if (count === 0) throw new NotFoundException('example image not found');
+    return this.detailByGuideFixtureId(orgId, guideFixtureId);
+  }
+
+  /**
+   * Mark one example image best-in-class and clear the flag on its siblings, so
+   * at most one image leads the "what good looks like" grid. Done in a
+   * transaction. Org-scoped.
+   */
+  async setExampleImageBestInClass(
+    orgId: string,
+    guideFixtureId: string,
+    imageId: string,
+  ): Promise<GuideFixtureDetail> {
+    await this.getOwned(orgId, guideFixtureId);
+    const target = await this.prisma.exampleImage.findFirst({
+      where: { id: imageId, guideFixtureId, orgId },
+      select: { id: true },
+    });
+    if (!target) throw new NotFoundException('example image not found');
+
+    await this.prisma.$transaction([
+      this.prisma.exampleImage.updateMany({
+        where: { guideFixtureId, orgId, bestInClass: true, id: { not: imageId } },
+        data: { bestInClass: false },
+      }),
+      this.prisma.exampleImage.update({
+        where: { id: imageId },
+        data: { bestInClass: true },
+      }),
+    ]);
+
+    return this.detailByGuideFixtureId(orgId, guideFixtureId);
+  }
+
+  /**
+   * Remove an example image (and best-effort delete its bytes). If the removed
+   * image was best-in-class, promote the next remaining image so the grid keeps
+   * a leader. Org-scoped. Returns the refreshed sheet.
+   */
+  async removeExampleImage(
+    orgId: string,
+    guideFixtureId: string,
+    imageId: string,
+  ): Promise<GuideFixtureDetail> {
+    await this.getOwned(orgId, guideFixtureId);
+    const target = await this.prisma.exampleImage.findFirst({
+      where: { id: imageId, guideFixtureId, orgId },
+      select: { id: true, storageKey: true, bestInClass: true },
+    });
+    if (!target) throw new NotFoundException('example image not found');
+
+    await this.prisma.exampleImage.delete({ where: { id: target.id } });
+
+    // Storage cleanup is best-effort — a missing key is not an error.
+    await this.storage.remove(target.storageKey);
+
+    // Keep a best-in-class leader: if we just removed it, promote the next one.
+    if (target.bestInClass) {
+      const next = await this.prisma.exampleImage.findFirst({
+        where: { guideFixtureId, orgId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      if (next) {
+        await this.prisma.exampleImage.update({
+          where: { id: next.id },
+          data: { bestInClass: true },
+        });
+      }
+    }
+
+    return this.detailByGuideFixtureId(orgId, guideFixtureId);
   }
 
   // ----- helpers -----------------------------------------------------------

@@ -9,16 +9,19 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import type { PlacedFixture, SessionUser } from '@wally/types';
+import type { FloorPlan, PlacedFixture, SessionUser } from '@wally/types';
 
 import { CurrentUser } from '../auth/current-user.decorator';
 import { NoViewerGuard } from '../auth/no-viewer.guard';
+import { Roles } from '../auth/roles.decorator';
 import { SessionGuard } from '../auth/session.guard';
 import { ZodValidationPipe } from '../org/zod-validation.pipe';
 
 import {
+  CopyLayoutSchema,
   CreatePlacementSchema,
   UpdatePlacementSchema,
+  type CopyLayoutInput,
   type CreatePlacementInput,
   type UpdatePlacementInput,
 } from './floorplan.dto';
@@ -65,6 +68,40 @@ export class FloorplanController {
     @Body(new ZodValidationPipe(CreatePlacementSchema)) dto: CreatePlacementInput,
   ): Promise<PlacedFixture> {
     return this.floorplan.createPlacement(user.orgId, campaignId, storeId, dto);
+  }
+
+  /**
+   * Copy another store's whole floor-plan layout onto this one (the target).
+   * Idempotent on (store, campaign, fixture) — re-copying overwrites the
+   * target's matching placements instead of duplicating. ADMIN only.
+   */
+  @Post(':campaignId/stores/:storeId/copy-layout')
+  @Roles('ADMIN')
+  copyLayout(
+    @CurrentUser() user: SessionUser,
+    @Param('campaignId') campaignId: string,
+    @Param('storeId') storeId: string,
+    @Body(new ZodValidationPipe(CopyLayoutSchema)) dto: CopyLayoutInput,
+  ): Promise<FloorPlan> {
+    return this.floorplan.copyLayout(
+      user.orgId,
+      campaignId,
+      dto.fromStoreId,
+      storeId,
+    );
+  }
+
+  /**
+   * Publish the guide to its stores: stamp `publishedAt` and fan out a
+   * "floor plan is ready" task to every store in the campaign's project. ADMIN.
+   */
+  @Post(':campaignId/publish')
+  @Roles('ADMIN')
+  publish(
+    @CurrentUser() user: SessionUser,
+    @Param('campaignId') campaignId: string,
+  ): Promise<{ publishedAt: string; notified: number }> {
+    return this.floorplan.publish(user.orgId, campaignId);
   }
 }
 

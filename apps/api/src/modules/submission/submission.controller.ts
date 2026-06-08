@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
+  HttpCode,
   NotFoundException,
   Param,
   Patch,
@@ -25,10 +27,13 @@ import { ZodValidationPipe } from '../org/zod-validation.pipe';
 import { StorageService } from '../storage/storage.service';
 
 import {
+  AnalyticsWindowSchema,
+  type AnalyticsWindowInput,
   CreateSubmissionSchema,
   type CreateSubmissionInput,
   SetBestInClassSchema,
   type SetBestInClassInput,
+  toDateWindow,
   UploadPhotoSchema,
 } from './submission.dto';
 import { SubmissionService } from './submission.service';
@@ -110,8 +115,30 @@ export class CampaignQueueController {
   constructor(private readonly submissions: SubmissionService) {}
 
   @Get(':id/queue')
-  queue(@CurrentUser() user: SessionUser, @Param('id') campaignId: string) {
-    return this.submissions.campaignQueue(user.orgId, campaignId);
+  queue(
+    @CurrentUser() user: SessionUser,
+    @Param('id') campaignId: string,
+    @Query(new ZodValidationPipe(AnalyticsWindowSchema)) q: AnalyticsWindowInput,
+  ) {
+    return this.submissions.campaignQueue(
+      user.orgId,
+      campaignId,
+      toDateWindow(q),
+    );
+  }
+
+  /** Per-store sales rollup (units + revenue) — the leaderboard's primary rank. */
+  @Get(':id/sales')
+  sales(
+    @CurrentUser() user: SessionUser,
+    @Param('id') campaignId: string,
+    @Query(new ZodValidationPipe(AnalyticsWindowSchema)) q: AnalyticsWindowInput,
+  ) {
+    return this.submissions.campaignSales(
+      user.orgId,
+      campaignId,
+      toDateWindow(q),
+    );
   }
 
   /** Every execution image across the campaign's stores (the gallery). */
@@ -122,8 +149,16 @@ export class CampaignQueueController {
 
   /** Operational turnaround: review speed + which stores needed most rework. */
   @Get(':id/turnaround')
-  turnaround(@CurrentUser() user: SessionUser, @Param('id') campaignId: string) {
-    return this.submissions.campaignTurnaround(user.orgId, campaignId);
+  turnaround(
+    @CurrentUser() user: SessionUser,
+    @Param('id') campaignId: string,
+    @Query(new ZodValidationPipe(AnalyticsWindowSchema)) q: AnalyticsWindowInput,
+  ) {
+    return this.submissions.campaignTurnaround(
+      user.orgId,
+      campaignId,
+      toDateWindow(q),
+    );
   }
 
   /** Compliance snapshots over time (the trend chart). */
@@ -132,11 +167,23 @@ export class CampaignQueueController {
     return this.submissions.campaignTrend(user.orgId, campaignId);
   }
 
-  /** Capture today's compliance as a snapshot now (idempotent per day). */
+  /** Capture today's compliance as a snapshot now (idempotent per day). MANUAL. */
   @Post(':id/snapshot')
   @Roles('ADMIN')
   snapshot(@CurrentUser() user: SessionUser, @Param('id') campaignId: string) {
     return this.submissions.captureSnapshot(user.orgId, campaignId);
+  }
+
+  /** Prune a bad trend point by its dateKey ('YYYY-MM-DD'). ADMIN. */
+  @Delete(':id/trend/:dateKey')
+  @Roles('ADMIN')
+  @HttpCode(204)
+  deleteTrendPoint(
+    @CurrentUser() user: SessionUser,
+    @Param('id') campaignId: string,
+    @Param('dateKey') dateKey: string,
+  ) {
+    return this.submissions.deleteTrendPoint(user.orgId, campaignId, dateKey);
   }
 
   /** Best-in-class execution photos — exemplars to show other stores. */

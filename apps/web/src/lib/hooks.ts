@@ -10,9 +10,9 @@ import {
 } from '@tanstack/react-query';
 import type {
   CampaignSummary,
-  ReviewBody,
-  ReviewResult,
-  Submission,
+  FixtureCompliance,
+  FixtureComplianceDetail,
+  OverrideCaptureBody,
 } from '@wally/sdk';
 import type { StoreScore } from '@wally/types';
 
@@ -62,52 +62,71 @@ export function useStoreScore(
   });
 }
 
-export function useSubmission(
-  submissionId: string | undefined,
-): UseQueryResult<Submission> {
+/* -------------------------------------------------------------------------- */
+/* FIXTURE-CAPTURE compliance — the canonical reviewer path (replaces the      */
+/* legacy Submission/Verdict drill-down). Keyed the same way as the manager    */
+/* floor loop (store/GuideView) so a console action and a floor action         */
+/* invalidate each other's caches.                                             */
+/* -------------------------------------------------------------------------- */
+
+/** Every fixture's compliance for a store (reviewer passes the storeId). */
+export function useCompliance(
+  storeId: string | undefined,
+): UseQueryResult<FixtureCompliance[]> {
   return useQuery({
-    queryKey: submissionId ? qk.submission(submissionId) : ['submission', 'none'],
-    queryFn: () => api.submissions.get(submissionId as string),
-    enabled: Boolean(submissionId),
+    queryKey: ['manager', 'compliance', storeId],
+    queryFn: () => api.manager.compliance(storeId),
+    enabled: Boolean(storeId),
   });
 }
 
-/**
- * Submit a reviewer's decision on a verdict. On success we invalidate the
- * broad queue + store caches so the affected store row re-scores everywhere.
- */
-export function useReview(): UseMutationResult<
-  ReviewResult,
-  unknown,
-  { verdictId: string; body: ReviewBody }
-> {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ verdictId, body }) => api.verdicts.review(verdictId, body),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['queue'] });
-      void qc.invalidateQueries({ queryKey: ['store-score'] });
-      void qc.invalidateQueries({ queryKey: ['submission'] });
-    },
+/** One fixture's full compliance sheet (reference, photo, verdict, attempts). */
+export function useFixtureCompliance(
+  fixtureId: string | undefined,
+  storeId: string | undefined,
+): UseQueryResult<FixtureComplianceDetail> {
+  return useQuery({
+    queryKey: ['manager', 'fixture-compliance', storeId, fixtureId],
+    queryFn: () => api.manager.fixtureCompliance(fixtureId as string, storeId),
+    enabled: Boolean(fixtureId && storeId),
   });
 }
 
+/** All the capture caches a reviewer action touches (one store + its fixtures). */
+function invalidateCapture(qc: ReturnType<typeof useQueryClient>, storeId?: string) {
+  void qc.invalidateQueries({ queryKey: ['manager', 'compliance', storeId] });
+  void qc.invalidateQueries({ queryKey: ['manager', 'fixture-compliance', storeId] });
+  void qc.invalidateQueries({ queryKey: ['manager', 'home', storeId] });
+  // The reviewer queue is FixtureCapture-based; keep it fresh too.
+  void qc.invalidateQueries({ queryKey: ['queue'] });
+}
+
 /**
- * Re-open a FAILED (or stuck) photo for scoring. On success we invalidate the
- * submission + queue caches so the photo flips back to UPLOADED and re-scores.
+ * REVIEWER/ADMIN: override a fixture-capture's AI verdict with a human decision.
+ * The effective verdict then supersedes the AI everywhere (queue, floor, UI).
  */
-export function useRescore(): UseMutationResult<
-  { id: string; status: string },
+export function useOverrideCapture(
+  storeId: string | undefined,
+): UseMutationResult<
+  FixtureComplianceDetail,
   unknown,
-  string
+  { fixtureId: string; body: OverrideCaptureBody }
 > {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (photoId) => api.photos.rescore(photoId),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['submission'] });
-      void qc.invalidateQueries({ queryKey: ['queue'] });
-      void qc.invalidateQueries({ queryKey: ['store-score'] });
-    },
+    mutationFn: ({ fixtureId, body }) =>
+      api.manager.overrideCapture(fixtureId, body, storeId),
+    onSuccess: () => invalidateCapture(qc, storeId),
+  });
+}
+
+/** REVIEWER/ADMIN: re-request a photo for a fixture ("redo this"). */
+export function useRequestCapturePhoto(
+  storeId: string | undefined,
+): UseMutationResult<FixtureComplianceDetail, unknown, string> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (fixtureId) => api.manager.requestCapturePhoto(fixtureId, storeId),
+    onSuccess: () => invalidateCapture(qc, storeId),
   });
 }

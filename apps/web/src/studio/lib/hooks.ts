@@ -32,11 +32,15 @@ import type {
 import { sqk } from './queryKeys';
 import { studio, type PlacementMove, type ProductFilters } from './sdk';
 
-/** The org's reusable fixture library. */
-export function useFixtures(): UseQueryResult<Fixture[]> {
+/**
+ * The reusable fixture library. Pass the current project's id to scope it to
+ * that project's fixtures plus shared ones — so Myer never shows Ambiente's
+ * fixtures (and vice versa). Omit it for the org-wide list.
+ */
+export function useFixtures(projectId?: string): UseQueryResult<Fixture[]> {
   return useQuery({
-    queryKey: sqk.fixtures,
-    queryFn: () => studio.fixtures.list(),
+    queryKey: sqk.fixturesList(projectId),
+    queryFn: () => studio.fixtures.list(projectId),
   });
 }
 
@@ -44,7 +48,12 @@ export function useFixtures(): UseQueryResult<Fixture[]> {
 export function useCreateFixture(): UseMutationResult<
   Fixture,
   unknown,
-  { name: string; kind?: FixtureKind; department?: Department }
+  {
+    name: string;
+    kind?: FixtureKind;
+    department?: Department;
+    projectId?: string | null;
+  }
 > {
   const qc = useQueryClient();
   return useMutation({
@@ -53,11 +62,17 @@ export function useCreateFixture(): UseMutationResult<
   });
 }
 
-/** Edit a library fixture (name / kind / department); refreshes the grid. */
+/** Edit a library fixture (name / kind / department / project); refreshes the grid. */
 export function useUpdateFixture(): UseMutationResult<
   Fixture,
   unknown,
-  { id: string; name?: string; kind?: FixtureKind; department?: Department | null }
+  {
+    id: string;
+    name?: string;
+    kind?: FixtureKind;
+    department?: Department | null;
+    projectId?: string | null;
+  }
 > {
   const qc = useQueryClient();
   return useMutation({

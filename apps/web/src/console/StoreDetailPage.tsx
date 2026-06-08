@@ -1,64 +1,104 @@
 import * as React from 'react';
 import { Link, useParams } from 'react-router-dom';
-import {
-  ArrowLeft,
-  ChevronRight,
-  Download,
-  FileText,
-} from 'lucide-react';
-import { Button, Card, Verdict } from '@wally/ui';
+import { ArrowLeft, ChevronRight, Download, FileText } from 'lucide-react';
+import { Button, Card } from '@wally/ui';
 
-import type { FixtureOutcome, StoreScore } from '@wally/types';
-import { useCampaigns, useStoreScore } from '../lib/hooks';
+import type { CaptureVerdict, FixtureCompliance } from '@wally/sdk';
+import { useCampaigns, useCompliance, useQueue } from '../lib/hooks';
 import { api, errorMessage } from '../lib/api';
-import { bandLabel, humanizeKey, storeReasons } from '../lib/format';
 import { ErrorState, Skeleton } from '../components/states';
+import { CaptureVerdictChip } from './captureVerdict';
+
+/** A fixture's effective verdict (a reviewer override beats the AI). */
+function effective(f: FixtureCompliance): CaptureVerdict | null {
+  return (f.effectiveVerdict ?? f.overall) ?? null;
+}
+
+/** Reviewer sort: what needs attention first (NEEDS_REVIEW, then FAIL, then PASS,
+ *  then the un-scored), keeping fixtures with a photo above empty ones. */
+const ATTENTION_ORDER: Record<CaptureVerdict | 'none', number> = {
+  NEEDS_REVIEW: 0,
+  FAIL: 1,
+  PASS: 2,
+  none: 3,
+};
 
 export function StoreDetailPage() {
-  const { id } = useParams();
+  // Route is /studio/review/store/:id — `id` is the storeId the reviewer drilled into.
+  const { id: storeId } = useParams();
+
+  const compQ = useCompliance(storeId);
+
+  // The store name comes from the (FixtureCapture-based) queue we drilled in
+  // from — no extra round-trip. We don't hard-depend on it: the page works
+  // without it, the name is just chrome.
   const campaignsQ = useCampaigns();
   const campaignId = campaignsQ.data?.[0]?.id;
-  const q = useStoreScore(id, campaignId);
+  const queueQ = useQueue(campaignId);
+  const storeRow = queueQ.data?.find((s) => s.storeId === storeId);
+  const storeName = storeRow?.storeName;
+  const campaignKey = storeRow?.campaignKey;
 
-  if (q.isLoading) return <DetailSkeleton />;
-  if (q.isError) {
+  if (compQ.isLoading) return <DetailSkeleton />;
+  if (compQ.isError) {
     return (
       <div>
         <BackLink />
-        <ErrorState error={q.error} onRetry={() => q.refetch()} />
+        <ErrorState error={compQ.error} onRetry={() => compQ.refetch()} />
       </div>
     );
   }
 
-  const store = q.data!;
+  const fixtures = compQ.data ?? [];
+  const applicable = fixtures; // compliance returns the store's own fixtures
+  const scored = applicable.filter((f) => f.state === 'scored');
+  const needsReview = scored.filter((f) => effective(f) === 'NEEDS_REVIEW');
+  const failing = scored.filter((f) => effective(f) === 'FAIL');
+  const passing = scored.filter((f) => effective(f) === 'PASS');
+  const submitted = applicable.filter((f) => f.state !== 'todo').length;
+
+  const sorted = [...applicable].sort((a, b) => {
+    const ra = ATTENTION_ORDER[effective(a) ?? 'none'];
+    const rb = ATTENTION_ORDER[effective(b) ?? 'none'];
+    if (ra !== rb) return ra - rb;
+    return a.label.localeCompare(b.label);
+  });
+
   return (
     <div>
       <BackLink />
 
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-[11px] uppercase tracking-brand text-steel">
-            {store.campaignKey}
-          </p>
+          {campaignKey ? (
+            <p className="text-[11px] uppercase tracking-brand text-steel">
+              {campaignKey}
+            </p>
+          ) : null}
           <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight text-ink">
-            {store.storeName}
+            {storeName ?? 'Store'}
           </h1>
           <p className="mt-1 text-sm text-steel">
-            {store.submitted} of {store.expected} fixtures submitted
+            {submitted} of {applicable.length} fixtures captured
           </p>
         </div>
         <div className="flex flex-col items-end gap-3">
-          <Verdict tone={store.overall} size="lg" />
-          <ReportButton storeId={store.storeId} />
+          {storeId ? <ReportButton storeId={storeId} /> : null}
         </div>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="order-2 lg:order-1">
-          <FixtureLedger store={store} />
+          <FixtureLedger fixtures={sorted} storeId={storeId} />
         </div>
         <aside className="order-1 lg:order-2">
-          <Rollup store={store} />
+          <Rollup
+            needsReview={needsReview.length}
+            failing={failing.length}
+            passing={passing.length}
+            captured={submitted}
+            total={applicable.length}
+          />
         </aside>
       </div>
     </div>
@@ -68,7 +108,7 @@ export function StoreDetailPage() {
 function BackLink() {
   return (
     <Link
-      to="/console"
+      to="/studio/review"
       className="mb-4 inline-flex items-center gap-1.5 text-sm text-steel transition-colors hover:text-graphite"
     >
       <ArrowLeft className="h-4 w-4" />
@@ -77,52 +117,66 @@ function BackLink() {
   );
 }
 
-/** Plain-English verdict explanation — why the store landed where it did. */
-function Rollup({ store }: { store: StoreScore }) {
-  const reasons = storeReasons(store);
+/** A compact tally of where this store's fixtures sit. */
+function Rollup({
+  needsReview,
+  failing,
+  passing,
+  captured,
+  total,
+}: {
+  needsReview: number;
+  failing: number;
+  passing: number;
+  captured: number;
+  total: number;
+}) {
+  const rows: { label: string; count: number; tone: string }[] = [
+    { label: 'Need review', count: needsReview, tone: 'text-graphite' },
+    { label: 'Failing', count: failing, tone: 'text-signal' },
+    { label: 'Passing', count: passing, tone: 'text-pass' },
+    { label: 'Not captured', count: total - captured, tone: 'text-steel' },
+  ];
   return (
     <Card className="p-5">
-      <p className="text-[11px] uppercase tracking-brand text-steel">In plain English</p>
-      <p className="mt-2 font-display text-lg font-semibold leading-snug text-ink">
-        This store is{' '}
-        <span className="text-graphite">{bandLabel(store.overall).toLowerCase()}</span>.
-      </p>
-      <ul className="mt-3 flex flex-col gap-2">
-        {reasons.map((r, i) => (
-          <li key={i} className="flex gap-2 text-sm text-graphite">
-            <span aria-hidden="true" className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-mist" />
-            <span>{r}</span>
+      <p className="text-[11px] uppercase tracking-brand text-steel">At a glance</p>
+      <ul className="mt-3 flex flex-col divide-y divide-mist/40">
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-center justify-between py-2 text-sm">
+            <span className="text-graphite">{r.label}</span>
+            <span className={`font-display text-base font-semibold tabular-nums ${r.tone}`}>
+              {r.count}
+            </span>
           </li>
         ))}
       </ul>
-
-      {store.rubricVersions.length > 0 ? (
-        <p className="mt-4 border-t border-mist/50 pt-3 text-[11px] text-steel">
-          Scored against {store.rubricVersions.join(', ')}
-        </p>
-      ) : null}
+      <p className="mt-4 border-t border-mist/50 pt-3 text-[11px] text-steel">
+        Open any captured fixture to confirm, override, or request a new photo.
+      </p>
     </Card>
   );
 }
 
-/** The fixture ledger — every fixture, its status, and a way in to review it. */
-function FixtureLedger({ store }: { store: StoreScore }) {
+/** The fixture ledger — every fixture, its verdict, and a way in to review it. */
+function FixtureLedger({
+  fixtures,
+  storeId,
+}: {
+  fixtures: FixtureCompliance[];
+  storeId?: string;
+}) {
   return (
     <section>
       <p className="mb-2.5 text-[11px] uppercase tracking-brand text-steel">
         Fixture ledger
       </p>
       <div className="overflow-hidden rounded-lg border border-mist/60">
-        {store.fixtures.length === 0 ? (
+        {fixtures.length === 0 ? (
           <p className="px-4 py-6 text-sm text-steel">No fixtures recorded yet.</p>
         ) : (
           <ul className="divide-y divide-mist/50">
-            {store.fixtures.map((f) => (
-              <FixtureRow
-                key={f.fixture}
-                fixture={f}
-                submissionId={store.submissionId ?? undefined}
-              />
+            {fixtures.map((f) => (
+              <FixtureRow key={f.fixtureId} fixture={f} storeId={storeId} />
             ))}
           </ul>
         )}
@@ -133,18 +187,30 @@ function FixtureLedger({ store }: { store: StoreScore }) {
 
 function FixtureRow({
   fixture,
-  submissionId,
+  storeId,
 }: {
-  fixture: FixtureOutcome;
-  submissionId?: string;
+  fixture: FixtureCompliance;
+  storeId?: string;
 }) {
-  const canOpen = fixture.status === 'scored' && fixture.photoId && submissionId;
+  const verdict = effective(fixture);
+  // A reviewer can open any fixture that has been scored.
+  const canOpen = fixture.state === 'scored' && Boolean(storeId);
+  const attention = verdict === 'NEEDS_REVIEW' || verdict === 'FAIL';
+
   const inner = (
     <div className="flex items-center gap-3 px-4 py-3">
+      <span
+        aria-hidden="true"
+        className={[
+          'h-8 w-1 shrink-0 rounded-full',
+          attention ? 'bg-signal' : 'bg-mist/40',
+        ].join(' ')}
+      />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-ink">
-          {fixture.label || humanizeKey(fixture.fixture)}
-        </p>
+        <p className="truncate text-sm font-medium text-ink">{fixture.label}</p>
+        {fixture.overrideVerdict ? (
+          <p className="text-[11px] text-steel">Reviewer override</p>
+        ) : null}
       </div>
       <FixtureStatusChip fixture={fixture} />
       {canOpen ? (
@@ -159,7 +225,7 @@ function FixtureRow({
     return (
       <li>
         <Link
-          to={`/console/fixture/${encodeURIComponent(fixture.photoId as string)}?submission=${encodeURIComponent(submissionId as string)}`}
+          to={`/studio/review/fixture/${encodeURIComponent(fixture.fixtureId)}?store=${encodeURIComponent(storeId as string)}`}
           className="tap block bg-paper hover:bg-surface/60"
         >
           {inner}
@@ -170,20 +236,21 @@ function FixtureRow({
   return <li className="bg-paper">{inner}</li>;
 }
 
-function FixtureStatusChip({ fixture }: { fixture: FixtureOutcome }) {
-  if (fixture.status === 'scored' && fixture.overall) {
-    return <Verdict tone={fixture.overall} size="sm" />;
+function FixtureStatusChip({ fixture }: { fixture: FixtureCompliance }) {
+  const verdict = effective(fixture);
+  if (fixture.state === 'scored' && verdict) {
+    return <CaptureVerdictChip verdict={verdict} size="sm" />;
   }
-  if (fixture.status === 'not_applicable') {
+  if (fixture.state === 'submitted') {
     return (
       <span className="rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-steel">
-        Not applicable
+        Scoring…
       </span>
     );
   }
   return (
     <span className="rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-steel">
-      Not submitted
+      {fixture.needsPhoto ? 'Photo wanted' : 'Not captured'}
     </span>
   );
 }
@@ -228,7 +295,7 @@ function DetailSkeleton() {
         </div>
         <Skeleton className="h-9 w-28" />
       </div>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
         <Skeleton className="h-64 w-full rounded-lg" />
         <Skeleton className="h-48 w-full rounded-lg" />
       </div>

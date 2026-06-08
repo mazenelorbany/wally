@@ -60,7 +60,7 @@ async function bootstrap(): Promise<void> {
   console.log(
     `[boot] Wally API listening on :${Env.PORT} (NODE_ENV=${Env.NODE_ENV})\n` +
       `  CORS origin   : ${Env.APP_URL}\n` +
-      `  Vision model  : ${Env.WALLY_VISION_PROVIDER}/${Env.WALLY_VISION_MODEL}` +
+      `  Vision model  : ${Env.WALLY_VISION_PROVIDER}/${Env.WALLY_VISION_MODEL ?? '(provider default)'}` +
       `${Env.WALLY_VISION_PROVIDER === 'anthropic' && !Env.ANTHROPIC_API_KEY ? ' (NO API KEY!)' : ''}\n` +
       `  Storage       : ${Env.WALLY_STORAGE_DRIVER} (${Env.WALLY_STORAGE_DIR})\n` +
       `  SMTP          : ${Env.SMTP_HOST}:${Env.SMTP_PORT}`,

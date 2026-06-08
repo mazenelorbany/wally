@@ -80,6 +80,7 @@ describe('AdminService.inviteUser — cross-tenant guard', () => {
       role: Role.REVIEWER,
       storeId: null,
       disabledAt: null,
+      updatedAt: new Date(),
       store: null,
     });
 
@@ -106,6 +107,7 @@ describe('AdminService.inviteUser — cross-tenant guard', () => {
       role: Role.ADMIN,
       storeId: null,
       disabledAt: null,
+      updatedAt: new Date(),
       store: null,
     });
 
@@ -154,6 +156,7 @@ describe('AdminService.updateUser — last-admin guard', () => {
       role: Role.REVIEWER,
       storeId: null,
       disabledAt: null,
+      updatedAt: new Date(),
       store: null,
     });
 
@@ -177,6 +180,7 @@ describe('AdminService.updateUser — last-admin guard', () => {
       role: Role.REVIEWER,
       storeId: 'store-1',
       disabledAt: null,
+      updatedAt: new Date(),
       store: { name: 'Store One' },
     });
 

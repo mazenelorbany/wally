@@ -23,7 +23,7 @@ const KIND_META: Record<
   TaskKind,
   { icon: React.ComponentType<{ className?: string }>; label: string; to?: string }
 > = {
-  UPLOAD_PHOTO: { icon: Camera, label: 'Photo upload', to: '/capture' },
+  UPLOAD_PHOTO: { icon: Camera, label: 'Photo upload', to: '/store/guide' },
   LOG_SALES: { icon: Receipt, label: 'Log sales', to: '/store/sales' },
   GENERAL: { icon: ClipboardList, label: 'Task' },
 };

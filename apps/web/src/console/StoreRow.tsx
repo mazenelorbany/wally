@@ -42,7 +42,7 @@ export function StoreRow({ store }: { store: StoreScore }) {
   const needsAttention = attentionCount(store) > 0;
   return (
     <Link
-      to={`/console/store/${encodeURIComponent(store.storeId)}`}
+      to={`/studio/review/store/${encodeURIComponent(store.storeId)}`}
       className="tap group flex items-center gap-4 rounded-lg border border-mist/60 bg-paper px-4 py-3.5 hover:border-steel/60 hover:shadow-card"
     >
       {/* Attention rail — a structural marker, not hue-only (width + presence). */}

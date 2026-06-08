@@ -8,6 +8,7 @@
 import type {
   ScoreResult,
   StoreScore,
+  StoreSales,
   StoreDto,
   StoreSegments,
   OrgDto,
@@ -228,6 +229,8 @@ export interface UpdateFixtureBody {
   kind?: FixtureKind;
   /** Myer department; `null` clears the classification. */
   department?: Department | null;
+  /** Re-home the fixture: a project id moves it; `null` makes it shared. */
+  projectId?: string | null;
 }
 
 /** Body for creating a library fixture. */
@@ -235,6 +238,8 @@ export interface CreateFixtureBody {
   name: string;
   kind?: FixtureKind;
   department?: Department;
+  /** Owning project; omit or `null` for a shared fixture (all projects). */
+  projectId?: string | null;
 }
 
 /** Result of publishing a guide to its stores (publish & notify). */
@@ -538,6 +543,8 @@ export interface WallyClient {
      * (the default) for the all-time, latest-state behaviour.
      */
     queue(campaignId: string, window?: DateWindow): Promise<StoreScore[]>;
+    /** Per-store sales rollup (units + revenue) — the leaderboard's primary rank. */
+    sales(campaignId: string, window?: DateWindow): Promise<StoreSales[]>;
     /** Every execution image across the campaign's stores (the gallery). */
     gallery(campaignId: string): Promise<GalleryItem[]>;
     /**
@@ -652,7 +659,8 @@ export interface WallyClient {
   };
   /** CREATE GUIDE — the org's fixture library. */
   fixtures: {
-    list(): Promise<Fixture[]>;
+    /** The library scoped to a project (its own + shared); omit for org-wide. */
+    list(projectId?: string): Promise<Fixture[]>;
     create(input: CreateFixtureBody): Promise<Fixture>;
     /** Edit a library fixture (rename / re-kind / re-classify). P2002 → 409. */
     update(id: string, body: UpdateFixtureBody): Promise<Fixture>;
@@ -1051,6 +1059,13 @@ export function createClient(opts: CreateClientOptions): WallyClient {
             to: window?.to,
           })}`,
         ).then((r) => r.stores),
+      sales: (campaignId, window) =>
+        get<StoreSales[]>(
+          `campaigns/${encodeURIComponent(campaignId)}/sales${query({
+            from: window?.from,
+            to: window?.to,
+          })}`,
+        ),
       gallery: (campaignId) =>
         get<GalleryItem[]>(
           `campaigns/${encodeURIComponent(campaignId)}/gallery`,
@@ -1187,7 +1202,7 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         get<ReportUrl>(`reports/${encodeURIComponent(storeId)}/url`),
     },
     fixtures: {
-      list: () => get<Fixture[]>("fixtures"),
+      list: (projectId) => get<Fixture[]>(`fixtures${query({ projectId })}`),
       create: (input) => post<Fixture>("fixtures", input),
       update: (id, body) =>
         patch<Fixture>(`fixtures/${encodeURIComponent(id)}`, body),
@@ -1504,6 +1519,7 @@ export function createClient(opts: CreateClientOptions): WallyClient {
 export type {
   ScoreResult,
   StoreScore,
+  StoreSales,
   ComplianceTurnaround,
   ComplianceTrendPoint,
   SnapshotSource,

@@ -38,6 +38,7 @@ function TopBarBridge() {
     <TopBar
       guideName={s.guideName}
       guideKey={s.guideKey}
+      eyebrow={s.eyebrow}
       stores={s.stores}
       storeId={s.storeId}
       onStoreChange={s.onStoreChange}

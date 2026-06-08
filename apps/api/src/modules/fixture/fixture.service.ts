@@ -32,12 +32,22 @@ export class FixtureService {
 
   /** The org's fixture library, ordered by name, mapped to the shared contract.
    *  Archived fixtures are hidden — they stay in the DB so existing placements
-   *  keep working, but they no longer appear in the library. */
-  async list(orgId: string): Promise<Fixture[]> {
+   *  keep working, but they no longer appear in the library.
+   *
+   *  When `projectId` is given the library is scoped to that project: its own
+   *  fixtures PLUS shared fixtures (projectId null), so Myer never sees Ambiente
+   *  fixtures and vice versa. Omitting it returns every fixture (org-wide). */
+  async list(orgId: string, projectId?: string): Promise<Fixture[]> {
     const fixtures = await this.prisma.fixture.findMany({
-      where: { orgId, archivedAt: null },
+      where: {
+        orgId,
+        archivedAt: null,
+        ...(projectId
+          ? { OR: [{ projectId }, { projectId: null }] }
+          : {}),
+      },
       orderBy: { name: 'asc' },
-      select: { id: true, name: true, kind: true, department: true },
+      select: SELECT,
     });
     return fixtures.map((f) => this.toFixture(f));
   }
@@ -54,8 +64,10 @@ export class FixtureService {
           name: input.name,
           kind: input.kind,
           department: input.department ?? null,
+          // undefined (key omitted) → shared; a value scopes it to that project.
+          projectId: input.projectId ?? null,
         },
-        select: { id: true, name: true, kind: true, department: true },
+        select: SELECT,
       });
       return this.toFixture(created);
     } catch (err) {
@@ -97,8 +109,13 @@ export class FixtureService {
           ...(input.department !== undefined
             ? { department: input.department }
             : {}),
+          // Tri-state like department: a value re-homes it, null makes it shared,
+          // omitting the key leaves ownership untouched.
+          ...(input.projectId !== undefined
+            ? { projectId: input.projectId }
+            : {}),
         },
-        select: { id: true, name: true, kind: true, department: true },
+        select: SELECT,
       });
       return this.toFixture(updated);
     } catch (err) {
@@ -322,15 +339,27 @@ export class FixtureService {
     name: string;
     kind: string;
     department: string | null;
+    projectId: string | null;
   }): Fixture {
     return {
       id: f.id,
       name: f.name,
       kind: toFixtureKind(f.kind),
       department: toDepartment(f.department),
+      projectId: f.projectId,
     };
   }
 }
+
+// The columns every fixture read selects — kept in one place so list/create/
+// update stay in lock-step (notably projectId, which scopes the library).
+const SELECT = {
+  id: true,
+  name: true,
+  kind: true,
+  department: true,
+  projectId: true,
+} satisfies Prisma.FixtureSelect;
 
 // The DB stores `department` as a free String; narrow it to the Department union
 // the UI groups on. Unknown / null → null (un-classified) rather than a bad value.

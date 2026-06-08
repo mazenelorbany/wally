@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type { SessionUser } from '@wally/types';
@@ -28,7 +29,8 @@ import {
 } from './fixture.dto';
 import { FixtureService } from './fixture.service';
 
-// GET    /fixtures            -> the org's fixture library (Fixture[]).
+// GET    /fixtures?projectId= -> the fixture library, scoped to a project (its
+//                               own fixtures + shared); omit projectId for all.
 // POST   /fixtures            -> add a fixture to the library (ADMIN only).
 // PATCH  /fixtures/:id        -> rename / re-kind / re-classify (ADMIN; 409 on
 //                               a name collision).
@@ -41,8 +43,11 @@ export class FixtureController {
   constructor(private readonly fixtures: FixtureService) {}
 
   @Get()
-  list(@CurrentUser() user: SessionUser) {
-    return this.fixtures.list(user.orgId);
+  list(
+    @CurrentUser() user: SessionUser,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.fixtures.list(user.orgId, projectId || undefined);
   }
 
   @Post()

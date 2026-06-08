@@ -33,6 +33,15 @@ export class StoreController {
     return this.stores.list(user.orgId);
   }
 
+  /**
+   * The org's existing DISTINCT segmentation values, for the directory's
+   * combobox datalists. Declared before `:id` so the literal path wins.
+   */
+  @Get('segments')
+  segments(@CurrentUser() user: SessionUser) {
+    return this.stores.segments(user.orgId);
+  }
+
   @Post()
   @Roles('ADMIN')
   create(
@@ -55,6 +64,20 @@ export class StoreController {
     @Body(new ZodValidationPipe(UpdateStoreSchema)) dto: UpdateStoreInput,
   ) {
     return this.stores.update(user.orgId, id, dto);
+  }
+
+  /** Deactivate (retire) a store — stamps closedAt=now. ADMIN. */
+  @Post(':id/deactivate')
+  @Roles('ADMIN')
+  deactivate(@CurrentUser() user: SessionUser, @Param('id') id: string) {
+    return this.stores.deactivate(user.orgId, id);
+  }
+
+  /** Reactivate a closed store — clears closedAt. ADMIN. */
+  @Post(':id/reactivate')
+  @Roles('ADMIN')
+  reactivate(@CurrentUser() user: SessionUser, @Param('id') id: string) {
+    return this.stores.reactivate(user.orgId, id);
   }
 
   /** The fixture checklist for a store, optionally filtered to one campaign. */
