@@ -7,6 +7,7 @@ import type {
   Task,
 } from '@prisma/client';
 import type {
+  CampaignQuestionWithAnswer,
   CaptureAttempt,
   CapturePhoto,
   CaptureVerdict as CaptureVerdictDto,
@@ -24,6 +25,8 @@ import type {
   SalesLine,
   SalesLog,
   SessionUser,
+  StoreReportDto,
+  StoreReportDocument,
   TaskDto,
   TaskKind,
   TaskStatus as TaskStatusDto,
@@ -31,6 +34,9 @@ import type {
 import sharp from 'sharp';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { CampaignQuestionService } from '../campaign/campaign-question.service';
+import type { AnswerQuestionInput } from '../campaign/campaign-question.dto';
+import { StoreReportService } from '../report/store-report.service';
 import { StorageService } from '../storage/storage.service';
 
 import { ComplianceScorer } from './compliance-scorer.service';
@@ -92,6 +98,8 @@ export class ManagerService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly scorer: ComplianceScorer,
+    private readonly questions: CampaignQuestionService,
+    private readonly reports: StoreReportService,
   ) {}
 
   // ----- shared resolution --------------------------------------------------
@@ -1059,6 +1067,91 @@ export class ManagerService {
     return this.presentComplianceDetail(placement, detail, notes, reference);
   }
 
+  // ----- report extra questions (manager) -----------------------------------
+
+  /** The campaign's extra report questions paired with this store's answers. */
+  async listQuestions(
+    user: SessionUser,
+    storeId?: string,
+  ): Promise<CampaignQuestionWithAnswer[]> {
+    const { store, campaign } = await this.resolveContext(user, storeId);
+    const questions = await this.prisma.campaignQuestion.findMany({
+      where: { campaignId: campaign.id, orgId: user.orgId, archivedAt: null },
+      orderBy: { order: 'asc' },
+    });
+    const answers = await this.prisma.storeQuestionAnswer.findMany({
+      where: { storeId: store.id, campaignId: campaign.id },
+      include: { answeredBy: { select: { name: true, email: true } } },
+    });
+    const byQuestion = new Map(answers.map((a) => [a.questionId, a]));
+    return questions.map((q) => {
+      const a = byQuestion.get(q.id);
+      return {
+        id: q.id,
+        order: q.order,
+        label: q.label,
+        type: q.type,
+        required: q.required,
+        allowNA: q.allowNA,
+        answer: a
+          ? {
+              questionId: q.id,
+              valueText: a.valueText ?? null,
+              valueBool: a.valueBool ?? null,
+              isNA: a.isNA,
+              answeredByName: actorName(a.answeredBy),
+              answeredAt: a.answeredAt ? a.answeredAt.toISOString() : null,
+            }
+          : null,
+      };
+    });
+  }
+
+  /** Upsert this store's answer to a question (validated by the question service). */
+  async answerQuestion(
+    user: SessionUser,
+    questionId: string,
+    body: AnswerQuestionInput,
+    storeId?: string,
+  ): Promise<CampaignQuestionWithAnswer[]> {
+    const { store, campaign } = await this.resolveContext(user, storeId);
+    await this.questions.answer(
+      user.orgId,
+      store.id,
+      campaign.id,
+      questionId,
+      user.id,
+      body,
+    );
+    return this.listQuestions(user, storeId);
+  }
+
+  // ----- the submittable report envelope ------------------------------------
+
+  /** This store's report envelope (status, score, flags, progress). */
+  async getReport(user: SessionUser, storeId?: string): Promise<StoreReportDto> {
+    const { store, campaign } = await this.resolveContext(user, storeId);
+    return this.reports.getReport(user.orgId, store.id, campaign.id);
+  }
+
+  /** Submit this store's report (blocks on unanswered required questions). */
+  async submitReport(
+    user: SessionUser,
+    storeId?: string,
+  ): Promise<StoreReportDto> {
+    const { store, campaign } = await this.resolveContext(user, storeId);
+    return this.reports.submit(user.orgId, store.id, campaign.id, user.id);
+  }
+
+  /** The full report document for this store (the read-only submitted view). */
+  async getReportDocument(
+    user: SessionUser,
+    storeId?: string,
+  ): Promise<StoreReportDocument> {
+    const { store, campaign } = await this.resolveContext(user, storeId);
+    return this.reports.getDocument(user.orgId, store.id, campaign.id);
+  }
+
   /**
    * Score the capture's CURRENT photo set (all non-archived gallery photos) as a
    * whole in one vision call, then persist: the set-level verdict/confidence/
@@ -1398,11 +1491,13 @@ export class ManagerService {
       guideFixture && guideFixture.orgId === orgId
         ? (guideFixture.exampleImages[0] ?? null)
         : null;
-    // Fall back to the fixture library's canonical reference when the guide
-    // itself has no example image.
-    const reference = best
-      ? { storageKey: best.storageKey, caption: best.caption }
-      : await this.libraryReference(orgId, fixtureId);
+    // The fixture LIBRARY reference (managed in Admin → Fixtures) is the single
+    // source of truth and wins whenever it's set, so changing it there updates
+    // every guide/store. A guide's own example image is the FALLBACK, used only
+    // when the library fixture has no reference of its own.
+    const lib = await this.libraryReference(orgId, fixtureId);
+    const reference =
+      lib ?? (best ? { storageKey: best.storageKey, caption: best.caption } : null);
     return {
       notes:
         guideFixture && guideFixture.orgId === orgId
@@ -1412,7 +1507,8 @@ export class ManagerService {
     };
   }
 
-  /** The fixture library's own reference image (the default guides inherit). */
+  /** The fixture library's own reference image — the authoritative "what good
+   *  looks like" set in Admin → Fixtures (wins over a guide's example image). */
   private async libraryReference(
     orgId: string,
     fixtureId: string,
