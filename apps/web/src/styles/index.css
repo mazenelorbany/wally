@@ -33,10 +33,10 @@
     --pass: 62 124 90;           /* #3E7C5A */
     --warn: 91 107 122;          /* #5B6B7A — needs-review slate (colour-blind safe) */
 
-    /* Brand TEAL accent (token name kept `gold` for a surgical re-theme). */
-    --gold: 14 110 110;          /* #0E6E6E */
-    --gold-bright: 31 160 160;   /* #1FA0A0 */
-    --gold-deep: 10 79 80;       /* #0A4F50 */
+    /* Brand RED accent: Cuisine::pro red (token name kept `gold`). */
+    --gold: 154 0 0;             /* #9A0000 */
+    --gold-bright: 194 26 26;    /* #C21A1A */
+    --gold-deep: 122 0 0;        /* #7A0000 */
     --chrome: 22 20 14;          /* #16140E */
     --chrome-raised: 34 31 22;   /* #221F16 */
     --chrome-line: 50 46 32;     /* #322E20 */

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
+  ClipboardCheck,
   GraduationCap,
   Home,
   ListChecks,
@@ -48,6 +49,7 @@ export function ManagerSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const items: NavItem[] = [
     { label: 'Home', icon: Home, to: '/store', end: true },
     { label: 'Tasks', icon: ListChecks, to: '/store/tasks', badge: unseen },
+    { label: 'Store report', icon: ClipboardCheck, to: '/store/report' },
     { label: 'Bulletins', icon: Megaphone, to: '/store/bulletins', badge: unreadBulletins },
     { label: 'Floor map', icon: MapIcon, to: '/store/guide' },
     { label: 'Log sales', icon: Receipt, to: '/store/sales' },
@@ -101,7 +103,7 @@ export function ManagerSidebar({ onNavigate }: { onNavigate?: () => void }) {
                   />
                   <span className="flex-1 truncate">{item.label}</span>
                   {item.badge ? (
-                    <span className="grid h-4 min-w-4 place-items-center rounded-full bg-gold px-1 text-[10px] font-semibold leading-none text-chrome">
+                    <span className="grid h-4 min-w-4 place-items-center rounded-full bg-gold px-1 text-[10px] font-semibold leading-none text-chrome-ink">
                       {item.badge}
                     </span>
                   ) : null}

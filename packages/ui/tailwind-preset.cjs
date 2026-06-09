@@ -38,14 +38,14 @@ module.exports = {
         steel: tone("--wally-steel", "#7E7D77"),
         mist: tone("--wally-mist", "#BEBDB6"),
 
-        // Brand TEAL accent (colour-blind-safe). `gold` for fills/borders/
-        // active marks; `gold-bright` for glow on chrome; `gold-deep` for
-        // accent text on light that must stay legible. (Token name kept `gold`
-        // so the re-theme was a value-only swap; the hue is now teal.)
+        // Brand RED accent — Cuisine::pro red. `gold` for fills/borders/active
+        // marks; `gold-bright` for glow on chrome; `gold-deep` for accent text
+        // on light that must stay legible. (Token name kept `gold` so the
+        // re-theme was a value-only swap; the hue is now the brand red.)
         gold: {
-          DEFAULT: v("--wally-gold", "#0E6E6E"),
-          bright: v("--wally-gold-bright", "#1FA0A0"),
-          deep: v("--wally-gold-deep", "#0A4F50"),
+          DEFAULT: v("--wally-gold", "#9A0000"),
+          bright: v("--wally-gold-bright", "#C21A1A"),
+          deep: v("--wally-gold-deep", "#7A0000"),
         },
 
         // Premium dark CHROME (sidebars / login / brand surfaces).
@@ -148,8 +148,8 @@ module.exports = {
         card: "0 1px 2px rgba(14, 14, 13, 0.04), 0 1px 1px rgba(14, 14, 13, 0.03)",
         raised: "0 6px 24px -8px rgba(14, 14, 13, 0.18)",
         lift: "0 10px 30px -12px rgba(14, 14, 13, 0.22)",
-        // Soft teal halo for the brand mark + key active/primary affordances.
-        glow: "0 0 0 1px rgba(14, 110, 110, 0.35), 0 8px 24px -10px rgba(14, 110, 110, 0.45)",
+        // Soft red halo for the brand mark + key active/primary affordances.
+        glow: "0 0 0 1px rgba(154, 0, 0, 0.32), 0 8px 24px -10px rgba(154, 0, 0, 0.42)",
       },
     },
   },

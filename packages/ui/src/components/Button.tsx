@@ -28,9 +28,10 @@ const variants: Record<Variant, string> = {
   // Hairline outline.
   outline:
     "border border-mist bg-transparent text-ink hover:border-steel hover:bg-surface focus-visible:ring-gold/45",
-  // The brand accent — premium gold for a headline CTA (not a "stop").
+  // The brand accent — Cuisine::pro red for a headline CTA. Light text: the
+  // accent is now a deep red, so cream/white reads, not the dark chrome ink.
   gold:
-    "bg-gold text-chrome shadow-card hover:bg-gold-bright focus-visible:ring-gold/55",
+    "bg-gold text-chrome-ink shadow-card hover:bg-gold-bright focus-visible:ring-gold/55",
 };
 
 const sizes: Record<Size, string> = {

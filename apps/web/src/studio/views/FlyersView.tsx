@@ -202,7 +202,7 @@ export function FlyersView() {
         height: 160,
         rotation: 0,
         opacity: 1,
-        fill: '#0E6E6E',
+        fill: '#9A0000',
         cornerRadius: 8,
         stroke: '',
         strokeWidth: 0,

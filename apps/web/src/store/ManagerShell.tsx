@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, ChevronDown, Menu, Store as StoreIcon, X } from 'lucide-react';
+import { Bell, Menu, Store as StoreIcon, X } from 'lucide-react';
 
 import { api } from '../lib/api';
+import { StoreSwitcher } from '../components/StoreSwitcher';
 import { ManagerSidebar } from './ManagerSidebar';
 import { ManagerStoreProvider, useManagerStore } from './ManagerStoreContext';
 
@@ -80,22 +81,13 @@ function ManagerTopBar({ onMenu }: { onMenu: () => void }) {
 
       <div className="min-w-0 flex-1">
         {canSwitch && stores.length > 0 ? (
-          <div className="relative inline-flex max-w-full items-center">
-            <StoreIcon className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-steel" />
-            <select
-              aria-label="View store"
-              value={storeId ?? ''}
-              onChange={(e) => setStoreId(e.target.value)}
-              className="max-w-[14rem] truncate rounded-md border border-mist/70 bg-surface py-1.5 pl-7 pr-7 text-sm font-medium text-ink focus:border-steel focus:outline-none"
-            >
-              {stores.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 h-3.5 w-3.5 text-steel" />
-          </div>
+          <StoreSwitcher
+            stores={stores.map((s) => ({ storeId: s.id, storeName: s.name }))}
+            value={storeId}
+            onChange={setStoreId}
+            placeholder="View store"
+            className="w-56 max-w-full"
+          />
         ) : storeName ? (
           <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink">
             <StoreIcon className="h-3.5 w-3.5 text-steel" />
@@ -111,7 +103,7 @@ function ManagerTopBar({ onMenu }: { onMenu: () => void }) {
       >
         <Bell className="h-[18px] w-[18px]" />
         {unseen > 0 ? (
-          <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-gold px-1 text-[10px] font-semibold leading-none text-chrome">
+          <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-gold px-1 text-[10px] font-semibold leading-none text-chrome-ink">
             {unseen}
           </span>
         ) : null}

@@ -33,13 +33,13 @@ export const palette = {
   /** Hairlines, dividers, disabled strokes. */
   mist: "#BEBDB6",
 
-  /** The premium brand TEAL/verdigris — active nav, brand mark, focus, CTAs.
+  /** The brand RED — Cuisine::pro red. Active nav, brand mark, focus, CTAs.
    *  (Token name kept `gold` so the re-theme stays a value-only swap.) */
-  gold: "#0E6E6E",
-  /** Brighter teal for accents/glow on the dark chrome. */
-  goldBright: "#1FA0A0",
-  /** Deep teal for accent-on-light text that must stay legible. */
-  goldDeep: "#0A4F50",
+  gold: "#9A0000",
+  /** Brighter red for accents/glow on the dark chrome. */
+  goldBright: "#C21A1A",
+  /** Deep red for accent-on-light text that must stay legible. */
+  goldDeep: "#7A0000",
 
   /** Premium dark CHROME — the rails (sidebar / login / brand surfaces). */
   chrome: "#16140E",
