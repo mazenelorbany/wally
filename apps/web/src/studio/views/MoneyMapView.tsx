@@ -20,9 +20,11 @@ function money(n: number): string {
 
 /**
  * Money Map — the store floor plan recoloured by per-fixture revenue. Unlike
- * Flagship's green/red heatmap, the intensity ramp is a single neutral hue and
- * every fixture carries its dollar value, so it reads in greyscale (the GRB CEO
- * is colour blind). Sales are illustrative until a POS feed lands.
+ * Flagship's green/red heatmap, the ramp is a single brand-teal hue varied by
+ * lightness (light teal → deep teal), and every fixture carries its dollar
+ * value — so it stays legible for the colour-blind GRB CEO (lightness reads in
+ * greyscale; colour is never the only signal). Sales are illustrative until a
+ * POS feed lands.
  */
 export function MoneyMapView() {
   // The selected project's guide scopes the venues + money map.
@@ -205,11 +207,12 @@ function MoneyTile({
   selected: boolean;
   onSelect: (id: string) => void;
 }) {
-  // Single-hue intensity (graphite alpha) — reads in greyscale; the $ label
-  // means colour is never the only signal.
+  // Teal revenue ramp: light teal (low) → deep teal (high). Single hue, varied
+  // by LIGHTNESS only, so it stays colour-blind-safe; the $ label means colour
+  // is never the only signal. Brand accent, premium over the old flat grey.
   const t = maxRevenue > 0 ? fx.revenue / maxRevenue : 0;
-  const alpha = 0.06 + t * 0.6;
-  const dark = t > 0.55;
+  const fill = tealRamp(t);
+  const dark = t > 0.42;
 
   return (
     <button
@@ -223,8 +226,8 @@ function MoneyTile({
         width: `${fx.w * scale}px`,
         height: `${fx.h * scale}px`,
         transform: fx.rotation ? `rotate(${fx.rotation}deg)` : undefined,
-        backgroundColor: `rgba(60,59,54,${alpha})`,
-        borderColor: selected ? '#B23A2E' : 'rgba(60,59,54,0.35)',
+        backgroundColor: fill,
+        borderColor: selected ? '#B23A2E' : 'rgba(14,110,110,0.30)',
         borderWidth: selected ? 2 : 1,
       }}
     >
@@ -317,17 +320,26 @@ function DrillStat({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * Revenue → colour. Lerps light teal (low) → deep teal (high) so the heatmap is
+ * on-brand and premium, while staying single-hue / lightness-only — colour-blind
+ * safe (every tile also carries its $ figure).
+ */
+function tealRamp(t: number): string {
+  const lo = [223, 240, 239]; // #DFF0EF — light teal tint (low revenue)
+  const hi = [10, 79, 80]; //    #0A4F50 — deep teal (high revenue)
+  const k = Math.max(0, Math.min(1, t));
+  const c = (i: number) => Math.round(lo[i]! + (hi[i]! - lo[i]!) * k);
+  return `rgb(${c(0)}, ${c(1)}, ${c(2)})`;
+}
+
 function Legend() {
   return (
     <div className="mt-4 flex items-center gap-3 text-[11px] text-steel">
       <span>Lower revenue</span>
       <div className="flex h-3 w-40 overflow-hidden rounded-full border border-mist/70">
-        {[0.06, 0.2, 0.34, 0.48, 0.62].map((a) => (
-          <div
-            key={a}
-            className="flex-1"
-            style={{ backgroundColor: `rgba(60,59,54,${a})` }}
-          />
+        {[0.05, 0.275, 0.5, 0.725, 0.95].map((t) => (
+          <div key={t} className="flex-1" style={{ backgroundColor: tealRamp(t) }} />
         ))}
       </div>
       <span>Higher</span>
