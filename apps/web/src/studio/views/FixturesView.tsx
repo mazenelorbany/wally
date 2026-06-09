@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Boxes, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { Boxes, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -29,6 +29,7 @@ import { useSession } from '../../lib/auth';
 import {
   useAddFixtureProduct,
   useArchiveFixture,
+  useClearFixtureReference,
   useCreateFixture,
   useDeleteFixture,
   useFixtureProducts,
@@ -37,6 +38,7 @@ import {
   useProducts,
   useRemoveFixtureProduct,
   useReorderFixturePlanogram,
+  useSetFixtureReference,
   useUpdateFixture,
 } from '../lib/hooks';
 import { fixtureKindMeta } from '../lib/fixtureKind';
@@ -856,13 +858,40 @@ function FixtureProductsDialog({
   fixture: Fixture | null;
   onClose: () => void;
 }) {
+  const { projectId } = useProject();
   const defaultsQ = useFixtureProducts(fixture?.id);
   const add = useAddFixtureProduct(fixture?.id ?? '');
   const remove = useRemoveFixtureProduct(fixture?.id ?? '');
   const reorder = useReorderFixturePlanogram(fixture?.id ?? '');
+  const update = useUpdateFixture();
+  const usageQ = useFixtureUsage(fixture?.id);
+  const setRef = useSetFixtureReference();
+  const clearRef = useClearFixtureReference();
+  const refInput = React.useRef<HTMLInputElement>(null);
 
   const defaults = defaultsQ.data ?? [];
   const rows = React.useMemo(() => defaultsToRows(defaults), [defaults]);
+  // The fixture prop is a snapshot; reflect the latest reference / share change
+  // (the mutations return the updated fixture) so the open modal updates live.
+  const refFixture =
+    clearRef.data?.id === fixture?.id
+      ? clearRef.data
+      : setRef.data?.id === fixture?.id
+        ? setRef.data
+        : fixture;
+  const referenceUrl = refFixture?.referenceUrl ?? null;
+  const shared =
+    update.data && update.data.id === fixture?.id
+      ? update.data.projectId == null
+      : fixture
+        ? fixture.projectId == null
+        : false;
+
+  const onPickReference = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && fixture) setRef.mutate({ id: fixture.id, file });
+    e.target.value = '';
+  };
 
   return (
     <Dialog
@@ -882,7 +911,104 @@ function FixtureProductsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[65vh] overflow-y-auto">
+        {fixture ? (
+          <div className="space-y-3 border-b border-mist/50 pb-4">
+            {/* Reference image — the library-level "what good looks like". */}
+            <div>
+              <p className="mb-1.5 text-[11px] font-medium uppercase tracking-brand text-steel">
+                Reference image · what good looks like
+              </p>
+              <div className="flex items-start gap-3">
+                {referenceUrl ? (
+                  <img
+                    src={referenceUrl}
+                    alt=""
+                    className="h-20 w-28 shrink-0 rounded-md border border-mist object-cover"
+                  />
+                ) : (
+                  <div className="grid h-20 w-28 shrink-0 place-items-center rounded-md border border-dashed border-mist text-[10px] text-steel">
+                    No reference
+                  </div>
+                )}
+                <div className="flex flex-col items-start gap-1.5">
+                  <input
+                    ref={refInput}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={onPickReference}
+                  />
+                  <div className="flex gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => refInput.current?.click()}
+                      loading={setRef.isPending}
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      {referenceUrl ? 'Replace' : 'Add reference'}
+                    </Button>
+                    {referenceUrl ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => clearRef.mutate(fixture.id)}
+                        loading={clearRef.isPending}
+                      >
+                        Remove
+                      </Button>
+                    ) : null}
+                  </div>
+                  <p className="max-w-[18rem] text-[10px] leading-snug text-steel">
+                    The AI compares store photos against this. Guides inherit it
+                    unless they upload their own.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Shared toggle + where this fixture is placed. */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-xs text-graphite">
+                <input
+                  type="checkbox"
+                  checked={shared}
+                  disabled={update.isPending}
+                  onChange={(e) =>
+                    update.mutate({
+                      id: fixture.id,
+                      projectId: e.target.checked ? null : (projectId ?? null),
+                    })
+                  }
+                  className="h-3.5 w-3.5"
+                />
+                Shared across all projects
+              </label>
+              <span className="text-[11px] text-steel">
+                {usageQ.data
+                  ? usageQ.data.storeCount === 0
+                    ? 'Not placed in any store yet'
+                    : `In ${usageQ.data.storeCount} store${
+                        usageQ.data.storeCount === 1 ? '' : 's'
+                      }${
+                        usageQ.data.stores.length
+                          ? `: ${usageQ.data.stores
+                              .slice(0, 3)
+                              .map((s) => s.name)
+                              .join(', ')}${
+                              usageQ.data.stores.length > 3
+                                ? `, +${usageQ.data.stores.length - 3} more`
+                                : ''
+                            }`
+                          : ''
+                      }`
+                  : ''}
+              </span>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="max-h-[55vh] overflow-y-auto">
           {defaultsQ.isLoading ? (
             <div className="grid place-items-center py-10">
               <Spinner className="text-lg text-steel" />

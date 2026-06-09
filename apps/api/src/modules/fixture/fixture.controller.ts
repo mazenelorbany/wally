@@ -8,26 +8,40 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { SessionUser } from '@wally/types';
 
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
 import { SessionGuard } from '../auth/session.guard';
 import { ZodValidationPipe } from '../org/zod-validation.pipe';
+import { MAX_IMAGE_BYTES } from '../storage/image-upload.util';
 
 import {
   AddFixtureProductSchema,
   CreateFixtureSchema,
   ReorderFixturePlanogramSchema,
+  SetFixtureReferenceSchema,
   UpdateFixtureSchema,
   type AddFixtureProductInput,
   type CreateFixtureInput,
   type ReorderFixturePlanogramInput,
+  type SetFixtureReferenceInput,
   type UpdateFixtureInput,
 } from './fixture.dto';
 import { FixtureService } from './fixture.service';
+
+// Multipart guard for the reference-image upload (single file, size-capped).
+const IMAGE_UPLOAD = { limits: { fileSize: MAX_IMAGE_BYTES, files: 1 } };
+interface UploadedImage {
+  buffer: Buffer;
+  mimetype: string;
+  size: number;
+}
 
 // GET    /fixtures?projectId= -> the fixture library, scoped to a project (its
 //                               own fixtures + shared); omit projectId for all.
@@ -86,6 +100,30 @@ export class FixtureController {
   @HttpCode(204)
   remove(@CurrentUser() user: SessionUser, @Param('id') id: string) {
     return this.fixtures.remove(user.orgId, id);
+  }
+
+  // ----- reference image ("what good looks like" — library default) --------
+
+  /** Set / replace the fixture's reference image (multipart `file` + optional
+   *  text `caption`). ADMIN only. Returns the refreshed fixture. */
+  @Post(':id/reference')
+  @Roles('ADMIN')
+  @UseInterceptors(FileInterceptor('file', IMAGE_UPLOAD))
+  setReference(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @UploadedFile() file: UploadedImage | undefined,
+    @Body(new ZodValidationPipe(SetFixtureReferenceSchema))
+    dto: SetFixtureReferenceInput,
+  ) {
+    return this.fixtures.setReference(user.orgId, id, file, dto.caption);
+  }
+
+  /** Remove the fixture's reference image. ADMIN only. */
+  @Delete(':id/reference')
+  @Roles('ADMIN')
+  clearReference(@CurrentUser() user: SessionUser, @Param('id') id: string) {
+    return this.fixtures.clearReference(user.orgId, id);
   }
 
   // ----- default products (the fixture's reusable starter set) -------------

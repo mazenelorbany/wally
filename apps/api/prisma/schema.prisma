@@ -453,6 +453,11 @@ model Fixture {
   name       String
   kind       String   @default("bay") // bay | table | stand | window | dais | trolley
   department String? // Myer department: "The Custom Chef" | "The Cook Shop"
+  // Library-level "what good looks like" reference image. Guides that have no
+  // example image of their own fall back to this, so a fixture carries one
+  // canonical reference instead of re-uploading it per store.
+  referenceKey     String?
+  referenceCaption String?
   createdAt  DateTime @default(now())
   archivedAt DateTime? // soft-delete: hidden from the library, placements kept
 

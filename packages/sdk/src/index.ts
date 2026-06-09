@@ -666,6 +666,10 @@ export interface WallyClient {
     update(id: string, body: UpdateFixtureBody): Promise<Fixture>;
     /** Where a fixture is used (stores + guides) — for the delete dialog. */
     usage(id: string): Promise<FixtureUsage>;
+    /** Set / replace the library-level reference image. Returns the fixture. */
+    setReference(id: string, file: File, caption?: string): Promise<Fixture>;
+    /** Remove the library-level reference image. Returns the fixture. */
+    clearReference(id: string): Promise<Fixture>;
     /** Soft-delete: hide from the library, keep placements. */
     archive(id: string): Promise<void>;
     /** Hard-delete: remove the fixture and everything that hangs off it. */
@@ -1208,6 +1212,18 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         patch<Fixture>(`fixtures/${encodeURIComponent(id)}`, body),
       usage: (id) =>
         get<FixtureUsage>(`fixtures/${encodeURIComponent(id)}/usage`),
+      setReference: (id, file, caption) => {
+        const form = new FormData();
+        form.append("file", file);
+        if (caption) form.append("caption", caption);
+        return request<Fixture>(
+          "POST",
+          `fixtures/${encodeURIComponent(id)}/reference`,
+          { body: form },
+        );
+      },
+      clearReference: (id) =>
+        del<Fixture>(`fixtures/${encodeURIComponent(id)}/reference`),
       archive: (id) =>
         post<void>(`fixtures/${encodeURIComponent(id)}/archive`),
       remove: (id) => del<void>(`fixtures/${encodeURIComponent(id)}`),

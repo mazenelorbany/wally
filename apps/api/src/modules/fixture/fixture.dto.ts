@@ -59,6 +59,17 @@ export const AddFixtureProductSchema = z
 
 export type AddFixtureProductInput = z.infer<typeof AddFixtureProductSchema>;
 
+// POST /fixtures/:id/reference — the image rides as multipart `file`; the only
+// JSON-ish field is an optional caption. Coerced loosely because it arrives as a
+// multipart text part, not a JSON body.
+export const SetFixtureReferenceSchema = z
+  .object({
+    caption: z.string().trim().max(200).optional(),
+  })
+  .strict();
+
+export type SetFixtureReferenceInput = z.infer<typeof SetFixtureReferenceSchema>;
+
 // PATCH /fixtures/:id/planogram — persist the whole default-set layout:
 // shelves top→bottom, each a left→right list of FixtureProduct ids. The server
 // owns the `order` integer (the client only sends structure). Mirrors the

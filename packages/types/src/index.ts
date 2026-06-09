@@ -270,6 +270,9 @@ export interface Fixture {
    * project; a project id scopes it to that project's library + floor plans.
    */
   projectId?: string | null;
+  /** Library-level "what good looks like" reference image (signed URL), if set. */
+  referenceUrl?: string | null;
+  referenceCaption?: string | null;
 }
 
 /**

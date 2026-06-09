@@ -14,6 +14,12 @@ import type {
 } from '@wally/types';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  assertReadableImage,
+  imageExtFor,
+  type UploadedImageFile,
+} from '../storage/image-upload.util';
+import { StorageService } from '../storage/storage.service';
 
 import type { CreateFixtureInput, UpdateFixtureInput } from './fixture.dto';
 
@@ -28,7 +34,10 @@ import type { CreateFixtureInput, UpdateFixtureInput } from './fixture.dto';
 
 @Injectable()
 export class FixtureService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+  ) {}
 
   /** The org's fixture library, ordered by name, mapped to the shared contract.
    *  Archived fixtures are hidden — they stay in the DB so existing placements
@@ -340,6 +349,8 @@ export class FixtureService {
     kind: string;
     department: string | null;
     projectId: string | null;
+    referenceKey?: string | null;
+    referenceCaption?: string | null;
   }): Fixture {
     return {
       id: f.id,
@@ -347,7 +358,47 @@ export class FixtureService {
       kind: toFixtureKind(f.kind),
       department: toDepartment(f.department),
       projectId: f.projectId,
+      referenceUrl: f.referenceKey ? this.storage.signedGetUrl(f.referenceKey) : null,
+      referenceCaption: f.referenceCaption ?? null,
     };
+  }
+
+  /**
+   * Set (or replace) the fixture's library-level reference image — the canonical
+   * "what good looks like" that guides inherit when they have no example of their
+   * own. ADMIN only (controller-gated). Returns the refreshed fixture.
+   */
+  async setReference(
+    orgId: string,
+    id: string,
+    file: UploadedImageFile | undefined,
+    caption?: string,
+  ): Promise<Fixture> {
+    await this.ensureOwned(orgId, id);
+    await assertReadableImage(file);
+    const f = file as UploadedImageFile;
+    const storageKey = await this.storage.put(f.buffer, {
+      ext: imageExtFor(f.mimetype),
+      prefix: `fixture-references/${orgId}/${id}`,
+    });
+    const trimmed = caption?.trim();
+    const updated = await this.prisma.fixture.update({
+      where: { id },
+      data: { referenceKey: storageKey, referenceCaption: trimmed || null },
+      select: SELECT,
+    });
+    return this.toFixture(updated);
+  }
+
+  /** Remove the fixture's reference image. ADMIN only. */
+  async clearReference(orgId: string, id: string): Promise<Fixture> {
+    await this.ensureOwned(orgId, id);
+    const updated = await this.prisma.fixture.update({
+      where: { id },
+      data: { referenceKey: null, referenceCaption: null },
+      select: SELECT,
+    });
+    return this.toFixture(updated);
   }
 }
 
@@ -359,6 +410,8 @@ const SELECT = {
   kind: true,
   department: true,
   projectId: true,
+  referenceKey: true,
+  referenceCaption: true,
 } satisfies Prisma.FixtureSelect;
 
 // The DB stores `department` as a free String; narrow it to the Department union

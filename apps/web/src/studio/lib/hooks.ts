@@ -81,6 +81,33 @@ export function useUpdateFixture(): UseMutationResult<
   });
 }
 
+/** Set / replace a fixture's library reference image; refreshes the grid. */
+export function useSetFixtureReference(): UseMutationResult<
+  Fixture,
+  unknown,
+  { id: string; file: File; caption?: string }
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, file, caption }) =>
+      studio.fixtures.setReference(id, file, caption),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: sqk.fixtures }),
+  });
+}
+
+/** Remove a fixture's library reference image. */
+export function useClearFixtureReference(): UseMutationResult<
+  Fixture,
+  unknown,
+  string
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => studio.fixtures.clearReference(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: sqk.fixtures }),
+  });
+}
+
 /** Where a fixture is used (stores + guides) — drives the delete dialog. */
 export function useFixtureUsage(
   id: string | undefined,

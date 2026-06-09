@@ -1166,8 +1166,10 @@ export class ManagerService {
 
   /**
    * The guide notes + best reference image for a fixture in a campaign. The
-   * reference is the best-in-class ExampleImage, else the first; null if the
-   * guide-fixture has no images. Notes default to "" when there's no guide row.
+   * reference is the guide's best-in-class ExampleImage; if the guide has none,
+   * it falls back to the fixture LIBRARY's reference image (so a fixture carries
+   * one canonical "what good looks like" that every guide inherits). Notes
+   * default to "" when there's no guide row.
    */
   private async guideFor(
     orgId: string,
@@ -1187,16 +1189,36 @@ export class ManagerService {
         },
       },
     });
-    if (!guideFixture || guideFixture.orgId !== orgId) {
-      return { notes: '', reference: null };
-    }
-    const best = guideFixture.exampleImages[0] ?? null;
+    const best =
+      guideFixture && guideFixture.orgId === orgId
+        ? (guideFixture.exampleImages[0] ?? null)
+        : null;
+    // Fall back to the fixture library's canonical reference when the guide
+    // itself has no example image.
+    const reference = best
+      ? { storageKey: best.storageKey, caption: best.caption }
+      : await this.libraryReference(orgId, fixtureId);
     return {
-      notes: guideFixture.notes ?? '',
-      reference: best
-        ? { storageKey: best.storageKey, caption: best.caption }
-        : null,
+      notes:
+        guideFixture && guideFixture.orgId === orgId
+          ? (guideFixture.notes ?? '')
+          : '',
+      reference,
     };
+  }
+
+  /** The fixture library's own reference image (the default guides inherit). */
+  private async libraryReference(
+    orgId: string,
+    fixtureId: string,
+  ): Promise<{ storageKey: string; caption: string | null } | null> {
+    const fixture = await this.prisma.fixture.findFirst({
+      where: { id: fixtureId, orgId },
+      select: { referenceKey: true, referenceCaption: true },
+    });
+    return fixture?.referenceKey
+      ? { storageKey: fixture.referenceKey, caption: fixture.referenceCaption ?? null }
+      : null;
   }
 
   /** Shape a placement + capture + guide into the FixtureComplianceDetail. */
