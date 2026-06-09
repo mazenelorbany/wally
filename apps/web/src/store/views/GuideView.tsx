@@ -19,6 +19,7 @@ import {
 import { Button, Spinner } from '@wally/ui';
 import type {
   CaptureAttempt,
+  CapturePhoto,
   CaptureVerdict,
   ComplianceIssue,
   Department,
@@ -28,6 +29,9 @@ import type {
 import { api, errorMessage } from '../../lib/api';
 import { useSession } from '../../lib/auth';
 import { useManagerStore } from '../ManagerStoreContext';
+
+// Mirror the API cap (MAX_PHOTOS_PER_FIXTURE) so the UI hides "add" at the limit.
+const MAX_PHOTOS_PER_FIXTURE = 6;
 
 const deptLabel = (d?: Department | 'shared' | null) =>
   d === 'The Custom Chef' ? 'The Custom Chef' : d === 'The Cook Shop' ? 'The Cook Shop' : 'Store';
@@ -152,6 +156,13 @@ export function GuideFixtureDetailView() {
     onSuccess: invalidateCapture,
   });
 
+  // Remove one photo from the gallery (AI re-scores the remaining set).
+  const removePhoto = useMutation({
+    mutationFn: (photoId: string) =>
+      api.manager.deleteFixturePhoto(fixtureId, photoId, storeId),
+    onSuccess: invalidateCapture,
+  });
+
   // REVIEWER/ADMIN: re-request a photo ("redo this").
   const requestPhoto = useMutation({
     mutationFn: () => api.manager.requestCapturePhoto(fixtureId, storeId),
@@ -193,24 +204,30 @@ export function GuideFixtureDetailView() {
         </h1>
       </header>
 
-      {/* Compliance: reference + notes + my photo + verdict */}
+      {/* Compliance: reference + notes + my photo gallery + verdict */}
       <section className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <Frame label="Guide reference">
-            {c?.referenceUrl ? (
-              <ZoomableImage src={c.referenceUrl} label="Guide reference" onZoom={setZoom} />
-            ) : (
-              <Placeholder text="No reference" />
-            )}
-          </Frame>
-          <Frame label="Your photo">
-            {c?.myPhotoUrl ? (
-              <ZoomableImage src={c.myPhotoUrl} label="Your photo" issues={c?.issues} onZoom={setZoom} />
-            ) : (
-              <Placeholder text="Not submitted" icon={<Camera className="h-5 w-5 text-mist" />} />
-            )}
-          </Frame>
-        </div>
+        <Frame label="Guide reference">
+          {c?.referenceUrl ? (
+            <ZoomableImage src={c.referenceUrl} label="Guide reference" onZoom={setZoom} />
+          ) : (
+            <Placeholder text="No reference" />
+          )}
+        </Frame>
+
+        {/* Your photos — a fixture step can hold several angles of one display. */}
+        <YourPhotos
+          photos={c?.photos ?? []}
+          onZoom={setZoom}
+          onRemove={(id) => removePhoto.mutate(id)}
+          removingId={
+            removePhoto.isPending ? (removePhoto.variables as string) : null
+          }
+        />
+        {removePhoto.isError ? (
+          <p className="text-center text-sm text-fail">
+            {errorMessage(removePhoto.error)}
+          </p>
+        ) : null}
 
         {c?.notes ? (
           <div className="rounded-lg border border-mist/60 bg-surface/40 p-3.5">
@@ -266,9 +283,9 @@ export function GuideFixtureDetailView() {
           </div>
         ) : null}
 
-        {/* AI-flagged issues, numbered to match the boxes on the photo. */}
+        {/* AI-flagged issues, numbered to match the boxes on each photo. */}
         {!upload.isPending && c?.issues && c.issues.length > 0 ? (
-          <IssueList issues={c.issues} photoUrl={c.myPhotoUrl} onOpen={setZoom} />
+          <IssueList issues={c.issues} photos={c?.photos ?? []} onOpen={setZoom} />
         ) : null}
 
         <input
@@ -279,15 +296,21 @@ export function GuideFixtureDetailView() {
           onChange={onPick}
           className="hidden"
         />
-        <Button
-          className="w-full"
-          size="lg"
-          onClick={() => fileRef.current?.click()}
-          loading={upload.isPending}
-        >
-          <Camera className="h-4 w-4" />
-          {c?.myPhotoUrl ? 'Retake photo' : 'Take / upload photo'}
-        </Button>
+        {(c?.photos?.length ?? 0) >= MAX_PHOTOS_PER_FIXTURE ? (
+          <p className="text-center text-sm text-steel">
+            Maximum {MAX_PHOTOS_PER_FIXTURE} photos — remove one to add another.
+          </p>
+        ) : (
+          <Button
+            className="w-full"
+            size="lg"
+            onClick={() => fileRef.current?.click()}
+            loading={upload.isPending}
+          >
+            <Camera className="h-4 w-4" />
+            {(c?.photos?.length ?? 0) > 0 ? 'Add a photo' : 'Take / upload photo'}
+          </Button>
+        )}
         {upload.isError ? (
           <p className="text-center text-sm text-fail">{errorMessage(upload.error)}</p>
         ) : null}
@@ -489,23 +512,34 @@ function Lightbox({
  */
 function IssueList({
   issues,
-  photoUrl,
+  photos,
   onOpen,
 }: {
   issues: ComplianceIssue[];
-  photoUrl?: string | null;
+  photos: CapturePhoto[];
   onOpen: (t: ZoomTarget) => void;
 }) {
   if (issues.length === 0) return null;
+  const multi = photos.length > 1;
   return (
     <ul className="space-y-1.5">
-      {issues.map((it, i) => (
+      {issues.map((it, i) => {
+        // Each issue points at the photo it was found on (photoIndex).
+        const idx = it.photoIndex ?? 0;
+        const target = photos[idx] ?? photos[0];
+        const targetUrl = target?.url ?? null;
+        return (
         <li key={i}>
           <button
             type="button"
-            disabled={!photoUrl}
+            disabled={!targetUrl}
             onClick={() =>
-              photoUrl && onOpen({ url: photoUrl, label: 'Your photo', issues })
+              targetUrl &&
+              onOpen({
+                url: targetUrl,
+                label: multi ? `Your photo ${idx + 1}` : 'Your photo',
+                issues: target?.issues ?? [it],
+              })
             }
             className="flex w-full items-start gap-2.5 rounded-lg border border-mist/60 bg-paper px-3 py-2 text-left transition-colors enabled:hover:bg-surface/60 disabled:cursor-default"
           >
@@ -525,11 +559,79 @@ function IssueList({
                 <span className="mt-0.5 block text-xs leading-snug text-graphite">{it.fix}</span>
               ) : null}
             </span>
-            {photoUrl ? <ZoomIn className="mt-0.5 h-3.5 w-3.5 shrink-0 text-mist" /> : null}
+            {targetUrl ? <ZoomIn className="mt-0.5 h-3.5 w-3.5 shrink-0 text-mist" /> : null}
           </button>
         </li>
-      ))}
+        );
+      })}
     </ul>
+  );
+}
+
+/**
+ * The manager's photo gallery for a fixture — several angles of one display.
+ * Each tile opens full-screen (with its own AI boxes) and carries a remove (X).
+ */
+function YourPhotos({
+  photos,
+  onZoom,
+  onRemove,
+  removingId,
+}: {
+  photos: CapturePhoto[];
+  onZoom: (t: ZoomTarget) => void;
+  onRemove: (photoId: string) => void;
+  removingId: string | null;
+}) {
+  const multi = photos.length > 1;
+  return (
+    <div>
+      <p className="mb-1.5 text-[11px] uppercase tracking-brand text-steel">
+        Your photos{photos.length ? ` (${photos.length})` : ''}
+      </p>
+      {photos.length === 0 ? (
+        <div className="grid aspect-[4/3] max-w-[220px] place-items-center rounded-lg border border-dashed border-mist/70 bg-surface/40">
+          <span className="flex flex-col items-center gap-1 text-sm text-steel">
+            <Camera className="h-5 w-5 text-mist" /> No photos yet
+          </span>
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {photos.map((p, i) => (
+            <figure
+              key={p.id}
+              className="relative overflow-hidden rounded-lg border border-mist/60 bg-surface"
+            >
+              <div className="relative aspect-square">
+                {p.url ? (
+                  <ZoomableImage
+                    src={p.url}
+                    label={multi ? `Your photo ${i + 1}` : 'Your photo'}
+                    issues={p.issues}
+                    onZoom={onZoom}
+                  />
+                ) : (
+                  <Placeholder text="Unavailable" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => onRemove(p.id)}
+                  disabled={removingId === p.id}
+                  aria-label={`Remove photo ${i + 1}`}
+                  className="absolute right-1 top-1 z-10 grid h-6 w-6 place-items-center rounded-full bg-ink/55 text-paper transition-colors hover:bg-fail disabled:opacity-50"
+                >
+                  {removingId === p.id ? (
+                    <Spinner className="text-xs" />
+                  ) : (
+                    <X className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
+            </figure>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

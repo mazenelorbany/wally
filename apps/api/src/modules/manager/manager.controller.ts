@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -220,6 +221,21 @@ export class ManagerController {
       },
       q.storeId,
     );
+  }
+
+  /**
+   * Remove one photo from a fixture's gallery (soft-archive) and re-score the
+   * remaining set. Returns the updated compliance sheet.
+   */
+  @Delete('fixtures/:fixtureId/photos/:photoId')
+  @UseGuards(NoViewerGuard)
+  deleteFixturePhoto(
+    @CurrentUser() user: SessionUser,
+    @Param('fixtureId') fixtureId: string,
+    @Param('photoId') photoId: string,
+    @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
+  ): Promise<FixtureComplianceDetail> {
+    return this.manager.deleteFixturePhoto(user, fixtureId, photoId, q.storeId);
   }
 
   /**

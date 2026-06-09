@@ -31,12 +31,12 @@
 
     --signal: 166 52 42;         /* #A6342A — deepened, STOP only */
     --pass: 62 124 90;           /* #3E7C5A */
-    --warn: 201 137 47;          /* #C9892F */
+    --warn: 91 107 122;          /* #5B6B7A — needs-review slate (colour-blind safe) */
 
-    /* Brand GOLD accent (colour-blind-safe) + premium dark CHROME. */
-    --gold: 201 154 46;          /* #C99A2E */
-    --gold-bright: 232 186 69;   /* #E8BA45 */
-    --gold-deep: 154 119 32;     /* #9A7720 */
+    /* Brand TEAL accent (token name kept `gold` for a surgical re-theme). */
+    --gold: 14 110 110;          /* #0E6E6E */
+    --gold-bright: 31 160 160;   /* #1FA0A0 */
+    --gold-deep: 10 79 80;       /* #0A4F50 */
     --chrome: 22 20 14;          /* #16140E */
     --chrome-raised: 34 31 22;   /* #221F16 */
     --chrome-line: 50 46 32;     /* #322E20 */

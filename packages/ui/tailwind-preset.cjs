@@ -38,13 +38,14 @@ module.exports = {
         steel: tone("--wally-steel", "#7E7D77"),
         mist: tone("--wally-mist", "#BEBDB6"),
 
-        // Brand GOLD accent (colour-blind-safe). `gold` for fills/borders/
+        // Brand TEAL accent (colour-blind-safe). `gold` for fills/borders/
         // active marks; `gold-bright` for glow on chrome; `gold-deep` for
-        // gold text on light that must stay legible.
+        // accent text on light that must stay legible. (Token name kept `gold`
+        // so the re-theme was a value-only swap; the hue is now teal.)
         gold: {
-          DEFAULT: v("--wally-gold", "#C99A2E"),
-          bright: v("--wally-gold-bright", "#E8BA45"),
-          deep: v("--wally-gold-deep", "#9A7720"),
+          DEFAULT: v("--wally-gold", "#0E6E6E"),
+          bright: v("--wally-gold-bright", "#1FA0A0"),
+          deep: v("--wally-gold-deep", "#0A4F50"),
         },
 
         // Premium dark CHROME (sidebars / login / brand surfaces).
@@ -61,7 +62,7 @@ module.exports = {
 
         // Reinforcement hues — never used hue-alone in components.
         pass: tone("--wally-pass", "#3E7C5A"),
-        warn: tone("--wally-warn", "#C9892F"),
+        warn: tone("--wally-warn", "#5B6B7A"),
 
         // Semantic aliases so component classes read intent, not raw tone.
         background: tone("--wally-paper", "#FBFBF9"),
@@ -147,8 +148,8 @@ module.exports = {
         card: "0 1px 2px rgba(14, 14, 13, 0.04), 0 1px 1px rgba(14, 14, 13, 0.03)",
         raised: "0 6px 24px -8px rgba(14, 14, 13, 0.18)",
         lift: "0 10px 30px -12px rgba(14, 14, 13, 0.22)",
-        // Soft gold halo for the brand mark + key active/primary affordances.
-        glow: "0 0 0 1px rgba(201, 154, 46, 0.35), 0 8px 24px -10px rgba(201, 154, 46, 0.45)",
+        // Soft teal halo for the brand mark + key active/primary affordances.
+        glow: "0 0 0 1px rgba(14, 110, 110, 0.35), 0 8px 24px -10px rgba(14, 110, 110, 0.45)",
       },
     },
   },

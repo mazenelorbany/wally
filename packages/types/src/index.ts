@@ -604,6 +604,20 @@ export interface ComplianceIssue {
   severity?: "minor" | "major" | null;
   /** Where it is on the photo (normalized). Omitted if the model gave no box. */
   box?: IssueBox | null;
+  /**
+   * Which photo in the capture's gallery this defect is on (0-based index into
+   * `photos[]`). Defaults to 0 (the cover) for legacy single-photo captures.
+   */
+  photoIndex?: number | null;
+}
+
+/** One photo in a fixture capture's gallery (the multi-photo set). */
+export interface CapturePhoto {
+  id: string;
+  /** Signed URL of the photo. */
+  url?: string | null;
+  /** AI-detected defects located on THIS photo (the set's issues, filtered). */
+  issues?: ComplianceIssue[] | null;
 }
 
 /** One preserved shot in a fixture's capture history (newest first). */
@@ -692,8 +706,10 @@ export interface FixtureComplianceDetail {
   /** "What good looks like" reference image (signed URL). */
   referenceUrl?: string | null;
   referenceCaption?: string | null;
-  /** The manager's submitted photo (signed URL). */
+  /** The manager's submitted photo (signed URL) — the COVER (photos[0]). */
   myPhotoUrl?: string | null;
+  /** The full photo gallery for this fixture (multi-photo set, cover first). */
+  photos: CapturePhoto[];
   state: ComplianceState;
   /** The AI's verdict for the current photo. */
   overall?: CaptureVerdict | null;
@@ -727,6 +743,57 @@ export interface OverrideCaptureBody {
   verdict: CaptureVerdict;
   /** Optional rationale. */
   note?: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* STORE REPORTS — campaign extra questions + the submittable store report      */
+/* -------------------------------------------------------------------------- */
+
+/** The input type of an admin-defined report question. */
+export type CampaignQuestionType = "SHORT_TEXT" | "YES_NO" | "LONG_NOTE";
+
+/** An admin-authored extra question on a campaign's report (ordered). */
+export interface CampaignQuestionDto {
+  id: string;
+  order: number;
+  label: string;
+  type: CampaignQuestionType;
+  required: boolean;
+  /** Whether the store may mark this question "N/A". */
+  allowNA: boolean;
+}
+
+/** A store's answer to one campaign question. */
+export interface QuestionAnswerDto {
+  questionId: string;
+  /** For SHORT_TEXT / LONG_NOTE. */
+  valueText?: string | null;
+  /** For YES_NO. */
+  valueBool?: boolean | null;
+  isNA: boolean;
+  /** Who answered (name or email) and when (ISO). */
+  answeredByName?: string | null;
+  answeredAt?: string | null;
+}
+
+/** A campaign question paired with this store's current answer (manager view). */
+export interface CampaignQuestionWithAnswer extends CampaignQuestionDto {
+  answer?: QuestionAnswerDto | null;
+}
+
+/** Body for creating/updating a campaign question (admin). */
+export interface CampaignQuestionInput {
+  label: string;
+  type: CampaignQuestionType;
+  required?: boolean;
+  allowNA?: boolean;
+}
+
+/** Body for a store answering a campaign question (manager). */
+export interface AnswerQuestionBody {
+  valueText?: string | null;
+  valueBool?: boolean | null;
+  isNA?: boolean;
 }
 
 /* -------------------------------------------------------------------------- */

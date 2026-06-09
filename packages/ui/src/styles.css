@@ -9,8 +9,10 @@
  * (bg-paper, text-signal, ease-spring, font-display, …) at once.
  *
  * TCC brand: warm monochrome paper→ink CANVAS, premium dark CHROME for the
- * rails, a GOLD brand accent, and RED reserved for "stop". Pass green / warn
- * amber exist only as reinforcement behind an icon + label (colour-blind safe).
+ * rails, a deep TEAL/verdigris brand accent (premium cookware-metal patina —
+ * not gold, not the reserved red), and RED reserved for "stop". Pass green /
+ * review slate exist only as reinforcement behind an icon + label (colour-blind
+ * safe — teal sits on the blue axis, well clear of red and green).
  * Type: Century Gothic → Questrial (loaded) → Futura, geometric.
  * ========================================================================== */
 
@@ -27,10 +29,10 @@
   --wally-steel: #7e7d77;     /* labels, captions, metadata */
   --wally-mist: #bebdb6;      /* hairlines, dividers, disabled */
 
-  /* --- Brand GOLD accent ----------------------------------------------- */
-  --wally-gold: #c99a2e;        /* active nav, brand mark, focus, emphasis */
-  --wally-gold-bright: #e8ba45; /* accents / glow on dark chrome */
-  --wally-gold-deep: #9a7720;   /* gold-on-light text that must stay legible */
+  /* --- Brand TEAL accent (token name kept `gold` for surgical re-theme) --- */
+  --wally-gold: #0e6e6e;        /* active nav, brand mark, focus, emphasis */
+  --wally-gold-bright: #1fa0a0; /* accent / glow on dark chrome */
+  --wally-gold-deep: #0a4f50;   /* accent-on-light text that must stay legible */
 
   /* --- Premium dark CHROME (the rails) --------------------------------- */
   --wally-chrome: #16140e;        /* sidebar / login / brand surfaces */
@@ -44,7 +46,7 @@
 
   /* --- Reinforcement hues (never hue-alone) ---------------------------- */
   --wally-pass: #3e7c5a;      /* pass / perfect */
-  --wally-warn: #c9892f;      /* needs-review / unsure */
+  --wally-warn: #5b6b7a;      /* needs-review / unsure (slate — distinct from teal accent + red/green, colour-blind safe) */
 
   /* --- Type ------------------------------------------------------------ */
   --wally-font-display: "Century Gothic";

@@ -3,10 +3,12 @@ import { CampaignStatus, CaptureVerdict, Prisma, TaskStatus } from '@prisma/clie
 import type {
   FixtureCapture,
   FixtureCaptureAttempt,
+  FixtureCapturePhoto,
   Task,
 } from '@prisma/client';
 import type {
   CaptureAttempt,
+  CapturePhoto,
   CaptureVerdict as CaptureVerdictDto,
   ComplianceIssue,
   ComplianceState,
@@ -32,6 +34,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 
 import { ComplianceScorer } from './compliance-scorer.service';
+import type { ComplianceScoreResult } from './compliance-scorer.service';
 
 // =============================================================================
 // ManagerService — the signed-in store manager's own store workspace.
@@ -58,6 +61,13 @@ import { ComplianceScorer } from './compliance-scorer.service';
 // manager's phone photo is accepted the same way on both surfaces.
 const MAX_PHOTO_BYTES = 15 * 1024 * 1024; // 15 MB
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
+// A fixture step can hold several photos (multiple angles of one display), but
+// capped: every photo is inlined into ONE vision request, so an unbounded set
+// blows the payload + latency on the synchronous upload path.
+const MAX_PHOTOS_PER_FIXTURE = 6;
+// Longest edge sent to the scorer. The compare doesn't need full-res; downscaling
+// keeps the multi-image request small and fast.
+const SCORING_MAX_EDGE = 1280;
 
 /** The minimal actor projection the capture reads select for stamps. */
 type ActorRef = { name: string | null; email: string } | null;
@@ -73,6 +83,7 @@ type CaptureWithHistory = FixtureCapture & {
   requestedBy?: ActorRef;
   reviewedBy?: ActorRef;
   attempts?: AttemptWithActor[];
+  photos?: FixtureCapturePhoto[];
 };
 
 @Injectable()
@@ -896,8 +907,10 @@ export class ManagerService {
       prefix: `captures/${store.id}/${campaign.id}/${fixtureId}`,
     });
 
-    // Upsert the capture: record the new photo, clear the needs-photo flag.
-    await this.prisma.fixtureCapture.upsert({
+    // Ensure the capture row exists (the gallery's parent). Bump uploadedAt and
+    // clear the needs-photo flag; the verdict is recomputed across the whole set
+    // by rescoreActiveSet below, so we don't null it here.
+    const capture = await this.prisma.fixtureCapture.upsert({
       where: {
         storeId_campaignId_fixtureId: {
           storeId: store.id,
@@ -910,86 +923,72 @@ export class ManagerService {
         storeId: store.id,
         campaignId: campaign.id,
         fixtureId,
-        storageKey,
         uploadedAt: new Date(),
         needsPhoto: false,
       },
-      update: {
+      update: { uploadedAt: new Date(), needsPhoto: false },
+    });
+
+    // Cap the gallery — every photo rides in one vision request.
+    const activeCount = await this.prisma.fixtureCapturePhoto.count({
+      where: { captureId: capture.id, archivedAt: null },
+    });
+    if (activeCount >= MAX_PHOTOS_PER_FIXTURE) {
+      throw new BadRequestException(
+        `this fixture already has the maximum of ${MAX_PHOTOS_PER_FIXTURE} photos — remove one before adding another`,
+      );
+    }
+
+    // Append the new photo to the gallery (next order slot).
+    const maxOrder = await this.prisma.fixtureCapturePhoto.aggregate({
+      where: { captureId: capture.id, archivedAt: null },
+      _max: { order: true },
+    });
+    await this.prisma.fixtureCapturePhoto.create({
+      data: {
+        orgId: user.orgId,
+        captureId: capture.id,
         storageKey,
-        uploadedAt: new Date(),
-        needsPhoto: false,
-        // A fresh photo invalidates the previous verdict until re-scored below.
-        verdict: null,
-        aiNotes: null,
-        confidence: null,
-        modelId: null,
-        scoredAt: null,
+        order: (maxOrder._max.order ?? -1) + 1,
+        uploadedById: user.id,
       },
     });
 
-    // Resolve the guide notes + reference image for the compare.
+    // Resolve the guide notes + reference image (for scoring + presentation).
     const { notes, reference } = await this.guideFor(
       user.orgId,
       campaign.id,
       fixtureId,
     );
 
-    // SCORE synchronously. The scorer NEVER throws — on any error it returns a
-    // deterministic stub verdict so the upload always resolves with a result.
-    let referenceBytes: Buffer | undefined;
-    if (reference) {
-      try {
-        referenceBytes = await this.storage.getBytes(reference.storageKey);
-      } catch {
-        // A missing reference blob just means we judge against the notes alone.
-        referenceBytes = undefined;
-      }
-    }
-
-    const scored = await this.scorer.score({
-      referenceBytes,
-      referenceMime: referenceBytes ? 'image/jpeg' : undefined,
-      photoBytes: file.buffer,
-      photoMime: file.mimetype,
+    // Re-score the FULL set (one vision call) and persist the set-level verdict,
+    // cover pointer, and per-photo issues.
+    const result = await this.rescoreActiveSet(
+      user.orgId,
+      capture,
+      placement.label || placement.fixture.name,
       notes,
-      fixtureLabel: placement.label || placement.fixture.name,
-    });
-
-    const verdict = fromCaptureVerdict(scored.verdict);
-    const capture = await this.prisma.fixtureCapture.update({
-      where: {
-        storeId_campaignId_fixtureId: {
-          storeId: store.id,
-          campaignId: campaign.id,
-          fixtureId,
-        },
-      },
-      data: {
-        verdict,
-        aiNotes: scored.notes,
-        aiIssues: scored.issues as unknown as Prisma.InputJsonValue,
-        confidence: scored.confidence,
-        modelId: scored.modelId,
-        scoredAt: new Date(),
-      },
-    });
+      reference,
+    );
 
     // HISTORY: preserve THIS shot as an immutable attempt so a re-shoot never
-    // erases the prior verdict. The FixtureCapture row above is the CURRENT
-    // pointer (latest); the attempt rows are the full reshoot history.
-    await this.prisma.fixtureCaptureAttempt.create({
-      data: {
-        orgId: user.orgId,
-        captureId: capture.id,
-        storageKey,
-        verdict,
-        aiNotes: scored.notes,
-        aiIssues: scored.issues as unknown as Prisma.InputJsonValue,
-        confidence: scored.confidence,
-        modelId: scored.modelId,
-        capturedById: user.id,
-      },
-    });
+    // erases the prior verdict. The FixtureCapture row is the CURRENT pointer
+    // (latest set verdict); the attempt rows are the full reshoot history.
+    if (result) {
+      await this.prisma.fixtureCaptureAttempt.create({
+        data: {
+          orgId: user.orgId,
+          captureId: capture.id,
+          storageKey,
+          verdict: fromCaptureVerdict(result.scored.verdict),
+          aiNotes: result.scored.notes,
+          aiIssues: result.scored.issues as unknown as Prisma.InputJsonValue,
+          confidence: result.scored.confidence,
+          modelId: result.scored.modelId,
+          capturedById: user.id,
+        },
+      });
+    }
 
     const detail = await this.loadCaptureDetail(
       user.orgId,
@@ -998,6 +997,208 @@ export class ManagerService {
       fixtureId,
     );
     return this.presentComplianceDetail(placement, detail, notes, reference);
+  }
+
+  /**
+   * Remove one photo from a fixture's gallery (soft-archive) and re-score the
+   * remaining set. The cover pointer (FixtureCapture.storageKey) and verdict are
+   * recomputed; reshoot history (attempts) is left untouched.
+   */
+  async deleteFixturePhoto(
+    user: SessionUser,
+    fixtureId: string,
+    photoId: string,
+    storeId?: string,
+  ): Promise<FixtureComplianceDetail> {
+    const { store, campaign } = await this.resolveContext(user, storeId);
+    const placement = await this.requirePlacement(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+    const capture = await this.prisma.fixtureCapture.findUnique({
+      where: {
+        storeId_campaignId_fixtureId: {
+          storeId: store.id,
+          campaignId: campaign.id,
+          fixtureId,
+        },
+      },
+    });
+    if (!capture) throw new NotFoundException('no capture for this fixture');
+    const photo = await this.prisma.fixtureCapturePhoto.findFirst({
+      where: { id: photoId, captureId: capture.id, archivedAt: null },
+    });
+    if (!photo) throw new NotFoundException('photo not found');
+
+    await this.prisma.fixtureCapturePhoto.update({
+      where: { id: photo.id },
+      data: { archivedAt: new Date() },
+    });
+
+    const { notes, reference } = await this.guideFor(
+      user.orgId,
+      campaign.id,
+      fixtureId,
+    );
+    await this.rescoreActiveSet(
+      user.orgId,
+      capture,
+      placement.label || placement.fixture.name,
+      notes,
+      reference,
+    );
+
+    const detail = await this.loadCaptureDetail(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+    return this.presentComplianceDetail(placement, detail, notes, reference);
+  }
+
+  /**
+   * Score the capture's CURRENT photo set (all non-archived gallery photos) as a
+   * whole in one vision call, then persist: the set-level verdict/confidence/
+   * notes, the cover pointer (storageKey = lowest-order photo), the full issue
+   * list (each tagged with its gallery photoIndex), and each photo's own issues.
+   * Returns the scored result (issues remapped to gallery order), or null when
+   * the gallery is empty (verdict cleared). Never throws (the scorer never does).
+   */
+  private async rescoreActiveSet(
+    orgId: string,
+    capture: { id: string; campaignId: string; fixtureId: string },
+    fixtureLabel: string,
+    notes: string,
+    reference: { storageKey: string; caption: string | null } | null,
+  ): Promise<{ scored: ComplianceScoreResult } | null> {
+    const photos = await this.prisma.fixtureCapturePhoto.findMany({
+      where: { captureId: capture.id, archivedAt: null },
+      orderBy: { order: 'asc' },
+    });
+    if (photos.length === 0) {
+      // Gallery emptied — clear the cover + verdict so the fixture reads "todo".
+      await this.prisma.fixtureCapture.update({
+        where: { id: capture.id },
+        data: {
+          storageKey: null,
+          uploadedAt: null,
+          verdict: null,
+          aiNotes: null,
+          aiIssues: Prisma.DbNull,
+          confidence: null,
+          modelId: null,
+          scoredAt: null,
+        },
+      });
+      return null;
+    }
+
+    let referenceBytes: Buffer | undefined;
+    if (reference) {
+      try {
+        referenceBytes = await this.storage.getBytes(reference.storageKey);
+      } catch {
+        referenceBytes = undefined;
+      }
+    }
+
+    // Load + downscale each photo's bytes. Skip any unreadable blob but keep the
+    // parallel `scoredPhotos` list so a returned photoIndex maps to the right row.
+    const photoInputs: { bytes: Buffer; mime: string }[] = [];
+    const scoredPhotos: typeof photos = [];
+    for (const p of photos) {
+      try {
+        const raw = await this.storage.getBytes(p.storageKey);
+        photoInputs.push({ bytes: await this.downscaleForScoring(raw), mime: 'image/jpeg' });
+        scoredPhotos.push(p);
+      } catch {
+        // Unreadable blob — leave it out of the compare (it still shows in the UI).
+      }
+    }
+
+    const coverKey = photos[0]!.storageKey;
+    if (photoInputs.length === 0) {
+      // Nothing readable to score — keep the cover, leave the verdict for review.
+      await this.prisma.fixtureCapture.update({
+        where: { id: capture.id },
+        data: { storageKey: coverKey },
+      });
+      return null;
+    }
+
+    const scored = await this.scorer.score({
+      referenceBytes,
+      referenceMime: referenceBytes ? 'image/jpeg' : undefined,
+      photos: photoInputs,
+      notes,
+      fixtureLabel,
+    });
+
+    // Remap each issue's photoIndex from its position in the scored subset to the
+    // photo's position in the full gallery (a no-op when every photo scored).
+    const remapped: ComplianceIssue[] = scored.issues.map((iss) => {
+      const target = scoredPhotos[iss.photoIndex ?? 0] ?? scoredPhotos[0];
+      const galleryIndex = target ? photos.findIndex((p) => p.id === target.id) : 0;
+      return { ...iss, photoIndex: galleryIndex < 0 ? 0 : galleryIndex };
+    });
+
+    const verdict = fromCaptureVerdict(scored.verdict);
+    await this.prisma.fixtureCapture.update({
+      where: { id: capture.id },
+      data: {
+        storageKey: coverKey,
+        verdict,
+        aiNotes: scored.notes,
+        aiIssues: remapped as unknown as Prisma.InputJsonValue,
+        confidence: scored.confidence,
+        modelId: scored.modelId,
+        scoredAt: new Date(),
+      },
+    });
+
+    // Distribute issues to their photos so each gallery tile shows its own boxes.
+    const byPhoto = new Map<string, ComplianceIssue[]>();
+    for (const iss of remapped) {
+      const p = photos[iss.photoIndex ?? 0];
+      if (!p) continue;
+      const list = byPhoto.get(p.id) ?? [];
+      list.push(iss);
+      byPhoto.set(p.id, list);
+    }
+    await Promise.all(
+      photos.map((p) =>
+        this.prisma.fixtureCapturePhoto.update({
+          where: { id: p.id },
+          data: {
+            aiIssues: (byPhoto.get(p.id) ?? []) as unknown as Prisma.InputJsonValue,
+          },
+        }),
+      ),
+    );
+
+    return { scored: { ...scored, issues: remapped } };
+  }
+
+  /** Downscale a photo for the vision compare — the longest edge to
+   *  SCORING_MAX_EDGE as JPEG. Falls back to the original bytes if sharp fails. */
+  private async downscaleForScoring(buffer: Buffer): Promise<Buffer> {
+    try {
+      return await sharp(buffer)
+        .rotate()
+        .resize({
+          width: SCORING_MAX_EDGE,
+          height: SCORING_MAX_EDGE,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+    } catch {
+      return buffer;
+    }
   }
 
   /**
@@ -1140,6 +1341,10 @@ export class ManagerService {
             capturedBy: { select: { name: true, email: true } },
           },
         },
+        photos: {
+          where: { archivedAt: null },
+          orderBy: { order: 'asc' },
+        },
       },
     });
   }
@@ -1247,6 +1452,11 @@ export class ManagerService {
       myPhotoUrl: capture?.storageKey
         ? this.storage.signedGetUrl(capture.storageKey)
         : null,
+      photos: (capture?.photos ?? []).map((p) => ({
+        id: p.id,
+        url: p.storageKey ? this.storage.signedGetUrl(p.storageKey) : null,
+        issues: asIssues(p.aiIssues),
+      })),
       state: captureState(capture),
       overall: aiVerdict,
       aiNotes: capture?.aiNotes ?? null,

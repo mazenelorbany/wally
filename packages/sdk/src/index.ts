@@ -849,10 +849,16 @@ export interface WallyClient {
       fixtureId: string,
       storeId?: string,
     ): Promise<FixtureComplianceDetail>;
-    /** Upload the manager's photo for a fixture; AI compares it to the guide. */
+    /** Add a photo to a fixture's gallery; AI re-scores the whole set. */
     uploadFixturePhoto(
       fixtureId: string,
       file: Blob | File,
+      storeId?: string,
+    ): Promise<FixtureComplianceDetail>;
+    /** Remove one photo from a fixture's gallery; AI re-scores the remainder. */
+    deleteFixturePhoto(
+      fixtureId: string,
+      photoId: string,
       storeId?: string,
     ): Promise<FixtureComplianceDetail>;
     /**
@@ -1417,6 +1423,10 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           { body: form },
         );
       },
+      deleteFixturePhoto: (fixtureId, photoId, storeId) =>
+        del<FixtureComplianceDetail>(
+          `manager/fixtures/${encodeURIComponent(fixtureId)}/photos/${encodeURIComponent(photoId)}${query({ storeId })}`,
+        ),
       requestCapturePhoto: (fixtureId, storeId) =>
         post<FixtureComplianceDetail>(
           `manager/fixtures/${encodeURIComponent(fixtureId)}/request-photo${query({ storeId })}`,
@@ -1568,6 +1578,7 @@ export type {
   FixtureComplianceDetail,
   CaptureVerdict,
   CaptureAttempt,
+  CapturePhoto,
   ComplianceIssue,
   IssueBox,
   OverrideCaptureBody,

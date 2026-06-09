@@ -78,6 +78,18 @@ interface AttemptRow {
   capturedAt: Date;
 }
 
+interface PhotoRow {
+  id: string;
+  orgId: string;
+  captureId: string;
+  storageKey: string;
+  order: number;
+  aiIssues: unknown;
+  uploadedById: string | null;
+  uploadedAt: Date;
+  archivedAt: Date | null;
+}
+
 /**
  * An in-memory Prisma double for the capture loop: one fixtureCapture row per
  * (store, campaign, fixture) plus the append-only attempt log, with the relation
@@ -86,6 +98,7 @@ interface AttemptRow {
 function makePrisma() {
   const captures: CaptureRow[] = [];
   const attempts: AttemptRow[] = [];
+  const photos: PhotoRow[] = [];
   let seq = 0;
 
   const keyOf = (w: {
@@ -134,6 +147,9 @@ function makePrisma() {
           ? { name: null, email: `${a.capturedById}@x` }
           : null,
       })),
+    photos: photos
+      .filter((p) => p.captureId === c.id && !p.archivedAt)
+      .sort((a, b) => a.order - b.order),
   });
 
   const prisma = {
@@ -161,6 +177,65 @@ function makePrisma() {
     guideFixture: {
       findUnique: vi.fn(async () => null),
       findMany: vi.fn(async () => []),
+    },
+    fixture: {
+      findFirst: vi.fn(async () => null),
+    },
+    fixtureCapturePhoto: {
+      count: vi.fn(async ({ where }: { where: { captureId: string } }) =>
+        photos.filter((p) => p.captureId === where.captureId && !p.archivedAt)
+          .length,
+      ),
+      aggregate: vi.fn(async ({ where }: { where: { captureId: string } }) => {
+        const orders = photos
+          .filter((p) => p.captureId === where.captureId && !p.archivedAt)
+          .map((p) => p.order);
+        return { _max: { order: orders.length ? Math.max(...orders) : null } };
+      }),
+      create: vi.fn(async ({ data }: { data: Partial<PhotoRow> }) => {
+        const row: PhotoRow = {
+          id: `pho_${++seq}`,
+          orgId: ORG,
+          captureId: data.captureId!,
+          storageKey: data.storageKey!,
+          order: data.order ?? 0,
+          aiIssues: data.aiIssues ?? null,
+          uploadedById: data.uploadedById ?? null,
+          uploadedAt: new Date(Date.now() + seq),
+          archivedAt: null,
+        };
+        photos.push(row);
+        return { ...row };
+      }),
+      findMany: vi.fn(async ({ where }: { where: { captureId: string } }) =>
+        photos
+          .filter((p) => p.captureId === where.captureId && !p.archivedAt)
+          .sort((a, b) => a.order - b.order)
+          .map((p) => ({ ...p })),
+      ),
+      findFirst: vi.fn(
+        async ({ where }: { where: { id: string; captureId: string } }) =>
+          photos.find(
+            (p) =>
+              p.id === where.id &&
+              p.captureId === where.captureId &&
+              !p.archivedAt,
+          ) ?? null,
+      ),
+      update: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: { id: string };
+          data: Partial<PhotoRow>;
+        }) => {
+          const p = photos.find((row) => row.id === where.id);
+          if (!p) throw new Error('photo not found');
+          Object.assign(p, data);
+          return { ...p };
+        },
+      ),
     },
     fixtureCapture: {
       findUnique: vi.fn(
@@ -247,7 +322,7 @@ function makePrisma() {
     },
   };
 
-  return { prisma, captures, attempts };
+  return { prisma, captures, attempts, photos };
 }
 
 /** A scorer stub that returns a queue of canned verdicts (FAIL then PASS). */

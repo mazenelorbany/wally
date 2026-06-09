@@ -22,12 +22,24 @@ import {
   type CreateCampaignInput,
   type UpdateCampaignInput,
 } from './campaign.dto';
+import {
+  CreateQuestionSchema,
+  ReorderQuestionsSchema,
+  UpdateQuestionSchema,
+  type CreateQuestionInput,
+  type ReorderQuestionsInput,
+  type UpdateQuestionInput,
+} from './campaign-question.dto';
+import { CampaignQuestionService } from './campaign-question.service';
 import { CampaignService } from './campaign.service';
 
 @Controller('campaigns')
 @UseGuards(SessionGuard)
 export class CampaignController {
-  constructor(private readonly campaigns: CampaignService) {}
+  constructor(
+    private readonly campaigns: CampaignService,
+    private readonly questions: CampaignQuestionService,
+  ) {}
 
   @Get()
   list(@CurrentUser() user: SessionUser) {
@@ -93,5 +105,56 @@ export class CampaignController {
   @HttpCode(204)
   remove(@CurrentUser() user: SessionUser, @Param('id') id: string) {
     return this.campaigns.remove(user.orgId, id);
+  }
+
+  // ----- report extra questions (admin builder) -----------------------------
+
+  /** The campaign's extra report questions (ordered). REVIEWER + ADMIN. */
+  @Get(':id/questions')
+  @Roles('REVIEWER', 'ADMIN')
+  listQuestions(@CurrentUser() user: SessionUser, @Param('id') id: string) {
+    return this.questions.list(user.orgId, id);
+  }
+
+  @Post(':id/questions')
+  @Roles('ADMIN')
+  createQuestion(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(CreateQuestionSchema)) dto: CreateQuestionInput,
+  ) {
+    return this.questions.create(user.orgId, id, dto);
+  }
+
+  @Patch(':id/questions/:qid')
+  @Roles('ADMIN')
+  updateQuestion(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Param('qid') qid: string,
+    @Body(new ZodValidationPipe(UpdateQuestionSchema)) dto: UpdateQuestionInput,
+  ) {
+    return this.questions.update(user.orgId, id, qid, dto);
+  }
+
+  @Delete(':id/questions/:qid')
+  @Roles('ADMIN')
+  @HttpCode(204)
+  removeQuestion(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Param('qid') qid: string,
+  ) {
+    return this.questions.remove(user.orgId, id, qid);
+  }
+
+  @Post(':id/questions/reorder')
+  @Roles('ADMIN')
+  reorderQuestions(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ReorderQuestionsSchema)) dto: ReorderQuestionsInput,
+  ) {
+    return this.questions.reorder(user.orgId, id, dto);
   }
 }

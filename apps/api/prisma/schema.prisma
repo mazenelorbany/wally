@@ -41,6 +41,10 @@ model Org {
   complianceSnapshots ComplianceSnapshot[]
   bulletins     Bulletin[]
   resources     Resource[]
+  capturePhotos        FixtureCapturePhoto[]
+  campaignQuestions    CampaignQuestion[]
+  storeQuestionAnswers StoreQuestionAnswer[]
+  storeReports         StoreReport[]
 }
 
 enum Role {
@@ -120,6 +124,9 @@ model User {
   reviewedCaptures  FixtureCapture[] @relation("CaptureReviewedBy")
   capturedAttempts  FixtureCaptureAttempt[] @relation("AttemptCapturedBy")
   bulletinAcks      BulletinAck[]
+  uploadedCapturePhotos FixtureCapturePhoto[] @relation("CapturePhotoUploadedBy")
+  answeredQuestions     StoreQuestionAnswer[] @relation("AnswerAnsweredBy")
+  submittedReports      StoreReport[]         @relation("ReportSubmittedBy")
 
   @@index([orgId])
   @@index([storeId])
@@ -176,6 +183,8 @@ model Store {
   salesEntries  SalesEntry[]
   captures      FixtureCapture[]
   bulletinAcks  BulletinAck[]
+  questionAnswers StoreQuestionAnswer[]
+  reports         StoreReport[]
 
   @@index([orgId])
 }
@@ -219,6 +228,9 @@ model Campaign {
   salesEntries  SalesEntry[]
   captures      FixtureCapture[]
   complianceSnapshots ComplianceSnapshot[]
+  campaignQuestions CampaignQuestion[]
+  questionAnswers   StoreQuestionAnswer[]
+  storeReports      StoreReport[]
 
   @@unique([orgId, key])
   @@index([orgId])
@@ -745,6 +757,7 @@ model FixtureCapture {
   requestedBy User? @relation("CaptureRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
   reviewedBy  User? @relation("CaptureReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
   attempts FixtureCaptureAttempt[]
+  photos   FixtureCapturePhoto[]
 
   @@unique([storeId, campaignId, fixtureId])
   @@index([storeId, campaignId])
@@ -772,6 +785,126 @@ model FixtureCaptureAttempt {
   capturedBy User?          @relation("AttemptCapturedBy", fields: [capturedById], references: [id], onDelete: SetNull)
 
   @@index([captureId, capturedAt])
+}
+
+// One photo in a fixture capture's gallery. A capture can hold several photos
+// (multiple angles of one display, e.g. "front and back of the bulk stack").
+// FixtureCapture.storageKey stays the COVER pointer (the lowest-order, non-
+// archived photo) so every existing single-photo reader keeps working; this child
+// table is the full set. Distinct from FixtureCaptureAttempt (the immutable
+// score/reshoot history) — a row here is a currently-displayed gallery member.
+model FixtureCapturePhoto {
+  id           String    @id @default(cuid())
+  orgId        String
+  captureId    String
+  storageKey   String
+  order        Int       @default(0)
+  aiIssues     Json? // per-photo defects [{label,fix,severity,box,photoIndex}]
+  uploadedById String?
+  uploadedAt   DateTime  @default(now())
+  archivedAt   DateTime? // soft-remove from the gallery; history attempts untouched
+
+  org        Org            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  capture    FixtureCapture @relation(fields: [captureId], references: [id], onDelete: Cascade)
+  uploadedBy User?          @relation("CapturePhotoUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([captureId, order])
+}
+
+// ═══════════════════════════════════════════ STORE REPORTS
+// A campaign report = the store's fixture captures (AI-scored photo steps, above)
+// PLUS an admin-defined set of extra questions (text / yes-no / note), wrapped in
+// a submittable StoreReport (draft → submitted) with a total score frozen at
+// submit and a cached AI summary. Supersedes the legacy Submission/Photo/Verdict
+// envelope — the report reads FixtureCapture, NEVER Photo/Verdict.
+
+enum CampaignQuestionType {
+  SHORT_TEXT
+  YES_NO
+  LONG_NOTE
+}
+
+// An admin-authored, ordered extra question on a campaign's report (e.g. "Who
+// completed this task?", "Any difficulties?"). Soft-archived (archivedAt) when it
+// already has answers, so removing a question keeps the answered history.
+model CampaignQuestion {
+  id         String               @id @default(cuid())
+  orgId      String
+  campaignId String
+  order      Int                  @default(0)
+  label      String
+  type       CampaignQuestionType @default(SHORT_TEXT)
+  required   Boolean              @default(false)
+  allowNA    Boolean              @default(false)
+  archivedAt DateTime?
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @default(now()) @updatedAt
+
+  org      Org                   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  campaign Campaign              @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  answers  StoreQuestionAnswer[]
+
+  @@index([campaignId, order])
+}
+
+// One store's answer to one CampaignQuestion. campaignId is denormalised so the
+// report read is a single (storeId, campaignId) query without joining through the
+// question. valueBool is set for YES_NO; valueText for SHORT_TEXT / LONG_NOTE.
+model StoreQuestionAnswer {
+  id           String   @id @default(cuid())
+  orgId        String
+  storeId      String
+  campaignId   String
+  questionId   String
+  valueText    String?
+  valueBool    Boolean?
+  isNA         Boolean  @default(false)
+  answeredById String?
+  answeredAt   DateTime @default(now())
+
+  org        Org              @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  store      Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign   Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  question   CampaignQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answeredBy User?            @relation("AnswerAnsweredBy", fields: [answeredById], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, questionId])
+  @@index([storeId, campaignId])
+}
+
+enum StoreReportStatus {
+  DRAFT
+  SUBMITTED
+  REOPENED // a reviewer requested a re-shoot after submit; the store re-submits
+}
+
+// The submittable envelope over a store's work for a campaign: status, the total
+// score frozen at submit (pass-rate % across applicable fixtures), and the cached
+// AI prose summary (keyed by aiSummaryInputHash so a regenerate is skipped when
+// inputs are unchanged). Reads FixtureCapture; NOT the legacy Submission/Photo.
+model StoreReport {
+  id                 String            @id @default(cuid())
+  orgId              String
+  storeId            String
+  campaignId         String
+  status             StoreReportStatus @default(DRAFT)
+  submittedAt        DateTime?
+  submittedById      String?
+  totalScore         Float? // pass-rate % frozen at submit
+  aiSummary          String?
+  summaryModelId     String?
+  summarizedAt       DateTime?
+  aiSummaryInputHash String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @default(now()) @updatedAt
+
+  org         Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  submittedBy User?    @relation("ReportSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, campaignId])
+  @@index([orgId, campaignId])
 }
 
 // ═══════════════════════════════════════════ BULLETINS
