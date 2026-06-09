@@ -33,8 +33,8 @@ const fieldCls =
 
 type Editing = StoreDto | 'new' | null;
 
-/** Assigning a task: to one store, or to the whole listed roster ('all'). */
-type Assigning = { store: StoreDto } | { all: StoreDto[] } | null;
+/** Assigning a task: to one store, or picking a subset from the roster. */
+type Assigning = { store: StoreDto } | { pick: StoreDto[] } | null;
 
 /** Admin: the store roster + segmentation metadata (region, manager, type). */
 export function StoreDirectoryView() {
@@ -101,9 +101,9 @@ export function StoreDirectoryView() {
           {activeStores.length > 0 ? (
             <Button
               variant="outline"
-              onClick={() => setAssigning({ all: activeStores })}
+              onClick={() => setAssigning({ pick: activeStores })}
             >
-              <ClipboardPlus className="h-4 w-4" /> Assign to all
+              <ClipboardPlus className="h-4 w-4" /> Assign to stores
             </Button>
           ) : null}
           <Button onClick={() => setEditing('new')}>
@@ -433,20 +433,20 @@ function AssignTaskDialog({
   const qc = useQueryClient();
   const toast = useToast();
   const open = assigning !== null;
-  const target =
-    assigning && 'store' in assigning
-      ? { label: assigning.store.name, count: 1 }
-      : assigning
-        ? { label: `all ${assigning.all.length} stores`, count: assigning.all.length }
-        : { label: '', count: 0 };
+  const single = assigning && 'store' in assigning ? assigning.store : null;
+  // Bulk mode opens with the whole active roster as candidates; admin narrows it.
+  const candidates = assigning && 'pick' in assigning ? assigning.pick : [];
 
   const [kind, setKind] = React.useState<TaskKind>('GENERAL');
   const [title, setTitle] = React.useState('');
   const [body, setBody] = React.useState('');
   const [fixtureKey, setFixtureKey] = React.useState('');
   const [dueAt, setDueAt] = React.useState('');
+  // Bulk only: the selected store ids and the store filter query.
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [storeFilter, setStoreFilter] = React.useState('');
 
-  // Reset the form each time the dialog opens.
+  // Reset the form each time the dialog opens; bulk starts with all selected.
   React.useEffect(() => {
     if (!open) return;
     setKind('GENERAL');
@@ -454,7 +454,34 @@ function AssignTaskDialog({
     setBody('');
     setFixtureKey('');
     setDueAt('');
+    setStoreFilter('');
+    setSelected(new Set(candidates.map((s) => s.id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  const count = single ? 1 : selected.size;
+  const label = single
+    ? single.name
+    : `${count} ${count === 1 ? 'store' : 'stores'}`;
+
+  // Filter the candidate list by name / brand / segmentation for quick narrowing.
+  const filtered = React.useMemo(() => {
+    const q = storeFilter.trim().toLowerCase();
+    if (!q) return candidates;
+    return candidates.filter((s) =>
+      `${s.name} ${s.brand} ${s.region ?? ''} ${s.areaManager ?? ''} ${s.storeType ?? ''}`
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [candidates, storeFilter]);
+
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const assign = useMutation({
     mutationFn: () => {
@@ -468,12 +495,11 @@ function AssignTaskDialog({
           ? { fixtureKey: fixtureKey.trim() }
           : {}),
       };
-      if (assigning && 'store' in assigning) {
-        return api.adminTasks.create(assigning.store.id, base).then(() => 1);
+      if (single) {
+        return api.adminTasks.create(single.id, base).then(() => 1);
       }
-      const storeIds = assigning ? assigning.all.map((s) => s.id) : [];
       return api.adminTasks
-        .bulkCreate({ storeIds, ...base })
+        .bulkCreate({ storeIds: [...selected], ...base })
         .then((r) => r.created);
     },
     onSuccess: (n) => {
@@ -487,7 +513,7 @@ function AssignTaskDialog({
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || assign.isPending) return;
+    if (!title.trim() || count === 0 || assign.isPending) return;
     assign.mutate();
   };
 
@@ -502,11 +528,68 @@ function AssignTaskDialog({
         <DialogHeader>
           <DialogTitle>Assign a task</DialogTitle>
           <DialogDescription>
-            To {target.label}. It appears on the store manager's home and Tasks
-            list.
+            To {label}. It appears on the store manager's home and Tasks list.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="mt-1 space-y-3">
+          {single ? null : (
+            <div className="block">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-xs font-medium text-graphite">
+                  Stores ({selected.size}/{candidates.length})
+                </span>
+                <div className="flex gap-3 text-xs">
+                  <button
+                    type="button"
+                    className="text-steel transition-colors hover:text-ink"
+                    onClick={() =>
+                      setSelected(new Set(candidates.map((s) => s.id)))
+                    }
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    className="text-steel transition-colors hover:text-ink"
+                    onClick={() => setSelected(new Set())}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <input
+                value={storeFilter}
+                onChange={(e) => setStoreFilter(e.target.value)}
+                placeholder="Filter by name, brand, region…"
+                className={fieldCls}
+              />
+              <ul className="mt-2 max-h-48 space-y-0.5 overflow-y-auto rounded-md border border-mist/70 bg-paper p-1">
+                {filtered.map((s) => (
+                  <li key={s.id}>
+                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-mist/30">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(s.id)}
+                        onChange={() => toggle(s.id)}
+                        className="h-4 w-4 shrink-0 rounded border-mist accent-graphite"
+                      />
+                      <span className="min-w-0 flex-1 truncate text-ink">
+                        {s.name} <span className="text-steel">· {s.brand}</span>
+                      </span>
+                      {s.region ? (
+                        <Badge variant="muted">{s.region}</Badge>
+                      ) : null}
+                    </label>
+                  </li>
+                ))}
+                {filtered.length === 0 ? (
+                  <li className="px-2 py-3 text-center text-xs text-steel">
+                    No stores match “{storeFilter}”.
+                  </li>
+                ) : null}
+              </ul>
+            </div>
+          )}
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-graphite">
               Type
@@ -570,11 +653,14 @@ function AssignTaskDialog({
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={!title.trim() || assign.isPending}>
+            <Button
+              type="submit"
+              disabled={!title.trim() || count === 0 || assign.isPending}
+            >
               {assign.isPending
                 ? 'Assigning…'
-                : target.count > 1
-                  ? `Assign to ${target.count} stores`
+                : count > 1
+                  ? `Assign to ${count} stores`
                   : 'Assign task'}
             </Button>
           </DialogFooter>

@@ -856,195 +856,53 @@ function FixtureProductsDialog({
   fixture: Fixture | null;
   onClose: () => void;
 }) {
-  const [tab, setTab] = React.useState<'products' | 'layout'>('products');
   const defaultsQ = useFixtureProducts(fixture?.id);
   const add = useAddFixtureProduct(fixture?.id ?? '');
   const remove = useRemoveFixtureProduct(fixture?.id ?? '');
   const reorder = useReorderFixturePlanogram(fixture?.id ?? '');
-  const [q, setQ] = React.useState('');
-  const productsQ = useProducts(fixture ? { search: q } : {});
 
   const defaults = defaultsQ.data ?? [];
-  const defaultIds = new Set(defaults.map((d) => d.id));
-  const results = (productsQ.data ?? []).slice(0, 24);
   const rows = React.useMemo(() => defaultsToRows(defaults), [defaults]);
 
   return (
     <Dialog
       open={Boolean(fixture)}
       onOpenChange={(o) => {
-        if (!o) {
-          setQ('');
-          setTab('products');
-          onClose();
-        }
+        if (!o) onClose();
       }}
     >
-      <DialogContent className={tab === 'layout' ? 'max-w-3xl' : 'max-w-lg'}>
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {fixture ? fixture.name : 'Fixture'} · default set
           </DialogTitle>
           <DialogDescription>
-            The reusable starter set for this fixture. Lay it out as a planogram
-            and a guide author who pre-populates inherits the shelves.
+            The reusable starter set for this fixture. Add products straight onto
+            shelves; guides that use this fixture inherit the layout.
           </DialogDescription>
         </DialogHeader>
 
-        {/* Products / Layout tabs */}
-        <div className="inline-flex rounded-md border border-mist/70 p-0.5 text-xs">
-          {(['products', 'layout'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={`rounded px-3 py-1 font-medium ${
-                tab === t ? 'bg-ink text-paper' : 'text-graphite hover:text-ink'
-              }`}
-            >
-              {t === 'layout' ? 'Layout / shelves' : 'Products'}
-            </button>
-          ))}
+        <div className="max-h-[65vh] overflow-y-auto">
+          {defaultsQ.isLoading ? (
+            <div className="grid place-items-center py-10">
+              <Spinner className="text-lg text-steel" />
+            </div>
+          ) : fixture ? (
+            <PlanogramEditor
+              large
+              onDone={onClose}
+              adapter={{
+                rows,
+                isPersisting: reorder.isPending,
+                onReorder: (body) => reorder.mutate(body),
+                onAddProduct: (productId, row, onSuccess) =>
+                  add.mutate({ productId, row }, { onSuccess }),
+                onRemoveFacing: (fixtureProductId) =>
+                  remove.mutate(fixtureProductId),
+              }}
+            />
+          ) : null}
         </div>
-
-        {tab === 'layout' ? (
-          <div className="max-h-[65vh] overflow-y-auto">
-            {defaultsQ.isLoading ? (
-              <div className="grid place-items-center py-10">
-                <Spinner className="text-lg text-steel" />
-              </div>
-            ) : fixture ? (
-              <PlanogramEditor
-                large
-                onDone={onClose}
-                adapter={{
-                  rows,
-                  isPersisting: reorder.isPending,
-                  onReorder: (body) => reorder.mutate(body),
-                  onAddProduct: (productId, row, onSuccess) =>
-                    add.mutate({ productId, row }, { onSuccess }),
-                  onRemoveFacing: (fixtureProductId) =>
-                    remove.mutate(fixtureProductId),
-                }}
-              />
-            ) : null}
-          </div>
-        ) : (
-          <>
-            <div>
-              <p className="mb-2 text-[11px] font-medium uppercase tracking-brand text-steel">
-                In the set{defaults.length ? ` · ${defaults.length}` : ''}
-              </p>
-              {defaultsQ.isLoading ? (
-                <div className="grid place-items-center py-6">
-                  <Spinner className="text-lg text-steel" />
-                </div>
-              ) : defaults.length === 0 ? (
-                <p className="rounded-md border border-dashed border-mist/70 px-3 py-3 text-xs text-steel">
-                  No default products yet — add some from the catalog below, then
-                  open “Layout / shelves” to organise them.
-                </p>
-              ) : (
-                <ul className="flex flex-col gap-1">
-                  {defaults.map((d) => (
-                    <li
-                      key={d.fixtureProductId}
-                      className="flex items-center gap-2.5 rounded-md px-1.5 py-1"
-                    >
-                      <ProductThumb
-                        imageUrl={d.imageUrl}
-                        sku={d.sku}
-                        name={d.name}
-                        className="h-9 w-9 shrink-0 rounded"
-                      />
-                      <div className="min-w-0 flex-1 leading-tight">
-                        <p className="truncate text-xs font-medium text-ink">
-                          {d.name}
-                        </p>
-                        <p className="truncate text-[10px] uppercase tracking-brand text-steel">
-                          {d.sku}
-                          {d.brand ? ` · ${d.brand}` : ''}
-                          {d.row ? ` · ${d.row}` : ''}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${d.name}`}
-                        disabled={remove.isPending}
-                        onClick={() => remove.mutate(d.fixtureProductId)}
-                        className="shrink-0 rounded-md p-1.5 text-steel hover:text-fail disabled:opacity-50"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="rounded-md border border-mist/70 bg-surface/40 p-3">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
-                <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search the catalog by name, brand or SKU…"
-                  className="w-full rounded-md border border-mist bg-paper py-2 pl-8 pr-3 text-sm text-ink placeholder:text-steel focus:border-steel focus:outline-none"
-                />
-              </div>
-              <div className="mt-2 max-h-64 overflow-y-auto">
-                {productsQ.isLoading ? (
-                  <div className="grid place-items-center py-6">
-                    <Spinner className="text-lg text-steel" />
-                  </div>
-                ) : results.length === 0 ? (
-                  <p className="px-1 py-4 text-center text-xs text-steel">
-                    No products match.
-                  </p>
-                ) : (
-                  <ul className="flex flex-col">
-                    {results.map((p) => {
-                      const inSet = defaultIds.has(p.id);
-                      return (
-                        <li key={p.id}>
-                          <button
-                            type="button"
-                            disabled={inSet || add.isPending}
-                            onClick={() => add.mutate({ productId: p.id })}
-                            className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left hover:bg-paper disabled:opacity-50"
-                          >
-                            <ProductThumb
-                              imageUrl={p.imageUrl}
-                              sku={p.sku}
-                              name={p.name}
-                              className="h-9 w-9 shrink-0 rounded"
-                            />
-                            <div className="min-w-0 flex-1 leading-tight">
-                              <p className="truncate text-xs font-medium text-ink">
-                                {p.name}
-                              </p>
-                              <p className="truncate text-[10px] uppercase tracking-brand text-steel">
-                                {p.sku}
-                                {p.brand ? ` · ${p.brand}` : ''}
-                              </p>
-                            </div>
-                            {inSet ? (
-                              <span className="shrink-0 text-[10px] font-medium uppercase tracking-brand text-pass">
-                                In set
-                              </span>
-                            ) : (
-                              <Plus className="h-4 w-4 shrink-0 text-steel" />
-                            )}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            </div>
-          </>
-        )}
 
         <DialogFooter>
           <DialogClose asChild>

@@ -716,6 +716,7 @@ model FixtureCapture {
   uploadedAt DateTime?
   verdict    CaptureVerdict? // the AI verdict for the CURRENT photo
   aiNotes    String? // the model's compare notes
+  aiIssues   Json? // [{label,fix,severity,box:{x,y,w,h}}] — defects + on-image boxes
   confidence Float?
   modelId    String? // e.g. "gemini-2.5-flash" or "stub"
   scoredAt   DateTime?
@@ -756,6 +757,7 @@ model FixtureCaptureAttempt {
   storageKey   String // the photo bytes for THIS shot
   verdict      CaptureVerdict? // the AI verdict scored for this shot
   aiNotes      String?
+  aiIssues     Json? // [{label,fix,severity,box:{x,y,w,h}}] — defects + on-image boxes
   confidence   Float?
   modelId      String?
   capturedById String? // the manager who took this shot

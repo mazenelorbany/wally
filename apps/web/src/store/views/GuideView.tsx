@@ -12,10 +12,18 @@ import {
   ImageOff,
   RotateCcw,
   ShieldCheck,
+  X,
   XCircle,
+  ZoomIn,
 } from 'lucide-react';
 import { Button, Spinner } from '@wally/ui';
-import type { CaptureAttempt, CaptureVerdict, Department, ManagerFixture } from '@wally/sdk';
+import type {
+  CaptureAttempt,
+  CaptureVerdict,
+  ComplianceIssue,
+  Department,
+  ManagerFixture,
+} from '@wally/sdk';
 
 import { api, errorMessage } from '../../lib/api';
 import { useSession } from '../../lib/auth';
@@ -108,6 +116,8 @@ export function GuideFixtureDetailView() {
   const isReviewer = user?.role === 'REVIEWER' || user?.role === 'ADMIN';
   const qc = useQueryClient();
   const fileRef = React.useRef<HTMLInputElement>(null);
+  // The image currently opened full-screen in the lightbox (null = closed).
+  const [zoom, setZoom] = React.useState<ZoomTarget | null>(null);
 
   const homeQ = useQuery({
     queryKey: ['manager', 'home', storeId],
@@ -188,14 +198,14 @@ export function GuideFixtureDetailView() {
         <div className="grid grid-cols-2 gap-3">
           <Frame label="Guide reference">
             {c?.referenceUrl ? (
-              <img src={c.referenceUrl} alt="" className="h-full w-full object-cover" />
+              <ZoomableImage src={c.referenceUrl} label="Guide reference" onZoom={setZoom} />
             ) : (
               <Placeholder text="No reference" />
             )}
           </Frame>
           <Frame label="Your photo">
             {c?.myPhotoUrl ? (
-              <img src={c.myPhotoUrl} alt="" className="h-full w-full object-cover" />
+              <ZoomableImage src={c.myPhotoUrl} label="Your photo" issues={c?.issues} onZoom={setZoom} />
             ) : (
               <Placeholder text="Not submitted" icon={<Camera className="h-5 w-5 text-mist" />} />
             )}
@@ -256,6 +266,11 @@ export function GuideFixtureDetailView() {
           </div>
         ) : null}
 
+        {/* AI-flagged issues, numbered to match the boxes on the photo. */}
+        {!upload.isPending && c?.issues && c.issues.length > 0 ? (
+          <IssueList issues={c.issues} photoUrl={c.myPhotoUrl} onOpen={setZoom} />
+        ) : null}
+
         <input
           ref={fileRef}
           type="file"
@@ -296,7 +311,7 @@ export function GuideFixtureDetailView() {
 
       {/* Capture history — every preserved shot (a re-shoot never erases the prior). */}
       {c?.attempts && c.attempts.length > 0 ? (
-        <CaptureHistory attempts={c.attempts} />
+        <CaptureHistory attempts={c.attempts} onZoom={setZoom} />
       ) : null}
 
       {/* Products on this fixture */}
@@ -338,7 +353,183 @@ export function GuideFixtureDetailView() {
           </div>
         </section>
       ) : null}
+
+      <Lightbox image={zoom} onClose={() => setZoom(null)} />
     </div>
+  );
+}
+
+/** A full-screen image opened from the detail view (guide ref / photo / history). */
+type ZoomTarget = { url: string; label: string; issues?: ComplianceIssue[] | null };
+
+/** Issues that carry a usable on-image box. */
+const withBoxes = (issues?: ComplianceIssue[] | null) =>
+  (issues ?? []).filter((it) => it.box && it.box.w > 0 && it.box.h > 0);
+
+/** Thumbnail that opens its image full-screen on click, with a hover affordance.
+ *  Shows a small badge when the AI flagged issues on this image. */
+function ZoomableImage({
+  src,
+  label,
+  issues,
+  onZoom,
+}: {
+  src: string;
+  label: string;
+  issues?: ComplianceIssue[] | null;
+  onZoom: (t: ZoomTarget) => void;
+}) {
+  const count = (issues ?? []).length;
+  return (
+    <button
+      type="button"
+      onClick={() => onZoom({ url: src, label, issues })}
+      aria-label={`View ${label} larger${count ? ` — ${count} issue${count === 1 ? '' : 's'}` : ''}`}
+      className="group relative block h-full w-full cursor-zoom-in"
+    >
+      <img src={src} alt="" className="h-full w-full object-cover" />
+      {count > 0 ? (
+        <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-signal px-2 py-0.5 text-[10px] font-semibold text-paper shadow-sm">
+          <AlertTriangle className="h-3 w-3" /> {count}
+        </span>
+      ) : null}
+      <span className="pointer-events-none absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-full bg-ink/55 text-paper opacity-0 transition-opacity duration-base group-hover:opacity-100">
+        <ZoomIn className="h-4 w-4" />
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Full-screen lightbox. Shows the image at object-contain (the whole frame, not
+ * the cropped thumbnail) so a manager/reviewer can read shelf detail, and draws
+ * the AI's defect boxes ON the photo (numbered, in the stop colour). Closes on
+ * backdrop click, the X, or Escape; locks body scroll while open.
+ */
+function Lightbox({
+  image,
+  onClose,
+}: {
+  image: ZoomTarget | null;
+  onClose: () => void;
+}) {
+  React.useEffect(() => {
+    if (!image) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [image, onClose]);
+
+  if (!image) return null;
+  const boxed = withBoxes(image.issues);
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={image.label}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/85 p-4 backdrop-blur-sm"
+    >
+      <div className="absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-3">
+        <span className="text-[11px] uppercase tracking-brand text-paper/70">
+          {image.label}
+          {boxed.length ? ` · ${boxed.length} flagged` : ''}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        className="absolute right-4 top-4 z-10 grid h-9 w-9 place-items-center rounded-full bg-paper/15 text-paper transition-colors hover:bg-paper/25"
+      >
+        <X className="h-5 w-5" />
+      </button>
+      {/* inline-block wrapper shrink-wraps the contained image, so % box coords
+          land on the image itself (not the letterboxed container). */}
+      <div
+        className="relative inline-block"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img
+          src={image.url}
+          alt={image.label}
+          className="block max-h-[88vh] max-w-[94vw] rounded-lg object-contain shadow-lift"
+        />
+        {boxed.map((it, i) => (
+          <span
+            key={i}
+            className="pointer-events-none absolute rounded-sm border-2 border-signal shadow-[0_0_0_2px_rgba(0,0,0,0.35)]"
+            style={{
+              left: `${it.box!.x * 100}%`,
+              top: `${it.box!.y * 100}%`,
+              width: `${it.box!.w * 100}%`,
+              height: `${it.box!.h * 100}%`,
+            }}
+          >
+            <span className="absolute -left-0.5 -top-5 inline-flex items-center gap-1 rounded bg-signal px-1.5 py-0.5 text-[10px] font-semibold leading-none text-paper">
+              {i + 1} {it.label}
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The AI's defect list under the verdict — numbered to match the boxes drawn on
+ * the photo. Tapping one opens the photo full-screen with the boxes highlighted.
+ */
+function IssueList({
+  issues,
+  photoUrl,
+  onOpen,
+}: {
+  issues: ComplianceIssue[];
+  photoUrl?: string | null;
+  onOpen: (t: ZoomTarget) => void;
+}) {
+  if (issues.length === 0) return null;
+  return (
+    <ul className="space-y-1.5">
+      {issues.map((it, i) => (
+        <li key={i}>
+          <button
+            type="button"
+            disabled={!photoUrl}
+            onClick={() =>
+              photoUrl && onOpen({ url: photoUrl, label: 'Your photo', issues })
+            }
+            className="flex w-full items-start gap-2.5 rounded-lg border border-mist/60 bg-paper px-3 py-2 text-left transition-colors enabled:hover:bg-surface/60 disabled:cursor-default"
+          >
+            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-signal text-[11px] font-semibold text-paper">
+              {i + 1}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <span className="text-sm font-medium text-ink">{it.label}</span>
+                {it.severity ? (
+                  <span className="rounded-full bg-surface px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-tight text-steel">
+                    {it.severity}
+                  </span>
+                ) : null}
+              </span>
+              {it.fix ? (
+                <span className="mt-0.5 block text-xs leading-snug text-graphite">{it.fix}</span>
+              ) : null}
+            </span>
+            {photoUrl ? <ZoomIn className="mt-0.5 h-3.5 w-3.5 shrink-0 text-mist" /> : null}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -436,7 +627,13 @@ function VerdictCard({
 }
 
 /** The capture history: every preserved shot, newest first (thumb + verdict + when). */
-function CaptureHistory({ attempts }: { attempts: CaptureAttempt[] }) {
+function CaptureHistory({
+  attempts,
+  onZoom,
+}: {
+  attempts: CaptureAttempt[];
+  onZoom: (t: ZoomTarget) => void;
+}) {
   return (
     <section>
       <h2 className="mb-2 flex items-center gap-1.5 text-[11px] uppercase tracking-brand text-steel">
@@ -447,14 +644,27 @@ function CaptureHistory({ attempts }: { attempts: CaptureAttempt[] }) {
           const meta = a.verdict ? VERDICT_META[a.verdict] : null;
           const Icon = meta?.icon;
           return (
-            <li key={a.id} className="flex items-center gap-3 px-3 py-2.5">
-              <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-md bg-surface">
-                {a.photoUrl ? (
+            <li key={a.id} className="flex items-start gap-3 px-3 py-2.5">
+              {a.photoUrl ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onZoom({
+                      url: a.photoUrl!,
+                      label: `Capture · ${fmtWhen(a.capturedAt)}`,
+                      issues: a.issues,
+                    })
+                  }
+                  aria-label="View this capture larger"
+                  className="grid h-12 w-12 shrink-0 cursor-zoom-in place-items-center overflow-hidden rounded-md bg-surface"
+                >
                   <img src={a.photoUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
-                ) : (
+                </button>
+              ) : (
+                <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-md bg-surface">
                   <ImageOff className="h-4 w-4 text-mist" />
-                )}
-              </span>
+                </span>
+              )}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   {Icon && meta ? (
@@ -480,6 +690,9 @@ function CaptureHistory({ attempts }: { attempts: CaptureAttempt[] }) {
                     ? ` · ${Math.round(a.confidence * 100)}%`
                     : ''}
                 </p>
+                {a.aiNotes ? (
+                  <p className="mt-1 text-xs leading-snug text-graphite">{a.aiNotes}</p>
+                ) : null}
               </div>
             </li>
           );

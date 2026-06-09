@@ -579,6 +579,30 @@ export type CaptureVerdict = "PASS" | "NEEDS_REVIEW" | "FAIL";
 /** Where a fixture sits in the capture loop. */
 export type ComplianceState = "todo" | "submitted" | "scored";
 
+/** A normalized rectangle on the photo (0..1, origin top-left). */
+export interface IssueBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * One AI-detected defect, with a box locating it ON the photo so the UI can
+ * highlight exactly where the problem is. Produced by the vision compare and
+ * persisted with the capture.
+ */
+export interface ComplianceIssue {
+  /** Short defect name, e.g. "Leaning box". */
+  label: string;
+  /** One concrete fix for the store, e.g. "Straighten the top-left box". */
+  fix?: string | null;
+  /** How serious it is. */
+  severity?: "minor" | "major" | null;
+  /** Where it is on the photo (normalized). Omitted if the model gave no box. */
+  box?: IssueBox | null;
+}
+
 /** One preserved shot in a fixture's capture history (newest first). */
 export interface CaptureAttempt {
   id: string;
@@ -588,6 +612,8 @@ export interface CaptureAttempt {
   verdict?: CaptureVerdict | null;
   /** The model's compare notes for this shot. */
   aiNotes?: string | null;
+  /** AI-detected defects with on-image boxes for this shot. */
+  issues?: ComplianceIssue[] | null;
   confidence?: number | null;
   /** When this shot was taken (ISO). */
   capturedAt: string;
@@ -670,6 +696,8 @@ export interface FixtureComplianceDetail {
   overall?: CaptureVerdict | null;
   /** The model's compare notes for the manager. */
   aiNotes?: string | null;
+  /** AI-detected defects with on-image boxes for the current photo. */
+  issues?: ComplianceIssue[] | null;
   confidence?: number | null;
   scoredAt?: string | null;
   /** A photo is wanted (cycle default) or has been re-requested by a reviewer. */

@@ -1552,6 +1552,8 @@ export type {
   FixtureComplianceDetail,
   CaptureVerdict,
   CaptureAttempt,
+  ComplianceIssue,
+  IssueBox,
   OverrideCaptureBody,
   ComplianceState,
   ProjectDto,

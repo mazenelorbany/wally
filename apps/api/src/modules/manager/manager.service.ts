@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CampaignStatus, CaptureVerdict, TaskStatus } from '@prisma/client';
+import { CampaignStatus, CaptureVerdict, Prisma, TaskStatus } from '@prisma/client';
 import type {
   FixtureCapture,
   FixtureCaptureAttempt,
@@ -8,6 +8,7 @@ import type {
 import type {
   CaptureAttempt,
   CaptureVerdict as CaptureVerdictDto,
+  ComplianceIssue,
   ComplianceState,
   Department,
   FixtureCompliance,
@@ -966,6 +967,7 @@ export class ManagerService {
       data: {
         verdict,
         aiNotes: scored.notes,
+        aiIssues: scored.issues as unknown as Prisma.InputJsonValue,
         confidence: scored.confidence,
         modelId: scored.modelId,
         scoredAt: new Date(),
@@ -982,6 +984,7 @@ export class ManagerService {
         storageKey,
         verdict,
         aiNotes: scored.notes,
+        aiIssues: scored.issues as unknown as Prisma.InputJsonValue,
         confidence: scored.confidence,
         modelId: scored.modelId,
         capturedById: user.id,
@@ -1225,6 +1228,7 @@ export class ManagerService {
       state: captureState(capture),
       overall: aiVerdict,
       aiNotes: capture?.aiNotes ?? null,
+      issues: asIssues(capture?.aiIssues),
       confidence: capture?.confidence ?? null,
       scoredAt: capture?.scoredAt ? capture.scoredAt.toISOString() : null,
       needsPhoto: capture?.needsPhoto ?? true,
@@ -1250,11 +1254,28 @@ export class ManagerService {
       photoUrl: a.storageKey ? this.storage.signedGetUrl(a.storageKey) : null,
       verdict: a.verdict ? toCaptureVerdict(a.verdict) : null,
       aiNotes: a.aiNotes ?? null,
+      issues: asIssues(a.aiIssues),
       confidence: a.confidence ?? null,
       capturedAt: a.capturedAt.toISOString(),
       capturedByName: actorName(a.capturedBy),
     };
   }
+}
+
+/**
+ * Coerce a persisted JSON value back into ComplianceIssue[]. The column is
+ * free-form JSON; trust but verify the shape so a malformed row can't crash the
+ * detail endpoint. Returns null when there are no issues.
+ */
+function asIssues(value: unknown): ComplianceIssue[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const out: ComplianceIssue[] = [];
+  for (const it of value) {
+    if (it && typeof it === 'object' && typeof (it as { label?: unknown }).label === 'string') {
+      out.push(it as ComplianceIssue);
+    }
+  }
+  return out.length > 0 ? out : null;
 }
 
 // ----- presenters -----------------------------------------------------------

@@ -257,7 +257,7 @@ function makeScorer(verdicts: ComplianceScoreResult['verdict'][]) {
     score: vi.fn(
       async (_input: ComplianceScoreInput): Promise<ComplianceScoreResult> => {
         const verdict = queue.shift() ?? 'NEEDS_REVIEW';
-        return { verdict, confidence: 0.9, notes: `notes:${verdict}`, modelId: 'stub' };
+        return { verdict, confidence: 0.9, notes: `notes:${verdict}`, modelId: 'stub', issues: [] };
       },
     ),
   };
