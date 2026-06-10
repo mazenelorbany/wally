@@ -77,6 +77,12 @@ export {
 
 export { Spinner, type SpinnerProps } from "./components/Spinner";
 
+export {
+  Lightbox,
+  type LightboxImage,
+  type LightboxProps,
+} from "./components/Lightbox";
+
 // --- Brand atoms ------------------------------------------------------------
 export {
   Verdict,

@@ -13,6 +13,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Lightbox,
   Spinner,
 } from '@wally/ui';
 import type {
@@ -871,6 +872,7 @@ function FixtureProductsDialog({
   const setRef = useSetFixtureReference();
   const clearRef = useClearFixtureReference();
   const refInput = React.useRef<HTMLInputElement>(null);
+  const [refZoom, setRefZoom] = React.useState(false);
 
   const defaults = defaultsQ.data ?? [];
   const rows = React.useMemo(() => defaultsToRows(defaults), [defaults]);
@@ -923,11 +925,19 @@ function FixtureProductsDialog({
               </p>
               <div className="flex items-start gap-3">
                 {referenceUrl ? (
-                  <img
-                    src={referenceUrl}
-                    alt=""
-                    className="h-20 w-28 shrink-0 rounded-md border border-mist object-cover"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => setRefZoom(true)}
+                    aria-label="View reference image full size"
+                    title="Click to view full size"
+                    className="group shrink-0 cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/40"
+                  >
+                    <img
+                      src={referenceUrl}
+                      alt=""
+                      className="h-20 w-28 rounded-md border border-mist object-cover transition-opacity group-hover:opacity-85"
+                    />
+                  </button>
                 ) : (
                   <div className="grid h-20 w-28 shrink-0 place-items-center rounded-md border border-dashed border-mist text-[10px] text-steel">
                     No reference
@@ -1051,6 +1061,15 @@ function FixtureProductsDialog({
             </Button>
           </DialogClose>
         </DialogFooter>
+
+        <Lightbox
+          image={
+            refZoom && referenceUrl && fixture
+              ? { url: referenceUrl, label: `${fixture.name} · reference` }
+              : null
+          }
+          onClose={() => setRefZoom(false)}
+        />
       </DialogContent>
     </Dialog>
   );
