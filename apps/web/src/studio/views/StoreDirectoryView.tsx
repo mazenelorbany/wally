@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
@@ -39,7 +39,7 @@ export function StoreDirectoryView() {
   useSetStudioTopBar({ guideName: 'Store directory', stores: [] });
   const qc = useQueryClient();
   const toast = useToast();
-  const { project: activeProject, campaignId } = useProject();
+  const { project: activeProject } = useProject();
   const storesQ = useQuery({
     queryKey: ['studio', 'admin-stores'],
     queryFn: () => api.stores.list(),
@@ -60,6 +60,13 @@ export function StoreDirectoryView() {
   const segments = segmentsQ.data;
   const projectName = React.useMemo(
     () => new Map(projects.map((p) => [p.id, p.name])),
+    [projects],
+  );
+  // The directory lists EVERY project's stores, so each row's floor-plan link
+  // must use that store's own project campaign — linking a Myer store into the
+  // Ambiente campaign opens an empty plan in the wrong context.
+  const campaignByProject = React.useMemo(
+    () => new Map(projects.map((p) => [p.id, p.campaignId ?? undefined])),
     [projects],
   );
 
@@ -117,7 +124,7 @@ export function StoreDirectoryView() {
             <VenueRow
               key={g.venue}
               group={g}
-              campaignId={campaignId}
+              campaignByProject={campaignByProject}
               projectName={projectName}
               onEdit={setEditing}
               lifecycle={lifecycle}
@@ -176,18 +183,19 @@ type LifecycleMutation = {
  *  and the selected store's segmentation + actions. */
 function VenueRow({
   group,
-  campaignId,
+  campaignByProject,
   projectName,
   onEdit,
   lifecycle,
 }: {
   group: VenueGroup;
-  campaignId: string | undefined;
+  campaignByProject: Map<string, string | undefined>;
   projectName: Map<string, string>;
   onEdit: (store: StoreDto) => void;
   lifecycle: LifecycleMutation;
 }) {
   const { entries } = group;
+  const navigate = useNavigate();
   // Floor plan + row actions default to the Custom Chef concession (else first
   // open, else first). Brand switching now happens on the floor plan, not here.
   const active = (
@@ -197,6 +205,9 @@ function VenueRow({
   ).store;
   const closed = Boolean(active.closedAt);
   const busy = lifecycle.isPending && lifecycle.variables?.id === active.id;
+  // This store's OWN project campaign — never the active project's (a directory
+  // row may belong to a different project than the one the studio is working in).
+  const campaignId = active.projectId ? campaignByProject.get(active.projectId) : undefined;
 
   return (
     <li className={`px-5 py-3.5${closed ? ' opacity-60' : ''}`}>
@@ -249,15 +260,16 @@ function VenueRow({
 
         <div className="flex shrink-0 items-center gap-1">
           {!closed && campaignId ? (
-            <Link to={`/studio/${campaignId}/store/${active.id}`}>
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label={`Open ${active.name}'s floor plan`}
-              >
-                <MapIcon className="h-4 w-4" /> Floor plan
-              </Button>
-            </Link>
+            // One control, not a button nested in a link — nested interactive
+            // elements double the tab stops and confuse screen readers.
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`Open ${active.name}'s floor plan`}
+              onClick={() => navigate(`/studio/${campaignId}/store/${active.id}`)}
+            >
+              <MapIcon className="h-4 w-4" /> Floor plan
+            </Button>
           ) : null}
           <Button
             variant="ghost"
