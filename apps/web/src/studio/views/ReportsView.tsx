@@ -59,7 +59,10 @@ export function ReportsView() {
     campaignsQ.data?.find((c) => c.status === 'ACTIVE') ??
     campaignsQ.data?.[0];
 
-  useSetStudioTopBar({ guideName: 'Tasks', guideKey: campaign?.key, stores: [] });
+  // This view IS the submissions list (the sidebar item that lands here is
+  // "Submissions") — labelling the top bar "Tasks" made two modules look
+  // interlinked when they aren't.
+  useSetStudioTopBar({ guideName: 'Submissions', guideKey: campaign?.key, stores: [] });
 
   const [filter, setFilter] = React.useState<FilterKey>('all');
 
