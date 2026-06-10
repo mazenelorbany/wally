@@ -24,6 +24,7 @@ import type {
 } from '@wally/types';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { PlanogramSyncService } from '../fixture/planogram-sync.service';
 import { StorageService } from '../storage/storage.service';
 import {
   assertReadableImage,
@@ -74,6 +75,7 @@ export class GuideFixtureService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly planogramSync: PlanogramSyncService,
   ) {}
 
   // ----- detail ------------------------------------------------------------
@@ -347,13 +349,18 @@ export class GuideFixtureService {
           order: t.order,
         })),
       });
-      return this.prisma.guideFixture.findUniqueOrThrow({
-        where: { id: created.id },
-        include: GUIDE_FIXTURE_INCLUDE,
-      });
     }
 
-    return created;
+    // A fresh sheet inherits the fixture's default planogram too, so the
+    // library default set and every sheet stay mirrors from the first open.
+    if (created.merchandise.length === 0) {
+      await this.planogramSync.pushDefaultsToGuides(orgId, fixtureId);
+    }
+
+    return this.prisma.guideFixture.findUniqueOrThrow({
+      where: { id: created.id },
+      include: GUIDE_FIXTURE_INCLUDE,
+    });
   }
 
   // ----- notes -------------------------------------------------------------
@@ -517,7 +524,7 @@ export class GuideFixtureService {
     });
     const order = (last?.order ?? -1) + 1;
 
-    return this.prisma.merchandise.create({
+    const created = await this.prisma.merchandise.create({
       data: {
         orgId,
         guideFixtureId,
@@ -526,6 +533,10 @@ export class GuideFixtureService {
         order,
       },
     });
+    // A sheet edit is a planogram edit: write it back to the fixture's default
+    // set and mirror to every other sheet using this fixture.
+    await this.planogramSync.pullGuideIntoDefaults(orgId, guideFixtureId);
+    return created;
   }
 
   /** Remove a product from the sheet (org-scoped via the parent guide-fixture). */
@@ -539,6 +550,7 @@ export class GuideFixtureService {
       where: { id: merchandiseId, guideFixtureId, orgId },
     });
     if (count === 0) throw new NotFoundException('merchandise not found');
+    await this.planogramSync.pullGuideIntoDefaults(orgId, guideFixtureId);
     return { ok: true };
   }
 
@@ -578,6 +590,7 @@ export class GuideFixtureService {
         ),
       ),
     );
+    await this.planogramSync.pullGuideIntoDefaults(orgId, guideFixtureId);
     return this.detailByGuideFixtureId(orgId, guideFixtureId);
   }
 

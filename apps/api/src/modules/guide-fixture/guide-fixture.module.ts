@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { FixtureModule } from '../fixture/fixture.module';
 import { ProductModule } from '../product/product.module';
 
 import {
@@ -14,7 +15,7 @@ import { GuideFixtureService } from './guide-fixture.service';
 // (guide-fixtures/:id ...). ProductModule is imported only so the shared
 // catalog mapper lives in one place; PrismaService is what does the work here.
 @Module({
-  imports: [ProductModule],
+  imports: [ProductModule, FixtureModule],
   controllers: [GuideFixtureDetailController, GuideFixtureController],
   providers: [GuideFixtureService],
   exports: [GuideFixtureService],

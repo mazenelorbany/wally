@@ -27,6 +27,7 @@ import {
 import { StorageService } from '../storage/storage.service';
 
 import type { CreateFixtureInput, UpdateFixtureInput } from './fixture.dto';
+import { PlanogramSyncService } from './planogram-sync.service';
 
 // =============================================================================
 // FixtureService — the org's fixture library (the reusable catalog of fixture
@@ -42,6 +43,7 @@ export class FixtureService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly planogramSync: PlanogramSyncService,
   ) {}
 
   /** The org's fixture library, ordered by name, mapped to the shared contract.
@@ -286,6 +288,7 @@ export class FixtureService {
       }
       throw err;
     }
+    await this.planogramSync.pushDefaultsToGuides(orgId, fixtureId);
   }
 
   /** Remove a product from the fixture's default set. */
@@ -300,6 +303,7 @@ export class FixtureService {
     if (res.count === 0) {
       throw new NotFoundException('default product not found');
     }
+    await this.planogramSync.pushDefaultsToGuides(orgId, fixtureId);
   }
 
   /** Persist the full default-set planogram: shelves top→bottom, each a
@@ -335,6 +339,7 @@ export class FixtureService {
         ),
       ),
     );
+    await this.planogramSync.pushDefaultsToGuides(orgId, fixtureId);
     return this.listProducts(orgId, fixtureId);
   }
 
