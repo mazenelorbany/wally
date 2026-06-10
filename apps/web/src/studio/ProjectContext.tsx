@@ -21,6 +21,20 @@ interface ProjectValue {
 
 const Ctx = React.createContext<ProjectValue | null>(null);
 
+// The picked project survives reloads and deep links. Without this, any full
+// page load silently reset the studio to the first project (Myer) while the
+// user thought they were still in Ambiente — every project-scoped module
+// (fixtures, gallery, stores, money map) then showed the wrong data.
+const STORAGE_KEY = 'studio:project';
+
+export function readPersistedProject(): string | undefined {
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const projectsQ = useQuery({
     queryKey: ['studio', 'projects'],
@@ -28,8 +42,17 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   });
   const projects = projectsQ.data ?? [];
 
-  const [picked, setPicked] = React.useState<string | undefined>();
+  const [picked, setPicked] = React.useState<string | undefined>(readPersistedProject);
+  const pick = React.useCallback((id: string) => {
+    setPicked(id);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, id);
+    } catch {
+      /* private mode etc. — selection still works for this session */
+    }
+  }, []);
   // Default to the first project (retail leads the sort), but honour a pick.
+  // A stale persisted id (project deleted/archived) falls back gracefully.
   const projectId =
     picked && projects.some((p) => p.id === picked)
       ? picked
@@ -42,10 +65,10 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       project,
       projectId,
       campaignId: project?.campaignId ?? undefined,
-      setProjectId: setPicked,
+      setProjectId: pick,
       isLoading: projectsQ.isLoading,
     }),
-    [projects, project, projectId, projectsQ.isLoading],
+    [projects, project, projectId, pick, projectsQ.isLoading],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
