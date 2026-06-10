@@ -8,6 +8,7 @@ import {
   CampaignStatus,
   Prisma,
   SnapshotSource,
+  StoreReportStatus,
 } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -33,8 +34,33 @@ export class CampaignService {
     const campaigns = await this.prisma.campaign.findMany({
       where: { orgId, archivedAt: null },
       orderBy: [{ createdAt: 'desc' }],
-      include: { _count: { select: { submissions: true } } },
+      include: {
+        _count: {
+          select: { submissions: true, guideFixtures: true, storeReports: true },
+        },
+      },
     });
+    const ids = campaigns.map((c) => c.id);
+
+    // Two cheap group-bys give the "Tasks" cards their content/progress numbers
+    // without an N+1: active questions per task, and submitted reports per task.
+    const [questionGroups, submittedGroups] = ids.length
+      ? await Promise.all([
+          this.prisma.campaignQuestion.groupBy({
+            by: ['campaignId'],
+            where: { campaignId: { in: ids }, archivedAt: null },
+            _count: true,
+          }),
+          this.prisma.storeReport.groupBy({
+            by: ['campaignId'],
+            where: { campaignId: { in: ids }, status: StoreReportStatus.SUBMITTED },
+            _count: true,
+          }),
+        ])
+      : [[], []];
+    const questionsBy = new Map(questionGroups.map((g) => [g.campaignId, g._count]));
+    const submittedBy = new Map(submittedGroups.map((g) => [g.campaignId, g._count]));
+
     return campaigns.map((c) => ({
       id: c.id,
       key: c.key,
@@ -47,6 +73,11 @@ export class CampaignService {
       closedAt: c.closedAt,
       archivedAt: c.archivedAt,
       storeCount: c._count.submissions,
+      // Task-hub fields: what the task contains + how far along it is.
+      fixtureCount: c._count.guideFixtures,
+      questionCount: questionsBy.get(c.id) ?? 0,
+      storesSent: c._count.storeReports,
+      storesSubmitted: submittedBy.get(c.id) ?? 0,
     }));
   }
 

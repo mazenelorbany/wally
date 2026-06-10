@@ -118,6 +118,25 @@ export class ReportService {
     })) as CaptureRow[];
     const captureByFixture = new Map(captures.map((c) => [c.fixtureId, c]));
 
+    // Who took the most recent shot per fixture (completed-by attribution).
+    const capturesWithActor = await this.prisma.fixtureCapture.findMany({
+      where: { storeId, campaignId },
+      select: {
+        fixtureId: true,
+        attempts: {
+          orderBy: { capturedAt: 'desc' },
+          take: 1,
+          select: { capturedBy: { select: { name: true, email: true } } },
+        },
+      },
+    });
+    const completedByFixture = new Map(
+      capturesWithActor.map((c) => {
+        const actor = c.attempts[0]?.capturedBy;
+        return [c.fixtureId, actor ? actor.name || actor.email || null : null];
+      }),
+    );
+
     // The campaign's live rubric versions stamp the footer (reproducibility).
     // FixtureCapture carries no per-shot rubric FK, so — like buildStoreScore —
     // the report is stamped with the campaign's active grading versions.
@@ -151,6 +170,7 @@ export class ReportService {
           ...(capture.confidence != null ? { confidence: capture.confidence } : {}),
           ...(rubricVersions.length > 0 ? { rubricVersion: rubricVersions[0] } : {}),
           flags: captureFlags(overall, capture.aiNotes, capture.confidence),
+          completedBy: completedByFixture.get(p.fixtureId) ?? null,
         };
       }
 
@@ -176,6 +196,33 @@ export class ReportService {
       isScored(f.status),
     ).length;
 
+    // The submittable-report envelope + the extra-question answers (the non-photo
+    // steps). Optional — absent until a report exists / questions are configured.
+    const report = await this.prisma.storeReport.findUnique({
+      where: { storeId_campaignId: { storeId, campaignId } },
+      include: { submittedBy: { select: { name: true, email: true } } },
+    });
+    const questions = await this.prisma.campaignQuestion.findMany({
+      where: { campaignId, orgId, archivedAt: null },
+      orderBy: { order: 'asc' },
+    });
+    const questionAnswers = await this.prisma.storeQuestionAnswer.findMany({
+      where: { storeId, campaignId },
+    });
+    const answerByQuestion = new Map(
+      questionAnswers.map((a) => [a.questionId, a]),
+    );
+    const extraAnswers = questions.map((q) => {
+      const a = answerByQuestion.get(q.id);
+      return {
+        label: q.label,
+        type: q.type,
+        valueText: a?.valueText ?? null,
+        valueBool: a?.valueBool ?? null,
+        isNA: a?.isNA ?? false,
+      };
+    });
+
     return {
       // `generatedAt` is the moment the PDF is produced (its real meaning). The
       // store-level "is this store done" signal now lives in the submitted/expected
@@ -194,6 +241,14 @@ export class ReportService {
       expected: applicable.length,
       fixtures: reportFixtures,
       rubricVersions,
+      status: report?.status,
+      submittedAt: report?.submittedAt ?? null,
+      submittedByName: report
+        ? report.submittedBy?.name || report.submittedBy?.email || null
+        : null,
+      totalScore: report?.totalScore ?? null,
+      aiSummary: report?.aiSummary ?? null,
+      extraAnswers,
     };
   }
 

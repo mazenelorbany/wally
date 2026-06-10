@@ -25,6 +25,9 @@ const sku = z.string().trim().min(1).max(80);
 const name = z.string().trim().min(1).max(200);
 const optionalText = (max: number) => z.string().trim().max(max).optional();
 const money = z.number().nonnegative().optional();
+// Promo-wave membership — which of the two alternating TCC sale waves the
+// product discounts in (BOTH = every wave); null/absent = never on promo.
+const saleWave = z.enum(['SALE_1', 'SALE_2', 'BOTH']);
 
 // POST /products — add a product to the org catalog. `sku` is the unique key
 // (per org) and `name` is the VM-guide label; everything else is optional
@@ -41,6 +44,11 @@ export const CreateProductSchema = z
     imageUrl: optionalText(2048),
     rrp: money,
     salePrice: money,
+    saleWave: saleWave.optional(),
+    gwp: z.boolean().optional(),
+    // The qualifying product this gift is free WITH (validated org-scoped in
+    // the service; requires gwp semantics — setting it implies gwp).
+    gwpWithId: z.string().trim().min(1).optional(),
   })
   .strict();
 
@@ -62,6 +70,9 @@ export const UpdateProductSchema = z
     imageUrl: z.string().trim().max(2048).nullable().optional(),
     rrp: z.number().nonnegative().nullable().optional(),
     salePrice: z.number().nonnegative().nullable().optional(),
+    saleWave: saleWave.nullable().optional(),
+    gwp: z.boolean().optional(),
+    gwpWithId: z.string().trim().min(1).nullable().optional(),
   })
   .strict()
   .refine((v) => Object.keys(v).length > 0, {

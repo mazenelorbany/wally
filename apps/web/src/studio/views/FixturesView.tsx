@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import {
   Badge,
@@ -19,12 +20,14 @@ import type {
   Fixture,
   FixtureDefaultProduct,
   FixtureKind,
+  GuideChecklistItem,
   MerchandiseItem,
   MerchandiseRow,
 } from '@wally/types';
 
 import { EmptyState, ErrorState, Skeleton } from '../../components/states';
-import { errorMessage } from '../../lib/api';
+import { api, errorMessage } from '../../lib/api';
+import { useToast } from '../../lib/toast';
 import { useSession } from '../../lib/auth';
 import {
   useAddFixtureProduct,
@@ -1008,25 +1011,36 @@ function FixtureProductsDialog({
           </div>
         ) : null}
 
-        <div className="max-h-[55vh] overflow-y-auto">
-          {defaultsQ.isLoading ? (
-            <div className="grid place-items-center py-10">
-              <Spinner className="text-lg text-steel" />
+        <div className="max-h-[55vh] space-y-5 overflow-y-auto">
+          {/* Default guide content — notes / instructions / checklist that every
+              task using this fixture inherits (still editable per task). */}
+          {fixture ? <DefaultContentSection fixtureId={fixture.id} /> : null}
+
+          {fixture ? (
+            <div>
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-brand text-steel">
+                Default products · planogram
+              </p>
+              {defaultsQ.isLoading ? (
+                <div className="grid place-items-center py-10">
+                  <Spinner className="text-lg text-steel" />
+                </div>
+              ) : (
+                <PlanogramEditor
+                  large
+                  onDone={onClose}
+                  adapter={{
+                    rows,
+                    isPersisting: reorder.isPending,
+                    onReorder: (body) => reorder.mutate(body),
+                    onAddProduct: (productId, row, onSuccess) =>
+                      add.mutate({ productId, row }, { onSuccess }),
+                    onRemoveFacing: (fixtureProductId) =>
+                      remove.mutate(fixtureProductId),
+                  }}
+                />
+              )}
             </div>
-          ) : fixture ? (
-            <PlanogramEditor
-              large
-              onDone={onClose}
-              adapter={{
-                rows,
-                isPersisting: reorder.isPending,
-                onReorder: (body) => reorder.mutate(body),
-                onAddProduct: (productId, row, onSuccess) =>
-                  add.mutate({ productId, row }, { onSuccess }),
-                onRemoveFacing: (fixtureProductId) =>
-                  remove.mutate(fixtureProductId),
-              }}
-            />
           ) : null}
         </div>
 
@@ -1039,6 +1053,276 @@ function FixtureProductsDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const fixtureDetailKey = (fixtureId: string) => ['studio', 'fixture-detail', fixtureId];
+
+/**
+ * The fixture's reusable DEFAULT guide content — notes, ordered instructions and
+ * checklist. Every task that uses this fixture inherits these the first time it's
+ * opened (still overridable per task). Mirrors the per-task fixture editor.
+ */
+function DefaultContentSection({ fixtureId }: { fixtureId: string }) {
+  const detailQ = useQuery({
+    queryKey: fixtureDetailKey(fixtureId),
+    queryFn: () => api.fixtures.detail(fixtureId),
+  });
+  const d = detailQ.data;
+  if (detailQ.isLoading) {
+    return (
+      <div className="grid place-items-center py-6">
+        <Spinner className="text-lg text-steel" />
+      </div>
+    );
+  }
+  if (!d) return null;
+  return (
+    <div className="space-y-5 rounded-lg border border-mist/50 bg-surface/30 p-4">
+      <p className="text-[11px] font-medium uppercase tracking-brand text-steel">
+        Default guide content · tasks inherit this
+      </p>
+      <DefaultNotes fixtureId={fixtureId} notes={d.defaultNotes} />
+      <DefaultInstructions fixtureId={fixtureId} steps={d.defaultInstructions} />
+      <DefaultChecklist fixtureId={fixtureId} items={d.defaultChecklist} />
+    </div>
+  );
+}
+
+function DefaultLabel({ text, hint }: { text: string; hint?: string }) {
+  return (
+    <div className="mb-1.5 flex items-center justify-between gap-2">
+      <h4 className="text-[11px] font-medium uppercase tracking-brand text-graphite">
+        {text}
+      </h4>
+      {hint ? <span className="text-[10px] text-mist">{hint}</span> : null}
+    </div>
+  );
+}
+
+const defaultFieldCls =
+  'w-full resize-y rounded-md border border-mist bg-paper px-3 py-2.5 font-sans text-sm leading-relaxed text-ink placeholder:text-steel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30';
+
+function DefaultNotes({ fixtureId, notes }: { fixtureId: string; notes: string }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [draft, setDraft] = React.useState(notes);
+  const lastRef = React.useRef(notes);
+  React.useEffect(() => {
+    setDraft(notes);
+    lastRef.current = notes;
+  }, [fixtureId, notes]);
+
+  const save = useMutation({
+    mutationFn: (text: string) => api.fixtures.defaults.setNotes(fixtureId, text),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: fixtureDetailKey(fixtureId) }),
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const commit = () => {
+    if (draft === lastRef.current) return;
+    lastRef.current = draft;
+    save.mutate(draft);
+  };
+
+  return (
+    <section>
+      <DefaultLabel
+        text="Default notes"
+        hint={save.isPending ? 'Saving…' : 'Saved on blur'}
+      />
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        rows={3}
+        placeholder="How should this fixture be merchandised? Facings, hero SKUs, signage, do's and don'ts…"
+        className={defaultFieldCls}
+      />
+    </section>
+  );
+}
+
+function DefaultInstructions({
+  fixtureId,
+  steps,
+}: {
+  fixtureId: string;
+  steps: { id: string; text: string }[];
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const initial = steps.map((s) => s.text).join('\n');
+  const [draft, setDraft] = React.useState(initial);
+  const lastRef = React.useRef(initial);
+  React.useEffect(() => {
+    setDraft(initial);
+    lastRef.current = initial;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixtureId, steps.length]);
+
+  const save = useMutation({
+    mutationFn: (text: string) =>
+      api.fixtures.defaults.saveInstructions(
+        fixtureId,
+        text
+          .split('\n')
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .map((t) => ({ text: t })),
+      ),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: fixtureDetailKey(fixtureId) }),
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const commit = () => {
+    if (draft === lastRef.current) return;
+    lastRef.current = draft;
+    save.mutate(draft);
+  };
+
+  return (
+    <section>
+      <DefaultLabel
+        text="Default instructions"
+        hint={save.isPending ? 'Saving…' : 'One step per line'}
+      />
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        rows={4}
+        placeholder={'Build the base unit\nLoad hero SKUs at eye level\nAdd price tickets + signage'}
+        className={defaultFieldCls}
+      />
+    </section>
+  );
+}
+
+function DefaultChecklist({
+  fixtureId,
+  items,
+}: {
+  fixtureId: string;
+  items: GuideChecklistItem[];
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [newLabel, setNewLabel] = React.useState('');
+  const invalidate = () =>
+    void qc.invalidateQueries({ queryKey: fixtureDetailKey(fixtureId) });
+
+  const add = useMutation({
+    mutationFn: (label: string) =>
+      api.fixtures.defaults.addChecklist(fixtureId, { label }),
+    onSuccess: () => {
+      setNewLabel('');
+      invalidate();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const update = useMutation({
+    mutationFn: (v: { itemId: string; body: { label?: string; required?: boolean } }) =>
+      api.fixtures.defaults.updateChecklist(fixtureId, v.itemId, v.body),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const remove = useMutation({
+    mutationFn: (itemId: string) =>
+      api.fixtures.defaults.removeChecklist(fixtureId, itemId),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  return (
+    <section>
+      <DefaultLabel text="Default checklist" hint="Stores tick these in the report" />
+      <ul className="space-y-1.5">
+        {items.map((it) => (
+          <DefaultChecklistRow
+            key={it.id}
+            item={it}
+            onLabel={(label) => update.mutate({ itemId: it.id, body: { label } })}
+            onRequired={(required) =>
+              update.mutate({ itemId: it.id, body: { required } })
+            }
+            onRemove={() => remove.mutate(it.id)}
+            removing={remove.isPending && remove.variables === it.id}
+          />
+        ))}
+        {items.length === 0 ? (
+          <li className="rounded-md border border-dashed border-mist/70 px-3 py-2.5 text-xs text-steel">
+            No default checklist items yet.
+          </li>
+        ) : null}
+      </ul>
+      <form
+        className="mt-2 flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (newLabel.trim() && !add.isPending) add.mutate(newLabel.trim());
+        }}
+      >
+        <input
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          placeholder="Add a checklist item…"
+          className="w-full rounded-md border border-mist bg-paper px-3 py-2 text-sm text-ink placeholder:text-steel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
+        />
+        <Button type="submit" size="sm" disabled={!newLabel.trim() || add.isPending}>
+          <Plus className="h-4 w-4" /> Add
+        </Button>
+      </form>
+    </section>
+  );
+}
+
+function DefaultChecklistRow({
+  item,
+  onLabel,
+  onRequired,
+  onRemove,
+  removing,
+}: {
+  item: GuideChecklistItem;
+  onLabel: (label: string) => void;
+  onRequired: (required: boolean) => void;
+  onRemove: () => void;
+  removing: boolean;
+}) {
+  const [label, setLabel] = React.useState(item.label);
+  React.useEffect(() => setLabel(item.label), [item.label]);
+  return (
+    <li className="flex items-center gap-2 rounded-md border border-mist/60 bg-paper px-2.5 py-1.5">
+      <input
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
+        onBlur={() => {
+          const next = label.trim();
+          if (next && next !== item.label) onLabel(next);
+          else setLabel(item.label);
+        }}
+        className="min-w-0 flex-1 bg-transparent text-sm text-ink focus:outline-none"
+      />
+      <label className="flex shrink-0 items-center gap-1 text-[11px] text-steel">
+        <input
+          type="checkbox"
+          checked={item.required}
+          onChange={(e) => onRequired(e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-mist accent-graphite"
+        />
+        Required
+      </label>
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={removing}
+        aria-label="Remove item"
+        className="grid h-6 w-6 shrink-0 place-items-center rounded text-steel transition-colors hover:bg-surface hover:text-fail disabled:opacity-50"
+      >
+        {removing ? <Spinner className="text-xs" /> : <Trash2 className="h-3.5 w-3.5" />}
+      </button>
+    </li>
   );
 }
 

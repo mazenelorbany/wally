@@ -181,11 +181,49 @@ export interface BestInClassItem {
   overall?: Overall;
 }
 
+/** A product's promo-wave membership (TCC runs two alternating monthly waves). */
+export type SaleWave = "SALE_1" | "SALE_2" | "BOTH";
+
+/**
+ * Which wave the org is selling right now: AUTO follows the TCC calendar
+ * (odd months = Sale 1, even months = Sale 2), SALE_1/SALE_2 pin a wave,
+ * ALL puts the whole catalog on sale.
+ */
+export type SaleMode = "AUTO" | "SALE_1" | "SALE_2" | "ALL";
+
+/** The wave the calendar says is on for a given date (odd month = Sale 1). */
+export function autoSaleWave(date: Date = new Date()): "SALE_1" | "SALE_2" {
+  return (date.getMonth() + 1) % 2 === 1 ? "SALE_1" : "SALE_2";
+}
+
+/** Resolve a saleMode to the wave actually selling ("ALL" = every wave). */
+export function activeSaleWave(
+  mode: SaleMode,
+  date: Date = new Date(),
+): "SALE_1" | "SALE_2" | "ALL" {
+  return mode === "AUTO" ? autoSaleWave(date) : mode;
+}
+
+/** Whether a product sells at its salePrice under the given saleMode. */
+export function isOnSale(
+  product: { saleWave?: SaleWave | null; salePrice?: number | null },
+  mode: SaleMode,
+  date: Date = new Date(),
+): boolean {
+  if (product.salePrice == null) return false;
+  const active = activeSaleWave(mode, date);
+  if (active === "ALL") return true;
+  if (!product.saleWave) return false;
+  return product.saleWave === "BOTH" || product.saleWave === active;
+}
+
 /** The current tenant (org settings). */
 export interface OrgDto {
   id: string;
   name: string;
   slug: string;
+  /** Which promo wave is selling now — see {@link SaleMode}. */
+  saleMode: SaleMode;
 }
 
 /** A store in the org's roster (admin store-directory management). */
@@ -213,7 +251,12 @@ export interface StoreSegments {
   areaManagers: string[];
 }
 
-export type Role = "ADMIN" | "REVIEWER" | "STORE_MANAGER" | "VIEWER";
+export type Role =
+  | "ADMIN"
+  | "REVIEWER"
+  | "STORE_MANAGER"
+  | "VIEWER"
+  | "SETUP_CREW";
 export interface SessionUser {
   id: string;
   email: string;
@@ -276,6 +319,17 @@ export interface Fixture {
 }
 
 /**
+ * A library fixture with its DEFAULT guide content — the reusable standard a new
+ * task inherits when it first opens this fixture (notes + ordered instructions +
+ * checklist). Edited in the fixture-library dialog; still overridable per task.
+ */
+export interface FixtureLibraryDetail extends Fixture {
+  defaultNotes: string;
+  defaultInstructions: GuideInstructionStep[];
+  defaultChecklist: GuideChecklistItem[];
+}
+
+/**
  * Where a library fixture is in use — shown in the delete dialog so an admin
  * sees the blast radius before archiving or deleting it.
  */
@@ -333,6 +387,12 @@ export interface ProductDto {
   rrp?: number;
   /** Current sale/ticket price — the per-unit price the sales log snapshots. */
   salePrice?: number;
+  /** Promo-wave membership; null/absent = never on promo. */
+  saleWave?: SaleWave | null;
+  /** Gift-with-purchase: offered free alongside a qualifying purchase. */
+  gwp?: boolean;
+  /** The qualifying product this gift is free with (when gwp is set). */
+  gwpWith?: { id: string; name: string; sku: string } | null;
   /** Set when the product has been archived (soft-deleted); null/absent = active. */
   archivedAt?: string | null;
 }
@@ -370,6 +430,32 @@ export interface GuideFixtureExampleImage {
  * One fixture's instruction sheet within a guide: VM notes, reference
  * images, and the merchandise planogram (products laid out by row).
  */
+/** One ordered setup step on a fixture (distinct from the free-form notes). */
+export interface GuideInstructionStep {
+  id: string;
+  text: string;
+}
+
+/** One per-fixture checklist item the manager ticks while filling the report. */
+export interface GuideChecklistItem {
+  id: string;
+  label: string;
+  required: boolean;
+}
+
+/** A checklist item with this store's ticked state (manager fill view). */
+export interface FixtureChecklistState {
+  id: string;
+  label: string;
+  required: boolean;
+  checked: boolean;
+  /** True when the AI auto-ticked this item (high-confidence PASS), not a person.
+   *  Only non-required items are ever auto-ticked; the manager can untick. */
+  aiTicked?: boolean;
+  /** The AI confidence (0–1) at the moment it auto-ticked, for the "AI · 97%" badge. */
+  aiConfidence?: number | null;
+}
+
 export interface GuideFixtureDetail {
   /** The Fixture's id (its identity on the floor plan). */
   fixtureId: string;
@@ -378,8 +464,33 @@ export interface GuideFixtureDetail {
   fixtureName: string;
   kind: FixtureKind;
   notes: string;
+  /** Ordered structured setup steps (separate from `notes`). */
+  instructions: GuideInstructionStep[];
   exampleImages: GuideFixtureExampleImage[];
   merchandise: MerchandiseRow[];
+  /** The per-fixture checklist items (templates; manager ticks them per store). */
+  checklist: GuideChecklistItem[];
+}
+
+/**
+ * One photo-request fixture in a task's "Build" view — a fixture placed on at
+ * least one store's floor plan for the campaign, with a summary of how much of
+ * its guide content (reference image / instructions / checklist) is filled in.
+ */
+export interface CampaignFixtureSummary {
+  fixtureId: string;
+  /** The GuideFixture (content sheet) id, if it's been opened yet; else null. */
+  guideFixtureId: string | null;
+  name: string;
+  kind: FixtureKind;
+  department?: Department | null;
+  /** How many of the task's stores place this fixture. */
+  storeCount: number;
+  /** A reference image exists (library default or an uploaded example). */
+  hasReference: boolean;
+  instructionCount: number;
+  checklistCount: number;
+  productCount: number;
 }
 
 /** One execution image in the gallery (every store's submitted photos). */
@@ -710,6 +821,8 @@ export interface FixtureComplianceDetail {
   myPhotoUrl?: string | null;
   /** The full photo gallery for this fixture (multi-photo set, cover first). */
   photos: CapturePhoto[];
+  /** This fixture's checklist items with THIS store's ticked state. */
+  checklist: FixtureChecklistState[];
   state: ComplianceState;
   /** The AI's verdict for the current photo. */
   overall?: CaptureVerdict | null;
@@ -794,6 +907,144 @@ export interface AnswerQuestionBody {
   valueText?: string | null;
   valueBool?: boolean | null;
   isNA?: boolean;
+}
+
+/** The lifecycle of a store's report for a campaign. */
+export type StoreReportStatus =
+  | "DRAFT"
+  | "PENDING"
+  | "IN_PROGRESS"
+  | "SUBMITTED"
+  | "REOPENED";
+
+/** Why a store's report is worth attention (the admin reports list badges). */
+export interface ReportFlags {
+  /** Any fixture's effective verdict is FAIL. */
+  nonCompliant: boolean;
+  /** Any scored capture's AI confidence is below the low-confidence threshold. */
+  lowConfidence: boolean;
+  /** Applicable fixtures unscored, or required questions unanswered, or not submitted. */
+  incomplete: boolean;
+  /** No report submitted yet. */
+  notSubmitted: boolean;
+}
+
+/** The store's report envelope for a campaign (status, score, flags, progress). */
+export interface StoreReportDto {
+  storeId: string;
+  campaignId: string;
+  status: StoreReportStatus;
+  /** When the report was sent to the store, and its due date (if set). */
+  assignedAt?: string | null;
+  dueAt?: string | null;
+  submittedAt?: string | null;
+  submittedByName?: string | null;
+  /** Pass-rate % across applicable fixtures (frozen at submit; live for drafts). */
+  totalScore?: number | null;
+  /** Progress: photo steps. */
+  fixturesExpected: number;
+  fixturesScored: number;
+  /** Progress: extra-question steps. */
+  questionsTotal: number;
+  questionsAnswered: number;
+  /** Required questions still unanswered (blocks submit). */
+  requiredUnanswered: number;
+  /** Progress: per-fixture checklist ticks. */
+  checklistTotal: number;
+  checklistChecked: number;
+  requiredUnchecked: number;
+  flags: ReportFlags;
+  /** AI prose summary (filled lazily; null when unavailable). */
+  aiSummary?: string | null;
+  summarizedAt?: string | null;
+}
+
+/** One row in the admin reports list (per store, flag-driven worklist). */
+export interface StoreReportSummaryDto {
+  storeId: string;
+  storeName: string;
+  brand: string;
+  region?: string | null;
+  status: StoreReportStatus;
+  totalScore?: number | null;
+  assignedAt?: string | null;
+  dueAt?: string | null;
+  submittedAt?: string | null;
+  flags: ReportFlags;
+}
+
+/** Body to send (assign) a campaign's report to stores. */
+export interface ReportSendBody {
+  storeIds: string[];
+  /** Optional due date (ISO). */
+  dueAt?: string | null;
+}
+
+/** Result of sending a report out. */
+export interface ReportSendResult {
+  sent: number;
+}
+
+/** One report in a store manager's history list (current + past campaigns). */
+export interface ManagerReportListItem {
+  campaignId: string;
+  campaignKey: string;
+  campaignName: string;
+  status: StoreReportStatus;
+  totalScore?: number | null;
+  dueAt?: string | null;
+  submittedAt?: string | null;
+  /** True for the store's current (active/most-recent) campaign — the editable one. */
+  current: boolean;
+}
+
+/** The low-confidence flag threshold (AI confidence below this is flagged). */
+export const LOW_CONFIDENCE_THRESHOLD = 0.6;
+
+/** One fixture (photo) step in the rendered report document. */
+export interface ReportDocFixture {
+  fixtureId: string;
+  label: string;
+  status: "scored" | "not_submitted" | "not_applicable";
+  /** Effective verdict (override beats AI), when scored. */
+  verdict?: CaptureVerdict | null;
+  confidence?: number | null;
+  aiNotes?: string | null;
+  issues?: ComplianceIssue[] | null;
+  /** The photo gallery for this step (signed URLs). */
+  photos: CapturePhoto[];
+  /** This fixture's checklist with the store's ticked state. */
+  checklist: FixtureChecklistState[];
+  /** Who took the most recent shot, and when (ISO). */
+  completedByName?: string | null;
+  completedAt?: string | null;
+}
+
+/** One extra-question step in the rendered report document. */
+export interface ReportDocQuestion {
+  id: string;
+  label: string;
+  type: CampaignQuestionType;
+  valueText?: string | null;
+  valueBool?: boolean | null;
+  isNA: boolean;
+  answeredByName?: string | null;
+  answeredAt?: string | null;
+}
+
+/** The full rendered report — the Myer-style document (header + every step). */
+export interface StoreReportDocument {
+  store: { id: string; name: string; brand: string };
+  campaign: { id: string; key: string; name: string };
+  status: StoreReportStatus;
+  submittedAt?: string | null;
+  submittedByName?: string | null;
+  totalScore?: number | null;
+  aiSummary?: string | null;
+  summarizedAt?: string | null;
+  flags: ReportFlags;
+  fixtures: ReportDocFixture[];
+  questions: ReportDocQuestion[];
 }
 
 /* -------------------------------------------------------------------------- */

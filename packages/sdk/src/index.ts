@@ -12,6 +12,8 @@ import type {
   StoreDto,
   StoreSegments,
   OrgDto,
+  SaleMode,
+  SaleWave,
   UserDto,
   Rubric,
   Criterion,
@@ -23,6 +25,7 @@ import type {
   SessionUser,
   Role,
   Fixture,
+  FixtureLibraryDetail,
   FixtureKind,
   FixtureUsage,
   FixtureDefaultProduct,
@@ -30,6 +33,9 @@ import type {
   FloorPlan,
   PlacedFixture,
   GuideFixtureDetail,
+  CampaignFixtureSummary,
+  GuideInstructionStep,
+  GuideChecklistItem,
   ProductDto,
   GalleryItem,
   MoneyMap,
@@ -48,6 +54,16 @@ import type {
   FixtureCompliance,
   FixtureComplianceDetail,
   OverrideCaptureBody,
+  CampaignQuestionDto,
+  CampaignQuestionWithAnswer,
+  CampaignQuestionInput,
+  AnswerQuestionBody,
+  StoreReportDto,
+  StoreReportSummaryDto,
+  StoreReportDocument,
+  ReportSendBody,
+  ReportSendResult,
+  ManagerReportListItem,
   BulletinDto,
   BulletinAckRow,
   BulletinScheduleState,
@@ -124,6 +140,12 @@ export interface CampaignSummary {
   closedAt: string | null;
   archivedAt: string | null;
   storeCount: number;
+  /** What the task contains — for the Tasks hub cards. */
+  fixtureCount: number;
+  questionCount: number;
+  /** Progress: stores the report was sent to, and how many have submitted. */
+  storesSent: number;
+  storesSubmitted: number;
 }
 
 export interface Submission {
@@ -363,6 +385,12 @@ export interface CreateProductBody {
   rrp?: number;
   /** Current sale/ticket price (non-negative) — the sales-log unit price. */
   salePrice?: number;
+  /** Promo-wave membership; omit = never on promo. */
+  saleWave?: SaleWave;
+  /** Gift-with-purchase flag. */
+  gwp?: boolean;
+  /** Qualifying product id this gift is free with (implies gwp). */
+  gwpWithId?: string;
 }
 
 /**
@@ -381,6 +409,11 @@ export interface UpdateProductBody {
   imageUrl?: string | null;
   rrp?: number | null;
   salePrice?: number | null;
+  /** Promo-wave membership; `null` clears it (never on promo). */
+  saleWave?: SaleWave | null;
+  gwp?: boolean;
+  /** Qualifying product id this gift is free with; `null` clears it. Implies gwp. */
+  gwpWithId?: string | null;
 }
 
 /* ---- STORE MANAGER ---- */
@@ -583,6 +616,29 @@ export interface WallyClient {
      * "floor plan ready" task to every store in the project. ADMIN.
      */
     publish(campaignId: string): Promise<PublishResult>;
+    /** The campaign's extra report questions (text / yes-no / note). */
+    questions: {
+      /** Ordered questions. REVIEWER + ADMIN. */
+      list(campaignId: string): Promise<CampaignQuestionDto[]>;
+      /** Add a question (appended to the end). ADMIN. */
+      create(
+        campaignId: string,
+        body: CampaignQuestionInput,
+      ): Promise<CampaignQuestionDto>;
+      /** Edit a question. ADMIN. */
+      update(
+        campaignId: string,
+        questionId: string,
+        body: Partial<CampaignQuestionInput>,
+      ): Promise<CampaignQuestionDto>;
+      /** Remove a question (soft-archived if it has answers). ADMIN. */
+      remove(campaignId: string, questionId: string): Promise<void>;
+      /** Reorder the questions to match the given id order. ADMIN. */
+      reorder(
+        campaignId: string,
+        ids: string[],
+      ): Promise<CampaignQuestionDto[]>;
+    };
   };
   /** Toggle the best-in-class flag on a store execution photo. */
   photos: {
@@ -614,8 +670,12 @@ export interface WallyClient {
   /** The current tenant's settings. */
   org: {
     get(): Promise<OrgDto>;
-    /** Update org name / slug. ADMIN. */
-    update(body: { name?: string; slug?: string }): Promise<OrgDto>;
+    /** Update org name / slug / active sale mode. ADMIN. */
+    update(body: {
+      name?: string;
+      slug?: string;
+      saleMode?: SaleMode;
+    }): Promise<OrgDto>;
   };
   /** Admin: rubric authoring (append-only, versioned per campaign+fixture). */
   rubrics: {
@@ -656,6 +716,22 @@ export interface WallyClient {
   reports: {
     /** Resolve a signed URL to the store's report (does not fetch the bytes). */
     url(storeId: string): Promise<ReportUrl>;
+    /** The admin reports worklist for a campaign (one flag-bearing row/store). */
+    list(campaignId: string): Promise<StoreReportSummaryDto[]>;
+    /** The full report document (JSON) for one store × campaign. REVIEWER+ADMIN. */
+    document(
+      storeId: string,
+      campaignId: string,
+    ): Promise<StoreReportDocument>;
+    /** Absolute URL to the store × campaign report PDF (for an <a download>). */
+    pdfUrl(storeId: string, campaignId: string): string;
+    /** (Re)generate the AI summary; returns the updated document. REVIEWER+ADMIN. */
+    summary(
+      storeId: string,
+      campaignId: string,
+    ): Promise<StoreReportDocument>;
+    /** Send (assign) the campaign's report to stores. ADMIN. */
+    send(campaignId: string, body: ReportSendBody): Promise<ReportSendResult>;
   };
   /** CREATE GUIDE — the org's fixture library. */
   fixtures: {
@@ -674,6 +750,26 @@ export interface WallyClient {
     archive(id: string): Promise<void>;
     /** Hard-delete: remove the fixture and everything that hangs off it. */
     remove(id: string): Promise<void>;
+    /** Full library detail incl. default notes/instructions/checklist. */
+    detail(id: string): Promise<FixtureLibraryDetail>;
+    /** Reusable DEFAULT guide content new tasks inherit (authored once). */
+    defaults: {
+      setNotes(id: string, notes: string): Promise<FixtureLibraryDetail>;
+      saveInstructions(
+        id: string,
+        steps: { text: string }[],
+      ): Promise<GuideInstructionStep[]>;
+      addChecklist(
+        id: string,
+        body: { label: string; required?: boolean },
+      ): Promise<GuideChecklistItem[]>;
+      updateChecklist(
+        id: string,
+        itemId: string,
+        body: { label?: string; required?: boolean },
+      ): Promise<GuideChecklistItem[]>;
+      removeChecklist(id: string, itemId: string): Promise<GuideChecklistItem[]>;
+    };
     /** The fixture's default product set (its reusable starter list / planogram). */
     products: {
       list(fixtureId: string): Promise<FixtureDefaultProduct[]>;
@@ -745,11 +841,32 @@ export interface WallyClient {
   };
   /** CREATE GUIDE — a fixture's instruction sheet within a guide. */
   guideFixtures: {
+    /** A task's photo-request fixtures with content-fill summaries. */
+    list(campaignId: string): Promise<CampaignFixtureSummary[]>;
     detail(
       campaignId: string,
       fixtureId: string,
     ): Promise<GuideFixtureDetail>;
     saveNotes(id: string, notes: string): Promise<void>;
+    /** Replace the ordered instructions list. Returns the saved steps. */
+    saveInstructions(
+      id: string,
+      steps: { text: string }[],
+    ): Promise<GuideInstructionStep[]>;
+    /** Per-fixture checklist authoring (each returns the refreshed list). */
+    checklist: {
+      add(
+        id: string,
+        body: { label: string; required?: boolean },
+      ): Promise<GuideChecklistItem[]>;
+      update(
+        id: string,
+        itemId: string,
+        body: { label?: string; required?: boolean },
+      ): Promise<GuideChecklistItem[]>;
+      remove(id: string, itemId: string): Promise<GuideChecklistItem[]>;
+      reorder(id: string, ids: string[]): Promise<GuideChecklistItem[]>;
+    };
     /** Copy the fixture's default products onto the sheet; returns it refreshed. */
     prepopulate(
       campaignId: string,
@@ -876,6 +993,29 @@ export interface WallyClient {
     overrideCapture(
       fixtureId: string,
       body: OverrideCaptureBody,
+      storeId?: string,
+    ): Promise<FixtureComplianceDetail>;
+    /** The campaign's extra report questions paired with this store's answers. */
+    listQuestions(storeId?: string): Promise<CampaignQuestionWithAnswer[]>;
+    /** Upsert this store's answer to one report question. */
+    answerQuestion(
+      questionId: string,
+      body: AnswerQuestionBody,
+      storeId?: string,
+    ): Promise<CampaignQuestionWithAnswer[]>;
+    /** This store's report envelope (status, score, flags, progress). */
+    getReport(storeId?: string): Promise<StoreReportDto>;
+    /** Submit this store's report (blocks on unanswered required questions). */
+    submitReport(storeId?: string): Promise<StoreReportDto>;
+    /** The full report document for this store (read-only submitted view). */
+    getReportDocument(storeId?: string): Promise<StoreReportDocument>;
+    /** This store's reports across campaigns (current + past) for the Tasks list. */
+    listReports(storeId?: string): Promise<ManagerReportListItem[]>;
+    /** Tick/untick a fixture checklist item; returns the updated sheet. */
+    tickChecklist(
+      fixtureId: string,
+      itemId: string,
+      checked: boolean,
       storeId?: string,
     ): Promise<FixtureComplianceDetail>;
   };
@@ -1131,6 +1271,31 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         post<PublishResult>(
           `campaigns/${encodeURIComponent(campaignId)}/publish`,
         ),
+      questions: {
+        list: (campaignId) =>
+          get<CampaignQuestionDto[]>(
+            `campaigns/${encodeURIComponent(campaignId)}/questions`,
+          ),
+        create: (campaignId, body) =>
+          post<CampaignQuestionDto>(
+            `campaigns/${encodeURIComponent(campaignId)}/questions`,
+            body,
+          ),
+        update: (campaignId, questionId, body) =>
+          patch<CampaignQuestionDto>(
+            `campaigns/${encodeURIComponent(campaignId)}/questions/${encodeURIComponent(questionId)}`,
+            body,
+          ),
+        remove: (campaignId, questionId) =>
+          del<void>(
+            `campaigns/${encodeURIComponent(campaignId)}/questions/${encodeURIComponent(questionId)}`,
+          ),
+        reorder: (campaignId, ids) =>
+          post<CampaignQuestionDto[]>(
+            `campaigns/${encodeURIComponent(campaignId)}/questions/reorder`,
+            { ids },
+          ),
+      },
     },
     photos: {
       setBestInClass: (photoId, value) =>
@@ -1210,6 +1375,27 @@ export function createClient(opts: CreateClientOptions): WallyClient {
     reports: {
       url: (storeId) =>
         get<ReportUrl>(`reports/${encodeURIComponent(storeId)}/url`),
+      list: (campaignId) =>
+        get<StoreReportSummaryDto[]>(
+          `campaigns/${encodeURIComponent(campaignId)}/reports`,
+        ),
+      document: (storeId, campaignId) =>
+        get<StoreReportDocument>(
+          `stores/${encodeURIComponent(storeId)}/report${query({ campaignId })}`,
+        ),
+      pdfUrl: (storeId, campaignId) =>
+        url(
+          `stores/${encodeURIComponent(storeId)}/report.pdf${query({ campaignId })}`,
+        ),
+      summary: (storeId, campaignId) =>
+        post<StoreReportDocument>(
+          `stores/${encodeURIComponent(storeId)}/report/summary${query({ campaignId })}`,
+        ),
+      send: (campaignId, body) =>
+        post<ReportSendResult>(
+          `campaigns/${encodeURIComponent(campaignId)}/reports/send`,
+          body,
+        ),
     },
     fixtures: {
       list: (projectId) => get<Fixture[]>(`fixtures${query({ projectId })}`),
@@ -1233,6 +1419,34 @@ export function createClient(opts: CreateClientOptions): WallyClient {
       archive: (id) =>
         post<void>(`fixtures/${encodeURIComponent(id)}/archive`),
       remove: (id) => del<void>(`fixtures/${encodeURIComponent(id)}`),
+      detail: (id) =>
+        get<FixtureLibraryDetail>(`fixtures/${encodeURIComponent(id)}/detail`),
+      defaults: {
+        setNotes: (id, notes) =>
+          patch<FixtureLibraryDetail>(
+            `fixtures/${encodeURIComponent(id)}/default-notes`,
+            { notes },
+          ),
+        saveInstructions: (id, steps) =>
+          put<GuideInstructionStep[]>(
+            `fixtures/${encodeURIComponent(id)}/default-instructions`,
+            { steps },
+          ),
+        addChecklist: (id, body) =>
+          post<GuideChecklistItem[]>(
+            `fixtures/${encodeURIComponent(id)}/default-checklist`,
+            body,
+          ),
+        updateChecklist: (id, itemId, body) =>
+          patch<GuideChecklistItem[]>(
+            `fixtures/${encodeURIComponent(id)}/default-checklist/${encodeURIComponent(itemId)}`,
+            body,
+          ),
+        removeChecklist: (id, itemId) =>
+          del<GuideChecklistItem[]>(
+            `fixtures/${encodeURIComponent(id)}/default-checklist/${encodeURIComponent(itemId)}`,
+          ),
+      },
       products: {
         list: (fixtureId) =>
           get<FixtureDefaultProduct[]>(
@@ -1310,12 +1524,42 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         get<ProjectVenue[]>(`projects/${encodeURIComponent(id)}/venues`),
     },
     guideFixtures: {
+      list: (campaignId) =>
+        get<CampaignFixtureSummary[]>(
+          `campaigns/${encodeURIComponent(campaignId)}/fixtures`,
+        ),
       detail: (campaignId, fixtureId) =>
         get<GuideFixtureDetail>(
           `campaigns/${encodeURIComponent(campaignId)}/fixtures/${encodeURIComponent(fixtureId)}/detail`,
         ),
       saveNotes: (id, notes) =>
         patch<void>(`guide-fixtures/${encodeURIComponent(id)}`, { notes }),
+      saveInstructions: (id, steps) =>
+        put<GuideInstructionStep[]>(
+          `guide-fixtures/${encodeURIComponent(id)}/instructions`,
+          { steps },
+        ),
+      checklist: {
+        add: (id, body) =>
+          post<GuideChecklistItem[]>(
+            `guide-fixtures/${encodeURIComponent(id)}/checklist`,
+            body,
+          ),
+        update: (id, itemId, body) =>
+          patch<GuideChecklistItem[]>(
+            `guide-fixtures/${encodeURIComponent(id)}/checklist/${encodeURIComponent(itemId)}`,
+            body,
+          ),
+        remove: (id, itemId) =>
+          del<GuideChecklistItem[]>(
+            `guide-fixtures/${encodeURIComponent(id)}/checklist/${encodeURIComponent(itemId)}`,
+          ),
+        reorder: (id, ids) =>
+          post<GuideChecklistItem[]>(
+            `guide-fixtures/${encodeURIComponent(id)}/checklist/reorder`,
+            { ids },
+          ),
+      },
       prepopulate: (campaignId, fixtureId) =>
         post<GuideFixtureDetail>(
           `campaigns/${encodeURIComponent(campaignId)}/fixtures/${encodeURIComponent(fixtureId)}/prepopulate`,
@@ -1436,6 +1680,28 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           `manager/fixtures/${encodeURIComponent(fixtureId)}/override${query({ storeId })}`,
           body,
         ),
+      listQuestions: (storeId) =>
+        get<CampaignQuestionWithAnswer[]>(
+          `manager/questions${query({ storeId })}`,
+        ),
+      answerQuestion: (questionId, body, storeId) =>
+        put<CampaignQuestionWithAnswer[]>(
+          `manager/questions/${encodeURIComponent(questionId)}/answer${query({ storeId })}`,
+          body,
+        ),
+      getReport: (storeId) =>
+        get<StoreReportDto>(`manager/report${query({ storeId })}`),
+      submitReport: (storeId) =>
+        post<StoreReportDto>(`manager/report/submit${query({ storeId })}`),
+      getReportDocument: (storeId) =>
+        get<StoreReportDocument>(`manager/report/document${query({ storeId })}`),
+      listReports: (storeId) =>
+        get<ManagerReportListItem[]>(`manager/reports${query({ storeId })}`),
+      tickChecklist: (fixtureId, itemId, checked, storeId) =>
+        put<FixtureComplianceDetail>(
+          `manager/fixtures/${encodeURIComponent(fixtureId)}/checklist/${encodeURIComponent(itemId)}${query({ storeId })}`,
+          { checked },
+        ),
     },
     adminTasks: {
       create: (storeId, body) =>
@@ -1552,6 +1818,7 @@ export type {
   SessionUser,
   Role,
   Fixture,
+  FixtureLibraryDetail,
   FixtureKind,
   Department,
   PlacedFixture,
@@ -1560,6 +1827,9 @@ export type {
   MerchandiseRow,
   MerchandiseItem,
   GuideFixtureDetail,
+  CampaignFixtureSummary,
+  GuideInstructionStep,
+  GuideChecklistItem,
   GuideFixtureExampleImage,
   MoneyMap,
   MoneyFixture,
@@ -1582,6 +1852,22 @@ export type {
   ComplianceIssue,
   IssueBox,
   OverrideCaptureBody,
+  CampaignQuestionType,
+  CampaignQuestionDto,
+  CampaignQuestionWithAnswer,
+  QuestionAnswerDto,
+  CampaignQuestionInput,
+  AnswerQuestionBody,
+  StoreReportStatus,
+  StoreReportDto,
+  StoreReportSummaryDto,
+  StoreReportDocument,
+  ReportSendBody,
+  ReportSendResult,
+  ManagerReportListItem,
+  ReportDocFixture,
+  ReportDocQuestion,
+  ReportFlags,
   ComplianceState,
   ProjectDto,
   ProjectKind,

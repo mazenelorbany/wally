@@ -2,6 +2,8 @@ import * as React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { LogOut, Settings, WifiOff } from 'lucide-react';
 
+import type { Role } from '@wally/sdk';
+
 import { useLogout, useSession } from '../lib/auth';
 import { useCaptureQueue } from '../lib/captureQueue';
 import { Wordmark } from './Brand';
@@ -10,7 +12,7 @@ interface NavItem {
   to: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  roles: Array<'ADMIN' | 'REVIEWER' | 'STORE_MANAGER' | 'VIEWER'>;
+  roles: Role[];
 }
 
 // The reviewer flow moved into the studio shell (/studio/review). This shell now
@@ -124,7 +126,7 @@ export function AppShell() {
   );
 }
 
-function roleLabel(role: 'ADMIN' | 'REVIEWER' | 'STORE_MANAGER' | 'VIEWER'): string {
+function roleLabel(role: Role): string {
   switch (role) {
     case 'ADMIN':
       return 'Admin';
@@ -134,5 +136,7 @@ function roleLabel(role: 'ADMIN' | 'REVIEWER' | 'STORE_MANAGER' | 'VIEWER'): str
       return 'Store manager';
     case 'VIEWER':
       return 'Viewer';
+    case 'SETUP_CREW':
+      return 'Setup crew';
   }
 }

@@ -4,13 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+
 import { Prisma } from '@prisma/client';
 import type {
   Department,
   Fixture,
   FixtureDefaultProduct,
   FixtureKind,
+  FixtureLibraryDetail,
   FixtureUsage,
+  GuideChecklistItem,
+  GuideInstructionStep,
 } from '@wally/types';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -400,6 +405,126 @@ export class FixtureService {
     });
     return this.toFixture(updated);
   }
+
+  // ----- default guide content (reusable, inherited by new GuideFixtures) ----
+
+  /** A library fixture with its default notes / instructions / checklist. */
+  async getDetail(orgId: string, id: string): Promise<FixtureLibraryDetail> {
+    const f = await this.prisma.fixture.findFirst({
+      where: { id, orgId },
+      select: { ...SELECT, defaultNotes: true, defaultInstructions: true },
+    });
+    if (!f) throw new NotFoundException('fixture not found');
+    const checklist = await this.defaultChecklist(id);
+    return {
+      ...this.toFixture(f),
+      defaultNotes: f.defaultNotes,
+      defaultInstructions: asInstructions(f.defaultInstructions),
+      defaultChecklist: checklist,
+    };
+  }
+
+  /** Save the fixture's default VM notes. ADMIN only. */
+  async setDefaultNotes(
+    orgId: string,
+    id: string,
+    notes: string,
+  ): Promise<FixtureLibraryDetail> {
+    await this.ensureOwned(orgId, id);
+    await this.prisma.fixture.update({ where: { id }, data: { defaultNotes: notes } });
+    return this.getDetail(orgId, id);
+  }
+
+  /** Replace the fixture's default ordered instructions. ADMIN only. */
+  async saveDefaultInstructions(
+    orgId: string,
+    id: string,
+    steps: { text: string }[],
+  ): Promise<GuideInstructionStep[]> {
+    await this.ensureOwned(orgId, id);
+    const instructions: GuideInstructionStep[] = steps
+      .map((s) => s.text.trim())
+      .filter((t) => t.length > 0)
+      .map((text) => ({ id: randomUUID(), text }));
+    await this.prisma.fixture.update({
+      where: { id },
+      data: { defaultInstructions: instructions as unknown as Prisma.InputJsonValue },
+    });
+    return instructions;
+  }
+
+  private async defaultChecklist(fixtureId: string): Promise<GuideChecklistItem[]> {
+    const items = await this.prisma.fixtureChecklistTemplate.findMany({
+      where: { fixtureId, archivedAt: null },
+      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+    });
+    return items.map((c) => ({ id: c.id, label: c.label, required: c.required }));
+  }
+
+  async addDefaultChecklistItem(
+    orgId: string,
+    fixtureId: string,
+    label: string,
+    required: boolean,
+  ): Promise<GuideChecklistItem[]> {
+    await this.ensureOwned(orgId, fixtureId);
+    const max = await this.prisma.fixtureChecklistTemplate.aggregate({
+      where: { fixtureId, archivedAt: null },
+      _max: { order: true },
+    });
+    await this.prisma.fixtureChecklistTemplate.create({
+      data: { orgId, fixtureId, label, required, order: (max._max.order ?? -1) + 1 },
+    });
+    return this.defaultChecklist(fixtureId);
+  }
+
+  async updateDefaultChecklistItem(
+    orgId: string,
+    fixtureId: string,
+    itemId: string,
+    patch: { label?: string; required?: boolean },
+  ): Promise<GuideChecklistItem[]> {
+    await this.ensureOwned(orgId, fixtureId);
+    const item = await this.prisma.fixtureChecklistTemplate.findFirst({
+      where: { id: itemId, fixtureId, orgId },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundException('checklist item not found');
+    await this.prisma.fixtureChecklistTemplate.update({
+      where: { id: itemId },
+      data: {
+        ...(patch.label !== undefined ? { label: patch.label } : {}),
+        ...(patch.required !== undefined ? { required: patch.required } : {}),
+      },
+    });
+    return this.defaultChecklist(fixtureId);
+  }
+
+  async removeDefaultChecklistItem(
+    orgId: string,
+    fixtureId: string,
+    itemId: string,
+  ): Promise<GuideChecklistItem[]> {
+    await this.ensureOwned(orgId, fixtureId);
+    const res = await this.prisma.fixtureChecklistTemplate.deleteMany({
+      where: { id: itemId, fixtureId, orgId },
+    });
+    if (res.count === 0) throw new NotFoundException('checklist item not found');
+    return this.defaultChecklist(fixtureId);
+  }
+}
+
+/** Library default instructions are stored as JSON [{id,text}]; coerce safely. */
+function asInstructions(value: unknown): GuideInstructionStep[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (s): s is { id: string; text: string } =>
+        !!s &&
+        typeof (s as { id?: unknown }).id === 'string' &&
+        typeof (s as { text?: unknown }).text === 'string',
+    )
+    .map((s) => ({ id: s.id, text: s.text }));
 }
 
 // The columns every fixture read selects — kept in one place so list/create/

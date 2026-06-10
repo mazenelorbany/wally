@@ -16,6 +16,7 @@ import {
 import {
   Badge,
   Button,
+  cn,
   Dialog,
   DialogClose,
   DialogContent,
@@ -122,6 +123,23 @@ export function FloorPlanView() {
 
   // The fixture the panel is for — resolve from the selected placement.
   const selected = plan?.placements.find((p) => p.id === selectedId);
+
+  // The active venue's concessions (brand variants), for the floor-plan brand
+  // toggle. Store names are "{Venue} — {Brand}"; group by venue, keep siblings.
+  const venueBrands = React.useMemo(() => {
+    const all = storesQ.data ?? [];
+    const split = (name: string) => {
+      const parts = name.split(/\s*—\s*/);
+      return parts.length >= 2
+        ? { venue: parts.slice(0, -1).join(' — ').trim(), brand: parts[parts.length - 1]!.trim() }
+        : { venue: name.trim(), brand: '' };
+    };
+    const here = split(all.find((s) => s.storeId === storeId)?.storeName ?? plan?.storeName ?? '').venue;
+    return all
+      .map((s) => ({ storeId: s.storeId, ...split(s.storeName) }))
+      .filter((s) => s.venue === here)
+      .sort((a, b) => a.brand.localeCompare(b.brand));
+  }, [storesQ.data, storeId, plan?.storeName]);
 
   // Feed the top bar. With a single store per floor plan, the selector still
   // shows the active store (and stays meaningful even with one option).
@@ -248,6 +266,33 @@ export function FloorPlanView() {
             <h1 className="mt-1 font-display text-xl font-semibold tracking-tight text-ink">
               {plan.storeName}
             </h1>
+            {/* Brand toggle — switch this venue's concession floor plans
+                (defaults to Custom Chef from the directory). */}
+            {venueBrands.length > 1 ? (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {venueBrands.map((b) => {
+                  const active = b.storeId === storeId;
+                  return (
+                    <button
+                      key={b.storeId}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        if (!active) navigate(`/studio/${campaignId}/store/${b.storeId}`);
+                      }}
+                      className={cn(
+                        'inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                        active
+                          ? 'bg-graphite text-paper'
+                          : 'bg-surface text-graphite hover:bg-mist/40',
+                      )}
+                    >
+                      {b.brand.replace(/^The\s+/i, '')}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline">
@@ -269,7 +314,12 @@ export function FloorPlanView() {
             <Button
               size="sm"
               variant={building ? undefined : 'outline'}
-              onClick={() => setBuilding((v) => !v)}
+              onClick={() => {
+                // Drop any selection made while editing — otherwise leaving
+                // edit mode would immediately pop the instruction sheet open.
+                setSelectedId(undefined);
+                setBuilding((v) => !v);
+              }}
             >
               <Plus className="h-4 w-4" />
               {building ? 'Done' : 'Edit layout'}
@@ -357,8 +407,14 @@ export function FloorPlanView() {
       >
         <DialogContent
           hideClose
+          aria-describedby={undefined}
           className="flex h-[min(88vh,860px)] w-[min(1040px,95vw)] max-w-none flex-col overflow-hidden p-0"
         >
+          {/* The panel renders the visible heading; this keeps Radix's
+              screen-reader announcement without a second visible title. */}
+          <DialogTitle className="sr-only">
+            {selected?.label ?? 'Fixture instructions'}
+          </DialogTitle>
           {selected ? (
             <FixtureDetailPanel
               campaignId={campaignId}

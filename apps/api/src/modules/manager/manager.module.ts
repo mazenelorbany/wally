@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { CampaignModule } from '../campaign/campaign.module';
+import { ReportModule } from '../report/report.module';
 
 import { ComplianceScorer } from './compliance-scorer.service';
 import { ManagerController } from './manager.controller';
@@ -13,7 +14,7 @@ import { ManagerService } from './manager.service';
 // fallback), injected so it stays swappable for tests/evals. CampaignModule is
 // imported for CampaignQuestionService (the report's extra-question answers).
 @Module({
-  imports: [CampaignModule],
+  imports: [CampaignModule, ReportModule],
   controllers: [ManagerController],
   providers: [ManagerService, ComplianceScorer],
   exports: [ManagerService],

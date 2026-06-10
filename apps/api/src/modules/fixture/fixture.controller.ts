@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UploadedFile,
   UseGuards,
@@ -22,15 +23,23 @@ import { ZodValidationPipe } from '../org/zod-validation.pipe';
 import { MAX_IMAGE_BYTES } from '../storage/image-upload.util';
 
 import {
+  AddDefaultChecklistSchema,
   AddFixtureProductSchema,
   CreateFixtureSchema,
   ReorderFixturePlanogramSchema,
+  SaveDefaultInstructionsSchema,
+  SetDefaultNotesSchema,
   SetFixtureReferenceSchema,
+  UpdateDefaultChecklistSchema,
   UpdateFixtureSchema,
+  type AddDefaultChecklistInput,
   type AddFixtureProductInput,
   type CreateFixtureInput,
   type ReorderFixturePlanogramInput,
+  type SaveDefaultInstructionsInput,
+  type SetDefaultNotesInput,
   type SetFixtureReferenceInput,
+  type UpdateDefaultChecklistInput,
   type UpdateFixtureInput,
 } from './fixture.dto';
 import { FixtureService } from './fixture.service';
@@ -124,6 +133,73 @@ export class FixtureController {
   @Roles('ADMIN')
   clearReference(@CurrentUser() user: SessionUser, @Param('id') id: string) {
     return this.fixtures.clearReference(user.orgId, id);
+  }
+
+  // ----- default guide content (reusable; new tasks inherit it) ------------
+
+  /** The fixture's full library detail incl. default notes/instructions/checklist. */
+  @Get(':id/detail')
+  detail(@CurrentUser() user: SessionUser, @Param('id') id: string) {
+    return this.fixtures.getDetail(user.orgId, id);
+  }
+
+  @Patch(':id/default-notes')
+  @Roles('ADMIN')
+  setDefaultNotes(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(SetDefaultNotesSchema)) dto: SetDefaultNotesInput,
+  ) {
+    return this.fixtures.setDefaultNotes(user.orgId, id, dto.notes);
+  }
+
+  @Put(':id/default-instructions')
+  @Roles('ADMIN')
+  saveDefaultInstructions(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(SaveDefaultInstructionsSchema))
+    dto: SaveDefaultInstructionsInput,
+  ) {
+    return this.fixtures.saveDefaultInstructions(user.orgId, id, dto.steps);
+  }
+
+  @Post(':id/default-checklist')
+  @Roles('ADMIN')
+  addDefaultChecklist(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(AddDefaultChecklistSchema))
+    dto: AddDefaultChecklistInput,
+  ) {
+    return this.fixtures.addDefaultChecklistItem(
+      user.orgId,
+      id,
+      dto.label,
+      dto.required ?? false,
+    );
+  }
+
+  @Patch(':id/default-checklist/:itemId')
+  @Roles('ADMIN')
+  updateDefaultChecklist(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body(new ZodValidationPipe(UpdateDefaultChecklistSchema))
+    dto: UpdateDefaultChecklistInput,
+  ) {
+    return this.fixtures.updateDefaultChecklistItem(user.orgId, id, itemId, dto);
+  }
+
+  @Delete(':id/default-checklist/:itemId')
+  @Roles('ADMIN')
+  removeDefaultChecklist(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+  ) {
+    return this.fixtures.removeDefaultChecklistItem(user.orgId, id, itemId);
   }
 
   // ----- default products (the fixture's reusable starter set) -------------

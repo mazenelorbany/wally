@@ -13,6 +13,8 @@ import { RequireRole } from '../components/RequireRole';
 import { ManagerShell } from './ManagerShell';
 import { ManagerHome } from './views/ManagerHome';
 import { TasksView } from './views/TasksView';
+import { ManagerReportView } from './views/ManagerReportView';
+import { ReportDocumentView } from './views/ReportDocumentView';
 import { ManagerFloorView } from './views/ManagerFloorView';
 import { GuideFixtureDetailView } from './views/GuideView';
 import { ManagerProductsView } from './views/ManagerProductsView';
@@ -31,6 +33,8 @@ export const managerRoutes: RouteObject = {
   children: [
     { index: true, element: <ManagerHome /> },
     { path: 'tasks', element: <TasksView /> },
+    { path: 'report', element: <ManagerReportView /> },
+    { path: 'report/document', element: <ReportDocumentView /> },
     { path: 'guide', element: <ManagerFloorView /> },
     { path: 'guide/:fixtureId', element: <GuideFixtureDetailView /> },
     { path: 'products', element: <ManagerProductsView /> },

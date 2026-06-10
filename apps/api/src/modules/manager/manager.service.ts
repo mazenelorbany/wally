@@ -14,12 +14,14 @@ import type {
   ComplianceIssue,
   ComplianceState,
   Department,
+  FixtureChecklistState,
   FixtureCompliance,
   FixtureComplianceDetail,
   FixtureKind,
   ManagerFixture,
   ManagerHome,
   ManagerPreferences,
+  ManagerReportListItem,
   ProductDto,
   SalesFixtureGroup,
   SalesLine,
@@ -113,7 +115,9 @@ export class ManagerService {
     user: SessionUser,
     storeId?: string,
   ): Promise<{ id: string; name: string; projectId: string | null }> {
-    if (user.role === 'STORE_MANAGER') {
+    // STORE_MANAGER and SETUP_CREW are both pinned to their own store (the
+    // ?storeId query is ignored). Crew sees only their store's floor plan.
+    if (user.role === 'STORE_MANAGER' || user.role === 'SETUP_CREW') {
       if (!user.storeId) {
         throw new NotFoundException(
           'No store is linked to this account. Ask head office to re-send your checklist link.',
@@ -866,7 +870,19 @@ export class ManagerService {
       fixtureId,
     );
 
-    return this.presentComplianceDetail(placement, capture, notes, reference);
+    const checklist = await this.loadChecklist(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+    return this.presentComplianceDetail(
+      placement,
+      capture,
+      notes,
+      reference,
+      checklist,
+    );
   }
 
   /**
@@ -998,13 +1014,28 @@ export class ManagerService {
       });
     }
 
+    // First edit flips the store's report PENDING → IN_PROGRESS.
+    await this.reports.markInProgress(user.orgId, store.id, campaign.id, user.id);
+
     const detail = await this.loadCaptureDetail(
       user.orgId,
       store.id,
       campaign.id,
       fixtureId,
     );
-    return this.presentComplianceDetail(placement, detail, notes, reference);
+    const checklist = await this.loadChecklist(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+    return this.presentComplianceDetail(
+      placement,
+      detail,
+      notes,
+      reference,
+      checklist,
+    );
   }
 
   /**
@@ -1064,7 +1095,19 @@ export class ManagerService {
       campaign.id,
       fixtureId,
     );
-    return this.presentComplianceDetail(placement, detail, notes, reference);
+    const checklist = await this.loadChecklist(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+    return this.presentComplianceDetail(
+      placement,
+      detail,
+      notes,
+      reference,
+      checklist,
+    );
   }
 
   // ----- report extra questions (manager) -----------------------------------
@@ -1123,6 +1166,7 @@ export class ManagerService {
       user.id,
       body,
     );
+    await this.reports.markInProgress(user.orgId, store.id, campaign.id, user.id);
     return this.listQuestions(user, storeId);
   }
 
@@ -1150,6 +1194,152 @@ export class ManagerService {
   ): Promise<StoreReportDocument> {
     const { store, campaign } = await this.resolveContext(user, storeId);
     return this.reports.getDocument(user.orgId, store.id, campaign.id);
+  }
+
+  /** This store's reports across campaigns (current first, then past). */
+  async listReports(
+    user: SessionUser,
+    storeId?: string,
+  ): Promise<ManagerReportListItem[]> {
+    const { store, campaign } = await this.resolveContext(user, storeId);
+    const rows = await this.prisma.storeReport.findMany({
+      where: { storeId: store.id, orgId: user.orgId },
+      include: {
+        campaign: { select: { id: true, key: true, name: true, createdAt: true } },
+      },
+      orderBy: { campaign: { createdAt: 'desc' } },
+    });
+
+    const items: ManagerReportListItem[] = [];
+    // The current campaign always shows first, with a precisely-derived status.
+    const currentDto = await this.reports.getReport(
+      user.orgId,
+      store.id,
+      campaign.id,
+    );
+    items.push({
+      campaignId: campaign.id,
+      campaignKey: campaign.key,
+      campaignName: campaign.name,
+      status: currentDto.status,
+      totalScore: currentDto.totalScore ?? null,
+      dueAt: currentDto.dueAt ?? null,
+      submittedAt: currentDto.submittedAt ?? null,
+      current: true,
+    });
+    // Past campaigns the store has a report row for (stored status is reliable —
+    // they're typically submitted/closed).
+    for (const r of rows) {
+      if (r.campaignId === campaign.id) continue;
+      items.push({
+        campaignId: r.campaignId,
+        campaignKey: r.campaign.key,
+        campaignName: r.campaign.name,
+        status: r.status,
+        totalScore: r.totalScore ?? null,
+        dueAt: r.dueAt ? r.dueAt.toISOString() : null,
+        submittedAt: r.submittedAt ? r.submittedAt.toISOString() : null,
+        current: false,
+      });
+    }
+    return items;
+  }
+
+  /** Tick/untick one checklist item for this store; flips report to in-progress. */
+  async tickChecklist(
+    user: SessionUser,
+    fixtureId: string,
+    itemId: string,
+    checked: boolean,
+    storeId?: string,
+  ): Promise<FixtureComplianceDetail> {
+    const { store, campaign } = await this.resolveContext(user, storeId);
+    const placement = await this.requirePlacement(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+    const item = await this.prisma.guideFixtureChecklistItem.findFirst({
+      where: {
+        id: itemId,
+        orgId: user.orgId,
+        archivedAt: null,
+        guideFixture: { campaignId: campaign.id, fixtureId },
+      },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundException('checklist item not found');
+
+    await this.prisma.storeChecklistTick.upsert({
+      where: { storeId_itemId: { storeId: store.id, itemId } },
+      create: {
+        orgId: user.orgId,
+        storeId: store.id,
+        campaignId: campaign.id,
+        itemId,
+        checked,
+        checkedById: user.id,
+      },
+      update: { checked, checkedById: user.id, checkedAt: new Date() },
+    });
+    await this.reports.markInProgress(user.orgId, store.id, campaign.id, user.id);
+
+    const capture = await this.loadCaptureDetail(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+    const { notes, reference } = await this.guideFor(
+      user.orgId,
+      campaign.id,
+      fixtureId,
+    );
+    const checklist = await this.loadChecklist(
+      user.orgId,
+      store.id,
+      campaign.id,
+      fixtureId,
+    );
+    return this.presentComplianceDetail(placement, capture, notes, reference, checklist);
+  }
+
+  /** The fixture's checklist items + this store's ticked state (ordered). */
+  private async loadChecklist(
+    orgId: string,
+    storeId: string,
+    campaignId: string,
+    fixtureId: string,
+  ): Promise<FixtureChecklistState[]> {
+    const gf = await this.prisma.guideFixture.findUnique({
+      where: { campaignId_fixtureId: { campaignId, fixtureId } },
+      select: {
+        orgId: true,
+        checklistItems: {
+          where: { archivedAt: null },
+          orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+          select: { id: true, label: true, required: true },
+        },
+      },
+    });
+    if (!gf || gf.orgId !== orgId || gf.checklistItems.length === 0) return [];
+    const ticks = await this.prisma.storeChecklistTick.findMany({
+      where: { storeId, campaignId, checked: true },
+      select: { itemId: true, aiTicked: true, aiConfidence: true },
+    });
+    const tickByItem = new Map(ticks.map((t) => [t.itemId, t]));
+    return gf.checklistItems.map((c) => {
+      const t = tickByItem.get(c.id);
+      return {
+        id: c.id,
+        label: c.label,
+        required: c.required,
+        checked: Boolean(t),
+        aiTicked: t?.aiTicked ?? false,
+        aiConfidence: t?.aiConfidence ?? null,
+      };
+    });
   }
 
   /**
@@ -1251,6 +1441,53 @@ export class ManagerService {
         scoredAt: new Date(),
       },
     });
+
+    // AI auto-tick: on a confident PASS, tick this fixture's NON-required
+    // checklist items that no one has acted on yet (no tick row). Required items
+    // always need a human; we never overwrite an existing tick, so a manager's
+    // manual untick stays unticked across re-scores.
+    if (scored.verdict === 'PASS' && scored.confidence >= 0.95) {
+      const cap = await this.prisma.fixtureCapture.findUnique({
+        where: { id: capture.id },
+        select: { storeId: true },
+      });
+      if (cap?.storeId) {
+        const items = await this.prisma.guideFixtureChecklistItem.findMany({
+          where: {
+            orgId,
+            archivedAt: null,
+            required: false,
+            guideFixture: {
+              campaignId: capture.campaignId,
+              fixtureId: capture.fixtureId,
+            },
+          },
+          select: { id: true },
+        });
+        if (items.length > 0) {
+          const existing = await this.prisma.storeChecklistTick.findMany({
+            where: { storeId: cap.storeId, itemId: { in: items.map((i) => i.id) } },
+            select: { itemId: true },
+          });
+          const seen = new Set(existing.map((e) => e.itemId));
+          const fresh = items.filter((i) => !seen.has(i.id));
+          if (fresh.length > 0) {
+            await this.prisma.storeChecklistTick.createMany({
+              data: fresh.map((i) => ({
+                orgId,
+                storeId: cap.storeId,
+                campaignId: capture.campaignId,
+                itemId: i.id,
+                checked: true,
+                checkedById: null,
+                aiTicked: true,
+                aiConfidence: scored.confidence,
+              })),
+            });
+          }
+        }
+      }
+    }
 
     // Distribute issues to their photos so each gallery tile shows its own boxes.
     const byPhoto = new Map<string, ComplianceIssue[]>();
@@ -1532,6 +1769,7 @@ export class ManagerService {
     capture: CaptureWithHistory | null,
     notes: string,
     reference: { storageKey: string; caption: string | null } | null,
+    checklist: FixtureChecklistState[] = [],
   ): FixtureComplianceDetail {
     const aiVerdict = capture?.verdict ? toCaptureVerdict(capture.verdict) : null;
     const overrideVerdict = capture?.overrideVerdict
@@ -1553,6 +1791,7 @@ export class ManagerService {
         url: p.storageKey ? this.storage.signedGetUrl(p.storageKey) : null,
         issues: asIssues(p.aiIssues),
       })),
+      checklist,
       state: captureState(capture),
       overall: aiVerdict,
       aiNotes: capture?.aiNotes ?? null,

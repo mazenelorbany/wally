@@ -3,12 +3,13 @@ import {
   Controller,
   Get,
   Param,
+  Post,
   Query,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import type { SessionUser } from '@wally/types';
+import type { SessionUser, StoreReportDocument } from '@wally/types';
 
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
@@ -16,11 +17,50 @@ import { SessionGuard } from '../auth/session.guard';
 
 import { renderReport } from './report.render';
 import { ReportService } from './report.service';
+import { StoreReportService } from './store-report.service';
 
 @Controller('stores')
 @UseGuards(SessionGuard)
 export class ReportController {
-  constructor(private readonly report: ReportService) {}
+  constructor(
+    private readonly report: ReportService,
+    private readonly storeReports: StoreReportService,
+  ) {}
+
+  /**
+   * The full report DOCUMENT (JSON) for a store × campaign — the on-screen
+   * Myer-style report. Distinct from the PDF route below.
+   * GET /api/stores/:id/report?campaignId=...
+   */
+  @Get(':id/report')
+  @Roles('REVIEWER', 'ADMIN')
+  document(
+    @CurrentUser() user: SessionUser,
+    @Param('id') storeId: string,
+    @Query('campaignId') campaignId: string,
+  ): Promise<StoreReportDocument> {
+    if (!campaignId) {
+      throw new BadRequestException('campaignId query param is required');
+    }
+    return this.storeReports.getDocument(user.orgId, storeId, campaignId);
+  }
+
+  /**
+   * (Re)generate the AI prose summary for a store × campaign report and return the
+   * updated document. POST /api/stores/:id/report/summary?campaignId=...
+   */
+  @Post(':id/report/summary')
+  @Roles('REVIEWER', 'ADMIN')
+  regenerateSummary(
+    @CurrentUser() user: SessionUser,
+    @Param('id') storeId: string,
+    @Query('campaignId') campaignId: string,
+  ): Promise<StoreReportDocument> {
+    if (!campaignId) {
+      throw new BadRequestException('campaignId query param is required');
+    }
+    return this.storeReports.regenerateSummary(user.orgId, storeId, campaignId);
+  }
 
   /**
    * Stream a compliance PDF for a store × campaign. Reviewers and admins only —

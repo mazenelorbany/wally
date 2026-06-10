@@ -89,5 +89,7 @@ export function useLogout(): UseMutationResult<void, unknown, void> {
  *  is reachable from the studio's left rail. Store managers go to their own
  *  store workspace (/store): home, tasks, floor map, sales. */
 export function homeForRole(role: Role): string {
-  return role === 'STORE_MANAGER' ? '/store' : '/studio';
+  if (role === 'STORE_MANAGER') return '/store';
+  if (role === 'SETUP_CREW') return '/crew';
+  return '/studio';
 }

@@ -58,3 +58,7 @@ export const OverrideCaptureSchema = z
   .strict();
 
 export type OverrideCaptureInput = z.infer<typeof OverrideCaptureSchema>;
+
+// PUT /manager/fixtures/:fixtureId/checklist/:itemId — tick/untick a checklist item.
+export const TickChecklistSchema = z.object({ checked: z.boolean() }).strict();
+export type TickChecklistInput = z.infer<typeof TickChecklistSchema>;

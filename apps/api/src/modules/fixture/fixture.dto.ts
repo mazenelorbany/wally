@@ -104,3 +104,41 @@ export const ReorderFixturePlanogramSchema = z
 export type ReorderFixturePlanogramInput = z.infer<
   typeof ReorderFixturePlanogramSchema
 >;
+
+// ----- library DEFAULT guide content (notes / instructions / checklist) ------
+
+// PATCH /fixtures/:id/default-notes — the reusable VM notes new tasks inherit.
+export const SetDefaultNotesSchema = z
+  .object({ notes: z.string().max(5000) })
+  .strict();
+export type SetDefaultNotesInput = z.infer<typeof SetDefaultNotesSchema>;
+
+// PUT /fixtures/:id/default-instructions — replace the ordered default steps.
+export const SaveDefaultInstructionsSchema = z
+  .object({
+    steps: z.array(z.object({ text: z.string().max(2000) }).strict()).max(50),
+  })
+  .strict();
+export type SaveDefaultInstructionsInput = z.infer<
+  typeof SaveDefaultInstructionsSchema
+>;
+
+// POST /fixtures/:id/default-checklist — add a default checklist item.
+export const AddDefaultChecklistSchema = z
+  .object({
+    label: z.string().min(1).max(200),
+    required: z.boolean().optional(),
+  })
+  .strict();
+export type AddDefaultChecklistInput = z.infer<typeof AddDefaultChecklistSchema>;
+
+// PATCH /fixtures/:id/default-checklist/:itemId — edit a default checklist item.
+export const UpdateDefaultChecklistSchema = z
+  .object({
+    label: z.string().min(1).max(200).optional(),
+    required: z.boolean().optional(),
+  })
+  .strict();
+export type UpdateDefaultChecklistInput = z.infer<
+  typeof UpdateDefaultChecklistSchema
+>;

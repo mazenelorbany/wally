@@ -68,7 +68,9 @@ export function renderReport(data: ReportData): PDFKit.PDFDocument {
 
   paintHeader(doc, data);
   paintStoreVerdict(doc, data);
+  paintSummary(doc, data);
   paintFixtures(doc, data);
+  paintExtraQuestions(doc, data);
   paintFooter(doc, data);
 
   doc.end();
@@ -145,12 +147,73 @@ function paintStoreVerdict(doc: PDFKit.PDFDocument, data: ReportData): void {
     .fontSize(10)
     .text(
       `${data.submitted} of ${data.expected} applicable fixtures scored` +
-        `   ·   generated ${formatDate(data.generatedAt)}`,
+        (data.totalScore != null ? `   ·   score ${data.totalScore}%` : '') +
+        (data.status ? `   ·   ${data.status.toLowerCase()}` : '') +
+        (data.submittedAt
+          ? `   ·   submitted ${formatDate(data.submittedAt)}`
+          : `   ·   generated ${formatDate(data.generatedAt)}`),
       MARGIN + 54,
       boxTop + 40,
     );
 
   doc.y = boxTop + boxHeight + 22;
+}
+
+/** The AI prose summary, when present (a short paragraph under the verdict). */
+function paintSummary(doc: PDFKit.PDFDocument, data: ReportData): void {
+  if (!data.aiSummary) return;
+  ensureSpace(doc, 60);
+  doc
+    .fillColor(BRAND.ink)
+    .font('Helvetica-Bold')
+    .fontSize(12)
+    .text('AI summary');
+  doc.moveDown(0.4);
+  doc
+    .fillColor(BRAND.graphite)
+    .font('Helvetica')
+    .fontSize(10)
+    .text(data.aiSummary, { width: CONTENT_WIDTH });
+  doc.moveDown(1.2);
+}
+
+/** The extra-question answers (the non-photo report steps). */
+function paintExtraQuestions(doc: PDFKit.PDFDocument, data: ReportData): void {
+  const answers = data.extraAnswers ?? [];
+  if (answers.length === 0) return;
+  ensureSpace(doc, 60);
+  doc.moveDown(0.5);
+  doc
+    .fillColor(BRAND.ink)
+    .font('Helvetica-Bold')
+    .fontSize(12)
+    .text('Questions');
+  doc.moveDown(0.6);
+  for (const a of answers) {
+    ensureSpace(doc, 34);
+    doc
+      .fillColor(BRAND.graphite)
+      .font('Helvetica-Bold')
+      .fontSize(10)
+      .text(a.label, MARGIN, doc.y, { width: CONTENT_WIDTH });
+    const val = a.isNA
+      ? 'N/A'
+      : a.type === 'YES_NO'
+        ? a.valueBool == null
+          ? '—'
+          : a.valueBool
+            ? 'Yes'
+            : 'No'
+        : a.valueText && a.valueText.trim()
+          ? a.valueText
+          : '—';
+    doc
+      .fillColor(BRAND.ink)
+      .font('Helvetica')
+      .fontSize(10)
+      .text(val, MARGIN, doc.y + 1, { width: CONTENT_WIDTH });
+    doc.moveDown(0.6);
+  }
 }
 
 function paintFixtures(doc: PDFKit.PDFDocument, data: ReportData): void {
@@ -206,6 +269,17 @@ function paintFixtureRow(doc: PDFKit.PDFDocument, fixture: ReportFixture): void 
       .font('Helvetica')
       .fontSize(8)
       .text(`rubric ${fixture.rubricVersion}${conf}`, MARGIN + 22, doc.y + 2, {
+        width: CONTENT_WIDTH - 22,
+      });
+  }
+
+  // Completed-by attribution (who took the most recent shot).
+  if (fixture.completedBy) {
+    doc
+      .fillColor(BRAND.steel)
+      .font('Helvetica')
+      .fontSize(8)
+      .text(`captured by ${fixture.completedBy}`, MARGIN + 22, doc.y + 2, {
         width: CONTENT_WIDTH - 22,
       });
   }

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   BadRequestException,
   Injectable,
@@ -11,9 +13,13 @@ import type {
   Product,
 } from '@prisma/client';
 import type {
+  CampaignFixtureSummary,
+  Department,
   FixtureKind,
+  GuideChecklistItem,
   GuideFixtureDetail,
   GuideFixtureExampleImage,
+  GuideInstructionStep,
   MerchandiseRow,
 } from '@wally/types';
 
@@ -53,6 +59,10 @@ const GUIDE_FIXTURE_INCLUDE = Prisma.validator<Prisma.GuideFixtureInclude>()({
     include: { product: true },
     orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
   },
+  checklistItems: {
+    where: { archivedAt: null },
+    orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+  },
 });
 
 type GuideFixtureWithRelations = Prisma.GuideFixtureGetPayload<{
@@ -74,6 +84,103 @@ export class GuideFixtureService {
    * the Fixture (name/kind), example images (→ signed URLs), and merchandise
    * grouped into rows in stable order.
    */
+  /**
+   * The task's photo-request fixtures for the "Build" view: every distinct
+   * fixture placed on at least one store's floor plan for this campaign, with a
+   * summary of how filled-in its guide content is (reference / instructions /
+   * checklist / products). Sheets that haven't been opened yet report zero
+   * counts and a null guideFixtureId — the editor renders-on-open.
+   */
+  async listForCampaign(
+    orgId: string,
+    campaignId: string,
+  ): Promise<CampaignFixtureSummary[]> {
+    const campaign = await this.prisma.campaign.findFirst({
+      where: { id: campaignId, orgId },
+      select: { id: true },
+    });
+    if (!campaign) throw new NotFoundException('campaign not found');
+
+    // The photo requests = distinct applicable fixtures across the campaign's
+    // store floor plans. Count the stores that place each one.
+    const placements = await this.prisma.placement.findMany({
+      where: { campaignId, orgId, applicable: true },
+      select: {
+        fixtureId: true,
+        storeId: true,
+        fixture: {
+          select: {
+            name: true,
+            kind: true,
+            department: true,
+            referenceKey: true,
+          },
+        },
+      },
+    });
+
+    type Agg = {
+      fixtureId: string;
+      name: string;
+      kind: string;
+      department: string | null;
+      hasLibraryRef: boolean;
+      stores: Set<string>;
+    };
+    const byFixture = new Map<string, Agg>();
+    for (const p of placements) {
+      let a = byFixture.get(p.fixtureId);
+      if (!a) {
+        a = {
+          fixtureId: p.fixtureId,
+          name: p.fixture.name,
+          kind: p.fixture.kind,
+          department: p.fixture.department,
+          hasLibraryRef: Boolean(p.fixture.referenceKey),
+          stores: new Set<string>(),
+        };
+        byFixture.set(p.fixtureId, a);
+      }
+      a.stores.add(p.storeId);
+    }
+
+    const fixtureIds = [...byFixture.keys()];
+    if (fixtureIds.length === 0) return [];
+
+    // The content sheets that already exist for these fixtures, with counts.
+    const sheets = await this.prisma.guideFixture.findMany({
+      where: { campaignId, fixtureId: { in: fixtureIds } },
+      select: {
+        id: true,
+        fixtureId: true,
+        instructions: true,
+        _count: {
+          select: { checklistItems: true, exampleImages: true, merchandise: true },
+        },
+      },
+    });
+    const sheetBy = new Map(sheets.map((s) => [s.fixtureId, s]));
+
+    return [...byFixture.values()]
+      .map((a) => {
+        const sheet = sheetBy.get(a.fixtureId);
+        const exampleImages = sheet?._count.exampleImages ?? 0;
+        return {
+          fixtureId: a.fixtureId,
+          guideFixtureId: sheet?.id ?? null,
+          name: a.name,
+          kind: a.kind as FixtureKind,
+          department: (a.department as Department | null) ?? null,
+          storeCount: a.stores.size,
+          hasReference: exampleImages > 0 || a.hasLibraryRef,
+          instructionCount: asInstructions(sheet?.instructions).length,
+          checklistCount: sheet?._count.checklistItems ?? 0,
+          productCount: sheet?._count.merchandise ?? 0,
+        };
+      })
+      .sort((x, y) => x.name.localeCompare(y.name));
+  }
+
   async detail(
     orgId: string,
     campaignId: string,
@@ -102,10 +209,16 @@ export class GuideFixtureService {
       fixtureName: fixture.name,
       kind: fixture.kind as FixtureKind,
       notes: guideFixture.notes,
+      instructions: asInstructions(guideFixture.instructions),
       exampleImages: guideFixture.exampleImages.map((img) =>
         this.toExampleImage(img),
       ),
       merchandise: groupMerchandise(guideFixture.merchandise),
+      checklist: guideFixture.checklistItems.map((c) => ({
+        id: c.id,
+        label: c.label,
+        required: c.required,
+      })),
     };
   }
 
@@ -183,14 +296,64 @@ export class GuideFixtureService {
     });
     if (existing) return existing;
 
-    // First open of this sheet: create an empty one. upsert (not create) so a
-    // concurrent first-open can't 409 on the unique (campaignId,fixtureId).
-    return this.prisma.guideFixture.upsert({
+    // First open of this sheet: inherit the fixture's library DEFAULTS (notes +
+    // ordered instructions + checklist), so a fixture's standard is authored once
+    // and flows into every task. upsert (not create) so a concurrent first-open
+    // can't 409 on the unique (campaignId,fixtureId).
+    const fixture = await this.prisma.fixture.findUnique({
+      where: { id: fixtureId },
+      select: {
+        defaultNotes: true,
+        defaultInstructions: true,
+        checklistTemplate: {
+          where: { archivedAt: null },
+          orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+          select: { label: true, required: true, order: true },
+        },
+      },
+    });
+
+    const created = await this.prisma.guideFixture.upsert({
       where: { campaignId_fixtureId: { campaignId, fixtureId } },
-      create: { orgId, campaignId, fixtureId },
+      create: {
+        orgId,
+        campaignId,
+        fixtureId,
+        notes: fixture?.defaultNotes ?? '',
+        ...(fixture?.defaultInstructions != null
+          ? {
+              instructions:
+                fixture.defaultInstructions as Prisma.InputJsonValue,
+            }
+          : {}),
+      },
       update: {},
       include: GUIDE_FIXTURE_INCLUDE,
     });
+
+    // Seed checklist items only when the sheet has none yet — so a concurrent
+    // first-open (or a later re-open) never duplicates the inherited items.
+    if (
+      fixture &&
+      fixture.checklistTemplate.length > 0 &&
+      created.checklistItems.length === 0
+    ) {
+      await this.prisma.guideFixtureChecklistItem.createMany({
+        data: fixture.checklistTemplate.map((t) => ({
+          orgId,
+          guideFixtureId: created.id,
+          label: t.label,
+          required: t.required,
+          order: t.order,
+        })),
+      });
+      return this.prisma.guideFixture.findUniqueOrThrow({
+        where: { id: created.id },
+        include: GUIDE_FIXTURE_INCLUDE,
+      });
+    }
+
+    return created;
   }
 
   // ----- notes -------------------------------------------------------------
@@ -202,6 +365,129 @@ export class GuideFixtureService {
       where: { id },
       data: { notes },
     });
+  }
+
+  // ----- instructions (ordered structured steps) ---------------------------
+
+  /** Replace the ordered instructions list (each step gets a stable id). */
+  async saveInstructions(
+    orgId: string,
+    id: string,
+    steps: { text: string }[],
+  ): Promise<GuideInstructionStep[]> {
+    await this.getOwned(orgId, id);
+    const instructions: GuideInstructionStep[] = steps
+      .map((s) => s.text.trim())
+      .filter((t) => t.length > 0)
+      .map((text) => ({ id: randomUUID(), text }));
+    await this.prisma.guideFixture.update({
+      where: { id },
+      data: { instructions: instructions as unknown as Prisma.InputJsonValue },
+    });
+    return instructions;
+  }
+
+  // ----- checklist items (manager ticks them while filling the report) ------
+
+  private async checklist(guideFixtureId: string): Promise<GuideChecklistItem[]> {
+    const items = await this.prisma.guideFixtureChecklistItem.findMany({
+      where: { guideFixtureId, archivedAt: null },
+      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+    });
+    return items.map((c) => ({ id: c.id, label: c.label, required: c.required }));
+  }
+
+  async addChecklistItem(
+    orgId: string,
+    guideFixtureId: string,
+    label: string,
+    required: boolean,
+  ): Promise<GuideChecklistItem[]> {
+    await this.getOwned(orgId, guideFixtureId);
+    const max = await this.prisma.guideFixtureChecklistItem.aggregate({
+      where: { guideFixtureId, archivedAt: null },
+      _max: { order: true },
+    });
+    await this.prisma.guideFixtureChecklistItem.create({
+      data: {
+        orgId,
+        guideFixtureId,
+        label,
+        required,
+        order: (max._max.order ?? -1) + 1,
+      },
+    });
+    return this.checklist(guideFixtureId);
+  }
+
+  async updateChecklistItem(
+    orgId: string,
+    guideFixtureId: string,
+    itemId: string,
+    patch: { label?: string; required?: boolean },
+  ): Promise<GuideChecklistItem[]> {
+    await this.getOwned(orgId, guideFixtureId);
+    const item = await this.prisma.guideFixtureChecklistItem.findFirst({
+      where: { id: itemId, guideFixtureId, orgId },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundException('checklist item not found');
+    await this.prisma.guideFixtureChecklistItem.update({
+      where: { id: itemId },
+      data: {
+        ...(patch.label !== undefined ? { label: patch.label } : {}),
+        ...(patch.required !== undefined ? { required: patch.required } : {}),
+      },
+    });
+    return this.checklist(guideFixtureId);
+  }
+
+  async removeChecklistItem(
+    orgId: string,
+    guideFixtureId: string,
+    itemId: string,
+  ): Promise<GuideChecklistItem[]> {
+    await this.getOwned(orgId, guideFixtureId);
+    const item = await this.prisma.guideFixtureChecklistItem.findFirst({
+      where: { id: itemId, guideFixtureId, orgId },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundException('checklist item not found');
+    const ticks = await this.prisma.storeChecklistTick.count({
+      where: { itemId },
+    });
+    if (ticks > 0) {
+      await this.prisma.guideFixtureChecklistItem.update({
+        where: { id: itemId },
+        data: { archivedAt: new Date() },
+      });
+    } else {
+      await this.prisma.guideFixtureChecklistItem.delete({ where: { id: itemId } });
+    }
+    return this.checklist(guideFixtureId);
+  }
+
+  async reorderChecklist(
+    orgId: string,
+    guideFixtureId: string,
+    ids: string[],
+  ): Promise<GuideChecklistItem[]> {
+    await this.getOwned(orgId, guideFixtureId);
+    const live = await this.prisma.guideFixtureChecklistItem.findMany({
+      where: { guideFixtureId, orgId, archivedAt: null },
+      select: { id: true },
+    });
+    const liveIds = new Set(live.map((i) => i.id));
+    const ordered = ids.filter((id) => liveIds.has(id));
+    await this.prisma.$transaction(
+      ordered.map((id, i) =>
+        this.prisma.guideFixtureChecklistItem.update({
+          where: { id },
+          data: { order: i },
+        }),
+      ),
+    );
+    return this.checklist(guideFixtureId);
   }
 
   // ----- merchandise (optional) --------------------------------------------
@@ -316,8 +602,14 @@ export class GuideFixtureService {
       fixtureName: fixture.name,
       kind: fixture.kind as FixtureKind,
       notes: gf.notes,
+      instructions: asInstructions(gf.instructions),
       exampleImages: gf.exampleImages.map((img) => this.toExampleImage(img)),
       merchandise: groupMerchandise(gf.merchandise),
+      checklist: gf.checklistItems.map((c) => ({
+        id: c.id,
+        label: c.label,
+        required: c.required,
+      })),
     };
   }
 
@@ -480,6 +772,22 @@ export class GuideFixtureService {
  * `order`). Unlabelled rows collapse under a single "Unsorted" heading, kept
  * last so the named rows read first.
  */
+/** Coerce the persisted JSON instructions into a clean GuideInstructionStep[]. */
+function asInstructions(value: unknown): GuideInstructionStep[] {
+  if (!Array.isArray(value)) return [];
+  const out: GuideInstructionStep[] = [];
+  for (const it of value) {
+    if (!it || typeof it !== 'object') continue;
+    const row = it as Record<string, unknown>;
+    if (typeof row.text !== 'string' || !row.text.trim()) continue;
+    out.push({
+      id: typeof row.id === 'string' ? row.id : randomUUID(),
+      text: row.text,
+    });
+  }
+  return out;
+}
+
 function groupMerchandise(
   items: (Merchandise & { product: Product })[],
 ): MerchandiseRow[] {

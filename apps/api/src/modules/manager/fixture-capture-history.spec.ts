@@ -373,6 +373,12 @@ describe('fixture-capture history + reviewer override', () => {
       makeStorage() as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       makeScorer(verdicts) as any,
+      // CampaignQuestionService — unused by these capture tests.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {} as any,
+      // StoreReportService — uploadFixturePhoto flips the report to in-progress.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { markInProgress: async () => {} } as any,
     );
   }
 
