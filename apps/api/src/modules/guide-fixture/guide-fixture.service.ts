@@ -33,6 +33,8 @@ import {
 } from '../storage/image-upload.util';
 import { toProductDto } from '../product/product.service';
 
+import { seedChecklistFromTemplates } from './checklist-seed';
+
 // =============================================================================
 // GuideFixtureService — a fixture's instruction sheet within a guide.
 // =============================================================================
@@ -183,6 +185,97 @@ export class GuideFixtureService {
       .sort((x, y) => x.name.localeCompare(y.name));
   }
 
+  /**
+   * Add a library fixture to the campaign as a photo request: place it on every
+   * active store the campaign can reach (its project's stores; a project-less
+   * task reaches the whole org), appended after each store's existing
+   * placements. Stores that already place it are skipped, so re-adding is safe.
+   * Org-scoped.
+   */
+  async addFixtureToCampaign(
+    orgId: string,
+    campaignId: string,
+    fixtureId: string,
+  ): Promise<void> {
+    const [campaign, fixture] = await Promise.all([
+      this.prisma.campaign.findFirst({
+        where: { id: campaignId, orgId },
+        select: { id: true, projectId: true },
+      }),
+      this.prisma.fixture.findFirst({
+        where: { id: fixtureId, orgId },
+        select: { id: true, name: true },
+      }),
+    ]);
+    if (!campaign) throw new NotFoundException('campaign not found');
+    if (!fixture) throw new NotFoundException('fixture not found');
+
+    const stores = await this.prisma.store.findMany({
+      where: {
+        orgId,
+        closedAt: null,
+        ...(campaign.projectId ? { projectId: campaign.projectId } : {}),
+      },
+      select: { id: true },
+    });
+    if (stores.length === 0) {
+      throw new BadRequestException('no active stores to request this photo from');
+    }
+
+    // Append after each store's existing placements (one groupBy, not N max-queries).
+    const maxOrders = await this.prisma.placement.groupBy({
+      by: ['storeId'],
+      where: { campaignId, orgId },
+      _max: { order: true },
+    });
+    const nextOrderBy = new Map(
+      maxOrders.map((m) => [m.storeId, (m._max.order ?? -1) + 1]),
+    );
+
+    await this.prisma.placement.createMany({
+      data: stores.map((s) => ({
+        orgId,
+        storeId: s.id,
+        campaignId,
+        fixtureId,
+        label: fixture.name,
+        applicable: true,
+        order: nextOrderBy.get(s.id) ?? 0,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  /**
+   * Remove a photo request: delete the fixture's placements across all of the
+   * campaign's stores. Refused once any store has photographed it — removing the
+   * step would orphan submitted work mid-flight.
+   */
+  async removeFixtureFromCampaign(
+    orgId: string,
+    campaignId: string,
+    fixtureId: string,
+  ): Promise<void> {
+    const campaign = await this.prisma.campaign.findFirst({
+      where: { id: campaignId, orgId },
+      select: { id: true },
+    });
+    if (!campaign) throw new NotFoundException('campaign not found');
+
+    const captured = await this.prisma.fixtureCapture.count({
+      where: { campaignId, fixtureId, storageKey: { not: null } },
+    });
+    if (captured > 0) {
+      throw new BadRequestException(
+        'stores have already submitted photos for this fixture — reopen their reports instead of removing the step',
+      );
+    }
+
+    await this.prisma.placement.deleteMany({
+      where: { orgId, campaignId, fixtureId },
+    });
+  }
+
   async detail(
     orgId: string,
     campaignId: string,
@@ -296,7 +389,21 @@ export class GuideFixtureService {
       where: { campaignId_fixtureId: { campaignId, fixtureId } },
       include: GUIDE_FIXTURE_INCLUDE,
     });
-    if (existing) return existing;
+    if (existing) {
+      // Sheets created before the library's default checklist was authored
+      // (or via paths that skip inheritance) pick the standard up here.
+      const seeded = await seedChecklistFromTemplates(
+        this.prisma,
+        orgId,
+        campaignId,
+        fixtureId,
+      );
+      if (seeded === 0) return existing;
+      return this.prisma.guideFixture.findUniqueOrThrow({
+        where: { id: existing.id },
+        include: GUIDE_FIXTURE_INCLUDE,
+      });
+    }
 
     // First open of this sheet: inherit the fixture's library DEFAULTS (notes +
     // ordered instructions + checklist), so a fixture's standard is authored once
@@ -307,11 +414,6 @@ export class GuideFixtureService {
       select: {
         defaultNotes: true,
         defaultInstructions: true,
-        checklistTemplate: {
-          where: { archivedAt: null },
-          orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
-          select: { label: true, required: true, order: true },
-        },
       },
     });
 
@@ -333,23 +435,9 @@ export class GuideFixtureService {
       include: GUIDE_FIXTURE_INCLUDE,
     });
 
-    // Seed checklist items only when the sheet has none yet — so a concurrent
-    // first-open (or a later re-open) never duplicates the inherited items.
-    if (
-      fixture &&
-      fixture.checklistTemplate.length > 0 &&
-      created.checklistItems.length === 0
-    ) {
-      await this.prisma.guideFixtureChecklistItem.createMany({
-        data: fixture.checklistTemplate.map((t) => ({
-          orgId,
-          guideFixtureId: created.id,
-          label: t.label,
-          required: t.required,
-          order: t.order,
-        })),
-      });
-    }
+    // Inherit the library checklist (no-op if a concurrent first-open already
+    // seeded it — the helper never duplicates).
+    await seedChecklistFromTemplates(this.prisma, orgId, campaignId, fixtureId);
 
     // A fresh sheet inherits the fixture's default planogram too, so the
     // library default set and every sheet stay mirrors from the first open.

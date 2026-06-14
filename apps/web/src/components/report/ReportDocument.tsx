@@ -10,9 +10,28 @@ import {
 } from 'lucide-react';
 import type {
   CaptureVerdict,
+  CreateReviewThreadBody,
   ReportDocFixture,
+  ReviewThreadDto,
   StoreReportDocument,
 } from '@wally/sdk';
+
+import {
+  NewThreadComposer,
+  PhotoPins,
+  PinComposerDialog,
+  ThreadList,
+  type ThreadActions,
+} from './ReviewThreads';
+
+/** Wiring for the review-comment loop; omit to render the plain document. */
+export interface ReportReview {
+  threads: ReviewThreadDto[];
+  /** ADMIN/REVIEWER: can open new threads (incl. photo pins). */
+  canCreate: boolean;
+  actions: ThreadActions;
+  onCreate: (body: Omit<CreateReviewThreadBody, 'storeId' | 'campaignId'>) => void;
+}
 
 const VERDICT: Record<
   CaptureVerdict,
@@ -36,11 +55,13 @@ export function ReportDocument({
   doc,
   onRegenerateSummary,
   regenerating,
+  review,
 }: {
   doc: StoreReportDocument;
   /** Admin-only: regenerate the AI summary. Omit to hide the control. */
   onRegenerateSummary?: () => void;
   regenerating?: boolean;
+  review?: ReportReview;
 }) {
   return (
     <div className="space-y-5">
@@ -121,7 +142,7 @@ export function ReportDocument({
         <h2 className="mb-2 text-[11px] uppercase tracking-brand text-steel">Photos</h2>
         <div className="space-y-3">
           {doc.fixtures.map((f) => (
-            <FixtureBlock key={f.fixtureId} fixture={f} />
+            <FixtureBlock key={f.fixtureId} fixture={f} review={review} />
           ))}
           {doc.fixtures.length === 0 ? (
             <p className="text-sm text-steel">No fixtures on this floor plan.</p>
@@ -162,6 +183,22 @@ export function ReportDocument({
                     {q.answeredAt ? ` · ${fmt(q.answeredAt)}` : ''}
                   </p>
                 ) : null}
+                {review ? (
+                  <>
+                    <ThreadList
+                      threads={review.threads.filter((t) => t.questionId === q.id)}
+                      actions={review.actions}
+                    />
+                    {review.canCreate ? (
+                      <div className="mt-1.5">
+                        <NewThreadComposer
+                          busy={review.actions.busy}
+                          onSubmit={(body) => review.onCreate({ questionId: q.id, body })}
+                        />
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -171,9 +208,34 @@ export function ReportDocument({
   );
 }
 
-function FixtureBlock({ fixture: f }: { fixture: ReportDocFixture }) {
+function FixtureBlock({
+  fixture: f,
+  review,
+}: {
+  fixture: ReportDocFixture;
+  review?: ReportReview;
+}) {
   const meta = f.verdict ? VERDICT[f.verdict] : null;
   const Icon = meta?.icon;
+  // Admin pin flow: clicking a photo opens the click-to-pin composer.
+  const [pinTarget, setPinTarget] = React.useState<{
+    id: string;
+    url: string;
+    label: string;
+  } | null>(null);
+
+  const threads = review
+    ? review.threads.filter((t) => t.fixtureId === f.fixtureId)
+    : [];
+  // Stable pin numbering per fixture: pinned threads in creation order.
+  const pinned = threads
+    .filter((t) => t.photoId && t.pinX != null && t.pinY != null)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const pinNumberOf = (t: ReviewThreadDto) => {
+    const i = pinned.findIndex((p) => p.id === t.id);
+    return i === -1 ? undefined : i + 1;
+  };
+
   return (
     <div className="rounded-lg border border-mist/60 bg-paper p-3.5">
       <div className="flex items-center justify-between gap-2">
@@ -194,28 +256,59 @@ function FixtureBlock({ fixture: f }: { fixture: ReportDocFixture }) {
 
       {f.photos.length > 0 ? (
         <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
-          {f.photos.map((p, i) => (
-            <a
-              key={p.id}
-              href={p.url ?? '#'}
-              target="_blank"
-              rel="noreferrer"
-              className="relative block aspect-square overflow-hidden rounded-md border border-mist/60 bg-surface"
-            >
-              {p.url ? (
-                <img src={p.url} alt={`${f.label} ${i + 1}`} className="h-full w-full object-cover" />
-              ) : (
-                <span className="grid h-full w-full place-items-center">
-                  <ImageOff className="h-4 w-4 text-mist" />
-                </span>
-              )}
-              {(p.issues?.length ?? 0) > 0 ? (
-                <span className="absolute left-1 top-1 inline-flex items-center gap-0.5 rounded-full bg-signal px-1.5 py-0.5 text-[10px] font-semibold text-paper">
-                  <AlertTriangle className="h-2.5 w-2.5" /> {p.issues!.length}
-                </span>
-              ) : null}
-            </a>
-          ))}
+          {f.photos.map((p, i) => {
+            const photoPins = pinned
+              .map((t, n) => ({ t, n: n + 1 }))
+              .filter(({ t }) => t.photoId === p.id)
+              .map(({ t, n }) => ({
+                number: n,
+                x: t.pinX!,
+                y: t.pinY!,
+                resolved: t.status === 'RESOLVED',
+              }));
+            const cell = (
+              <>
+                {p.url ? (
+                  <img src={p.url} alt={`${f.label} ${i + 1}`} className="h-full w-full object-cover" />
+                ) : (
+                  <span className="grid h-full w-full place-items-center">
+                    <ImageOff className="h-4 w-4 text-mist" />
+                  </span>
+                )}
+                <PhotoPins pins={photoPins} />
+                {(p.issues?.length ?? 0) > 0 ? (
+                  <span className="absolute left-1 top-1 inline-flex items-center gap-0.5 rounded-full bg-signal px-1.5 py-0.5 text-[10px] font-semibold text-paper">
+                    <AlertTriangle className="h-2.5 w-2.5" /> {p.issues!.length}
+                  </span>
+                ) : null}
+              </>
+            );
+            // With create rights, clicking a photo marks a spot on it; otherwise
+            // it opens the full image as before.
+            return review?.canCreate && p.url ? (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() =>
+                  setPinTarget({ id: p.id, url: p.url!, label: `${f.label} — photo ${i + 1}` })
+                }
+                title="Click to comment on a spot"
+                className="relative block aspect-square cursor-crosshair overflow-hidden rounded-md border border-mist/60 bg-surface"
+              >
+                {cell}
+              </button>
+            ) : (
+              <a
+                key={p.id}
+                href={p.url ?? '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="relative block aspect-square overflow-hidden rounded-md border border-mist/60 bg-surface"
+              >
+                {cell}
+              </a>
+            );
+          })}
         </div>
       ) : null}
 
@@ -266,6 +359,31 @@ function FixtureBlock({ fixture: f }: { fixture: ReportDocFixture }) {
           ✓ {f.completedByName}
           {f.completedAt ? ` · ${fmt(f.completedAt)}` : ''}
         </p>
+      ) : null}
+
+      {review ? (
+        <>
+          <ThreadList threads={threads} pinNumberOf={pinNumberOf} actions={review.actions} />
+          {review.canCreate ? (
+            <div className="mt-2">
+              <NewThreadComposer
+                busy={review.actions.busy}
+                onSubmit={(body) => review.onCreate({ fixtureId: f.fixtureId, body })}
+              />
+            </div>
+          ) : null}
+          {review.canCreate ? (
+            <PinComposerDialog
+              photo={pinTarget}
+              busy={review.actions.busy}
+              onClose={() => setPinTarget(null)}
+              onSubmit={(v) => {
+                review.onCreate({ fixtureId: f.fixtureId, body: v.body, photoId: v.photoId, pinX: v.pinX, pinY: v.pinY });
+                setPinTarget(null);
+              }}
+            />
+          ) : null}
+        </>
       ) : null}
     </div>
   );

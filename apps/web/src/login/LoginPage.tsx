@@ -13,12 +13,16 @@ import {
 import { errorMessage } from '../lib/api';
 import { Wordmark } from '../components/Brand';
 
-const DEV = import.meta.env.DEV;
+// Show the one-click role shortcuts in local dev, or in a hosted demo build
+// (VITE_DEMO=1, paired with DEMO_LOGIN=1 on the API).
+const DEV = import.meta.env.DEV || import.meta.env.VITE_DEMO === '1';
 
 const DEV_ROLES: { role: Role; label: string; blurb: string }[] = [
   { role: 'STORE_MANAGER', label: 'Store manager', blurb: 'Capture fixtures' },
   { role: 'REVIEWER', label: 'Reviewer', blurb: 'Work the queue' },
   { role: 'ADMIN', label: 'Admin', blurb: 'Everything' },
+  { role: 'SETUP_CREW', label: 'Setup crew', blurb: 'Floor plan + fixtures' },
+  { role: 'VIEWER', label: 'Viewer', blurb: 'Read-only' },
 ];
 
 export function LoginPage() {

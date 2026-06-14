@@ -13,7 +13,7 @@ export function registerServiceWorker(): void {
       .register('/sw.js', { scope: '/' })
       .catch((err) => {
         // Non-fatal: the app works online without the SW. Never throw.
-        // eslint-disable-next-line no-console
+         
         console.warn('[wally] service worker registration failed', err);
       });
   });

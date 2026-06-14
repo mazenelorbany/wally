@@ -145,7 +145,6 @@ function BulletinCard({
   bulletin: BulletinDto;
   onChanged: () => void;
 }) {
-  const qc = useQueryClient();
   const [showAcks, setShowAcks] = React.useState(false);
   const replaceInputRef = React.useRef<HTMLInputElement>(null);
 

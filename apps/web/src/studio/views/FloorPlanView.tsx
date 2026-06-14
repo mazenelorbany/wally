@@ -45,6 +45,7 @@ import { api } from '../../lib/api';
 import { errorMessage } from '../../lib/api';
 import { useToast } from '../../lib/toast';
 import { fixtureKindMeta } from '../lib/fixtureKind';
+import { brandLabel, splitVenueName } from '../lib/venue';
 import { FloorPlanCanvas, PLAN_W, PLAN_H } from '../components/FloorPlanCanvas';
 import { FixtureDetailPanel } from '../components/FixtureDetailPanel';
 
@@ -128,15 +129,11 @@ export function FloorPlanView() {
   // toggle. Store names are "{Venue} — {Brand}"; group by venue, keep siblings.
   const venueBrands = React.useMemo(() => {
     const all = storesQ.data ?? [];
-    const split = (name: string) => {
-      const parts = name.split(/\s*—\s*/);
-      return parts.length >= 2
-        ? { venue: parts.slice(0, -1).join(' — ').trim(), brand: parts[parts.length - 1]!.trim() }
-        : { venue: name.trim(), brand: '' };
-    };
-    const here = split(all.find((s) => s.storeId === storeId)?.storeName ?? plan?.storeName ?? '').venue;
+    const here = splitVenueName(
+      all.find((s) => s.storeId === storeId)?.storeName ?? plan?.storeName ?? '',
+    ).venue;
     return all
-      .map((s) => ({ storeId: s.storeId, ...split(s.storeName) }))
+      .map((s) => ({ storeId: s.storeId, ...splitVenueName(s.storeName) }))
       .filter((s) => s.venue === here)
       .sort((a, b) => a.brand.localeCompare(b.brand));
   }, [storesQ.data, storeId, plan?.storeName]);
@@ -287,7 +284,7 @@ export function FloorPlanView() {
                           : 'bg-surface text-graphite hover:bg-mist/40',
                       )}
                     >
-                      {b.brand.replace(/^The\s+/i, '')}
+                      {brandLabel(b.brand)}
                     </button>
                   );
                 })}

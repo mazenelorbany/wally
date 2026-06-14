@@ -25,7 +25,7 @@ export const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-ink/40 backdrop-blur-[1px]",
+      "fixed inset-0 z-50 bg-ink/30 backdrop-blur-[2px]",
       "data-[state=open]:animate-wally-overlay-in",
       className,
     )}
@@ -50,7 +50,7 @@ export const DialogContent = React.forwardRef<
       ref={ref}
       className={cn(
         "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4",
-        "rounded-lg border border-mist/70 bg-paper p-6 text-ink shadow-raised",
+        "rounded-xl border border-mist/60 bg-white p-6 text-ink shadow-lift",
         "focus:outline-none data-[state=open]:animate-wally-content-in",
         className,
       )}
@@ -61,8 +61,9 @@ export const DialogContent = React.forwardRef<
         <DialogPrimitive.Close
           aria-label="Close"
           className={cn(
-            "absolute right-4 top-4 rounded-sm text-steel opacity-80 transition-opacity",
-            "hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
+            "absolute right-3.5 top-3.5 flex h-7 w-7 items-center justify-center rounded-md text-steel",
+            "transition-colors duration-fast hover:bg-surface hover:text-ink",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
             "disabled:pointer-events-none",
           )}
         >

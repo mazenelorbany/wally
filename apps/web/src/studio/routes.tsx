@@ -89,8 +89,9 @@ export const studioRoutes: RouteObject = {
       ),
     },
     { path: 'tasks/:campaignId/:storeId', element: <StoreReportView /> },
+    // Reviewer rail entry: the submissions browser without a task in the URL
+    // (falls back to the active task). Store rows link into tasks/… above.
     { path: 'reports', element: <ReportsView /> },
-    { path: 'reports/:campaignId/:storeId', element: <StoreReportView /> },
     { path: 'settings', element: <SettingsPage /> },
     // Admin-authoring surfaces: the subtree gate also lets REVIEWERs in, so each
     // of these (all mutations are ADMIN-only on the API) gets its own ADMIN gate

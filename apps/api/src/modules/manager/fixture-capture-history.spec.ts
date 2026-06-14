@@ -181,6 +181,11 @@ function makePrisma() {
     fixture: {
       findFirst: vi.fn(async () => null),
     },
+    // guideFor folds the campaign's active rubric into the scoring notes; these
+    // history tests don't author rubrics, so the lookup resolves empty.
+    rubric: {
+      findFirst: vi.fn(async () => null),
+    },
     fixtureCapturePhoto: {
       count: vi.fn(async ({ where }: { where: { captureId: string } }) =>
         photos.filter((p) => p.captureId === where.captureId && !p.archivedAt)

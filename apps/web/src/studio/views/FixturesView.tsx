@@ -39,14 +39,12 @@ import {
   useFixtureProducts,
   useFixtures,
   useFixtureUsage,
-  useProducts,
   useRemoveFixtureProduct,
   useReorderFixturePlanogram,
   useSetFixtureReference,
   useUpdateFixture,
 } from '../lib/hooks';
 import { fixtureKindMeta } from '../lib/fixtureKind';
-import { ProductThumb } from '../components/ProductThumb';
 import { PlanogramEditor } from '../components/PlanogramEditor';
 import { useSetStudioTopBar } from '../components/StudioContext';
 import { useProject } from '../ProjectContext';

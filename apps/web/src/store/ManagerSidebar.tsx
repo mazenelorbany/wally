@@ -2,7 +2,6 @@ import * as React from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  ClipboardCheck,
   GraduationCap,
   Home,
   ListChecks,
@@ -48,8 +47,9 @@ export function ManagerSidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   const items: NavItem[] = [
     { label: 'Home', icon: Home, to: '/store', end: true },
+    // Tasks IS the work surface — to-dos AND reports live there (the old
+    // separate "Store report" tab made managers bounce between two tabs).
     { label: 'Tasks', icon: ListChecks, to: '/store/tasks', badge: unseen },
-    { label: 'Store report', icon: ClipboardCheck, to: '/store/report' },
     { label: 'Bulletins', icon: Megaphone, to: '/store/bulletins', badge: unreadBulletins },
     { label: 'Floor map', icon: MapIcon, to: '/store/guide' },
     { label: 'Log sales', icon: Receipt, to: '/store/sales' },
@@ -60,7 +60,7 @@ export function ManagerSidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav
       aria-label="Store navigation"
-      className="flex h-full w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-black/40 bg-chrome px-3 py-5 text-chrome-ink"
+      className="flex h-full w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-chrome-line/70 bg-chrome px-3 py-4 text-chrome-ink"
     >
       <div className="px-2">
         <Wordmark tone="dark" />
@@ -79,7 +79,7 @@ export function ManagerSidebar({ onNavigate }: { onNavigate?: () => void }) {
               onClick={onNavigate}
               className={({ isActive }) =>
                 [
-                  'group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors duration-base ease-out',
+                  'group relative flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors duration-base ease-out',
                   isActive
                     ? 'bg-chrome-raised font-medium text-chrome-ink'
                     : 'text-chrome-muted hover:bg-chrome-raised/70 hover:text-chrome-ink',
@@ -96,7 +96,7 @@ export function ManagerSidebar({ onNavigate }: { onNavigate?: () => void }) {
                   ) : null}
                   <item.icon
                     className={[
-                      'h-[18px] w-[18px] shrink-0 transition-colors',
+                      'h-4 w-4 shrink-0 transition-colors',
                       isActive ? 'text-gold-bright' : 'text-chrome-muted group-hover:text-chrome-ink',
                     ].join(' ')}
                     aria-hidden="true"

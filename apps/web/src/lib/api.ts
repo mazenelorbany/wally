@@ -10,9 +10,13 @@
 import { createClient, ApiError } from '@wally/sdk';
 import type { WallyClient } from '@wally/sdk';
 
+// In production the SPA is served from the SAME origin as the API (one Railway
+// service), so default to the current origin and let the SDK append `/api`.
+// `VITE_API_URL` still overrides for split deployments; dev falls back to the
+// local API on :3001.
 const baseUrl =
   (import.meta.env.VITE_API_URL as string | undefined)?.trim() ||
-  'http://localhost:3001';
+  (import.meta.env.PROD ? window.location.origin : 'http://localhost:3001');
 
 export const api: WallyClient = createClient({ baseUrl });
 

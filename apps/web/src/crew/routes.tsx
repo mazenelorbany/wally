@@ -45,7 +45,7 @@ function CrewShell() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-paper">
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b border-black/40 bg-chrome px-4 text-chrome-ink sm:px-6">
+      <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b border-chrome-line/70 bg-chrome px-4 text-chrome-ink sm:px-6">
         <Wordmark tone="dark" />
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">

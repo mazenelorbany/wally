@@ -94,6 +94,32 @@ export class GuideFixtureDetailController {
       fixtureId,
     );
   }
+
+  /** Add a library fixture to the task as a photo request (places it on every store). */
+  @Post(':campaignId/fixtures/:fixtureId/request')
+  @UseGuards(NoViewerGuard)
+  addRequest(
+    @CurrentUser() user: SessionUser,
+    @Param('campaignId') campaignId: string,
+    @Param('fixtureId') fixtureId: string,
+  ) {
+    return this.guideFixtures.addFixtureToCampaign(user.orgId, campaignId, fixtureId);
+  }
+
+  /** Remove a photo request (refused once a store has photographed it). */
+  @Delete(':campaignId/fixtures/:fixtureId/request')
+  @UseGuards(NoViewerGuard)
+  removeRequest(
+    @CurrentUser() user: SessionUser,
+    @Param('campaignId') campaignId: string,
+    @Param('fixtureId') fixtureId: string,
+  ) {
+    return this.guideFixtures.removeFixtureFromCampaign(
+      user.orgId,
+      campaignId,
+      fixtureId,
+    );
+  }
 }
 
 // Mutations addressed by the GuideFixture's own id. All mutating, so the whole

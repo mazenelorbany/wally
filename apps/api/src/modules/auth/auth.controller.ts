@@ -20,7 +20,7 @@ import type { SessionUser } from '@wally/types';
 
 import { ZodValidationPipe } from '../org/zod-validation.pipe';
 
-import { AuthEnv } from './auth.config';
+import { AuthEnv, devLoginAllowed } from './auth.config';
 import {
   DevLoginSchema,
   MagicLinkRequestSchema,
@@ -151,7 +151,7 @@ export class AuthController {
     @Body(new ZodValidationPipe(DevLoginSchema)) dto: DevLoginInput,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SessionUser> {
-    if (AuthEnv.NODE_ENV === 'production') {
+    if (!devLoginAllowed()) {
       throw new UnauthorizedException('Dev login is disabled in production');
     }
     const session = await this.auth.devLogin(dto.role as Role);

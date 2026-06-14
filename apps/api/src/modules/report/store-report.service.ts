@@ -134,10 +134,12 @@ export class StoreReportService {
       include: { submittedBy: { select: { name: true, email: true } } },
     });
 
-    const score = await this.scoreParts(storeId, campaignId);
-    const questions = await this.questionStats(orgId, storeId, campaignId);
-    const checklist = await this.checklistStats(storeId, campaignId);
-    const lowConfidence = await this.hasLowConfidence(storeId, campaignId);
+    const [score, questions, checklist, lowConfidence] = await Promise.all([
+      this.scoreParts(storeId, campaignId),
+      this.questionStats(orgId, storeId, campaignId),
+      this.checklistStats(storeId, campaignId),
+      this.hasLowConfidence(storeId, campaignId),
+    ]);
 
     const hasWork =
       score.scored > 0 || questions.answered > 0 || checklist.checked > 0;
@@ -263,7 +265,7 @@ export class StoreReportService {
   ): Promise<{ sent: number }> {
     const campaign = await this.prisma.campaign.findFirst({
       where: { id: campaignId, orgId },
-      select: { id: true },
+      select: { id: true, name: true },
     });
     if (!campaign) throw new NotFoundException('campaign not found');
 
@@ -276,43 +278,88 @@ export class StoreReportService {
       throw new NotFoundException('one or more stores were not found in this org');
     }
 
-    let sent = 0;
-    for (const s of stores) {
-      const existing = await this.prisma.storeReport.findUnique({
-        where: { storeId_campaignId: { storeId: s.id, campaignId } },
-        select: { id: true, status: true },
+    // Batch instead of 2 queries per store: one read, then grouped writes.
+    const existing = await this.prisma.storeReport.findMany({
+      where: { campaignId, storeId: { in: stores.map((s) => s.id) } },
+      select: { id: true, storeId: true, status: true },
+    });
+    const existingByStore = new Map(existing.map((r) => [r.storeId, r]));
+    const isInFlight = (status: StoreReportStatus) =>
+      status === 'IN_PROGRESS' || status === 'SUBMITTED' || status === 'REOPENED';
+
+    const now = new Date();
+    const stamp = {
+      assignedAt: now,
+      assignedById: userId,
+      ...(dueAt !== undefined ? { dueAt } : {}),
+    };
+    // Don't reset a started/submitted report back to PENDING.
+    const inFlightIds = existing.filter((r) => isInFlight(r.status)).map((r) => r.id);
+    const restartIds = existing.filter((r) => !isInFlight(r.status)).map((r) => r.id);
+    const unassigned = stores.filter((s) => !existingByStore.has(s.id));
+
+    await this.prisma.$transaction([
+      ...(inFlightIds.length > 0
+        ? [this.prisma.storeReport.updateMany({ where: { id: { in: inFlightIds } }, data: stamp })]
+        : []),
+      ...(restartIds.length > 0
+        ? [
+            this.prisma.storeReport.updateMany({
+              where: { id: { in: restartIds } },
+              data: { ...stamp, status: 'PENDING' },
+            }),
+          ]
+        : []),
+      ...(unassigned.length > 0
+        ? [
+            this.prisma.storeReport.createMany({
+              data: unassigned.map((s) => ({
+                orgId,
+                storeId: s.id,
+                campaignId,
+                status: 'PENDING' as const,
+                assignedAt: now,
+                assignedById: userId,
+                dueAt: dueAt ?? null,
+              })),
+            }),
+          ]
+        : []),
+    ]);
+    const sent = stores.length;
+
+    // Surface the assignment in each store's Tasks list — the report alone is
+    // invisible until a manager stumbles into it. De-dupe on OPEN tasks with the
+    // same title so re-sending doesn't stack identical notices (mirrors the
+    // floor-plan publish fan-out).
+    const title = `Report requested — ${campaign.name}`;
+    const existingTasks = await this.prisma.task.findMany({
+      where: {
+        orgId,
+        campaignId,
+        status: 'OPEN',
+        title,
+        storeId: { in: stores.map((s) => s.id) },
+      },
+      select: { storeId: true },
+    });
+    const alreadyNotified = new Set(existingTasks.map((t) => t.storeId));
+    const fresh = stores.filter((s) => !alreadyNotified.has(s.id));
+    if (fresh.length > 0) {
+      await this.prisma.task.createMany({
+        data: fresh.map((s) => ({
+          orgId,
+          storeId: s.id,
+          campaignId,
+          kind: 'GENERAL',
+          status: 'OPEN',
+          title,
+          body: 'Open your report to answer the questions and upload the requested photos.',
+          dueAt: dueAt ?? null,
+        })),
       });
-      const inFlight =
-        existing &&
-        (existing.status === 'IN_PROGRESS' ||
-          existing.status === 'SUBMITTED' ||
-          existing.status === 'REOPENED');
-      if (existing) {
-        await this.prisma.storeReport.update({
-          where: { id: existing.id },
-          data: {
-            // Don't reset a started/submitted report back to PENDING.
-            ...(inFlight ? {} : { status: 'PENDING' }),
-            assignedAt: new Date(),
-            assignedById: userId,
-            ...(dueAt !== undefined ? { dueAt } : {}),
-          },
-        });
-      } else {
-        await this.prisma.storeReport.create({
-          data: {
-            orgId,
-            storeId: s.id,
-            campaignId,
-            status: 'PENDING',
-            assignedAt: new Date(),
-            assignedById: userId,
-            dueAt: dueAt ?? null,
-          },
-        });
-      }
-      sent += 1;
     }
+
     return { sent };
   }
 
@@ -598,18 +645,28 @@ export class StoreReportService {
   ): Promise<StoreReportSummaryDto[]> {
     const campaign = await this.prisma.campaign.findFirst({
       where: { id: campaignId, orgId },
-      select: { id: true },
+      select: { id: true, projectId: true },
     });
     if (!campaign) throw new NotFoundException('campaign not found');
 
-    // Stores that have a floor plan for this campaign (placements exist).
+    // Stores that have a floor plan for this campaign (placements exist). A
+    // question-only task has no placements at all — fall back to every active
+    // store the campaign can reach (its project's stores; a project-less task
+    // reaches the whole org), so it can still be sent and reported on.
     const placed = await this.prisma.placement.findMany({
       where: { campaignId, orgId },
       select: { storeId: true },
       distinct: ['storeId'],
     });
     const stores = await this.prisma.store.findMany({
-      where: { id: { in: placed.map((p) => p.storeId) }, orgId, closedAt: null },
+      where:
+        placed.length > 0
+          ? { id: { in: placed.map((p) => p.storeId) }, orgId, closedAt: null }
+          : {
+              orgId,
+              closedAt: null,
+              ...(campaign.projectId ? { projectId: campaign.projectId } : {}),
+            },
       select: { id: true, name: true, brand: true, region: true },
       orderBy: [{ brand: 'asc' }, { name: 'asc' }],
     });
@@ -619,42 +676,46 @@ export class StoreReportService {
     });
     const reportByStore = new Map(reports.map((r) => [r.storeId, r]));
 
-    const rows: StoreReportSummaryDto[] = [];
-    for (const store of stores) {
-      const report = reportByStore.get(store.id);
-      const score = await this.scoreParts(store.id, campaignId);
-      const questions = await this.questionStats(orgId, store.id, campaignId);
-      const checklist = await this.checklistStats(store.id, campaignId);
-      const lowConfidence = await this.hasLowConfidence(store.id, campaignId);
-      const hasWork =
-        score.scored > 0 || questions.answered > 0 || checklist.checked > 0;
-      const status = deriveStatus(report?.status ?? null, hasWork);
-      const submitted = status === 'SUBMITTED';
-      rows.push({
-        storeId: store.id,
-        storeName: store.name,
-        brand: store.brand,
-        region: store.region,
-        status,
-        totalScore: submitted
-          ? (report?.totalScore ?? score.totalScore)
-          : score.totalScore,
-        assignedAt: report?.assignedAt ? report.assignedAt.toISOString() : null,
-        dueAt: report?.dueAt ? report.dueAt.toISOString() : null,
-        submittedAt: report?.submittedAt ? report.submittedAt.toISOString() : null,
-        flags: {
-          nonCompliant: score.nonCompliant,
-          lowConfidence,
-          incomplete:
-            score.expected > score.scored ||
-            questions.requiredUnanswered > 0 ||
-            checklist.requiredUnchecked > 0 ||
-            !submitted,
-          notSubmitted: !submitted,
-        },
-      });
-    }
-    return rows;
+    // Each store's stats are independent — compute them concurrently instead of
+    // ~5 sequential queries per store (the Prisma pool throttles the fan-out).
+    return Promise.all(
+      stores.map(async (store): Promise<StoreReportSummaryDto> => {
+        const report = reportByStore.get(store.id);
+        const [score, questions, checklist, lowConfidence] = await Promise.all([
+          this.scoreParts(store.id, campaignId),
+          this.questionStats(orgId, store.id, campaignId),
+          this.checklistStats(store.id, campaignId),
+          this.hasLowConfidence(store.id, campaignId),
+        ]);
+        const hasWork =
+          score.scored > 0 || questions.answered > 0 || checklist.checked > 0;
+        const status = deriveStatus(report?.status ?? null, hasWork);
+        const submitted = status === 'SUBMITTED';
+        return {
+          storeId: store.id,
+          storeName: store.name,
+          brand: store.brand,
+          region: store.region,
+          status,
+          totalScore: submitted
+            ? (report?.totalScore ?? score.totalScore)
+            : score.totalScore,
+          assignedAt: report?.assignedAt ? report.assignedAt.toISOString() : null,
+          dueAt: report?.dueAt ? report.dueAt.toISOString() : null,
+          submittedAt: report?.submittedAt ? report.submittedAt.toISOString() : null,
+          flags: {
+            nonCompliant: score.nonCompliant,
+            lowConfidence,
+            incomplete:
+              score.expected > score.scored ||
+              questions.requiredUnanswered > 0 ||
+              checklist.requiredUnchecked > 0 ||
+              !submitted,
+            notSubmitted: !submitted,
+          },
+        };
+      }),
+    );
   }
 }
 

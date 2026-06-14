@@ -21,6 +21,10 @@ export interface RollupRule {
 
 export interface Rubric {
   id: string;
+  /** The library fixture this rubric grades. Null on legacy free-text rows. */
+  fixtureId?: string | null;
+  /** The linked fixture's display name (null on legacy rows — show fixtureKey). */
+  fixtureName?: string | null;
   fixtureKey: string;
   campaignKey: string;
   version: number;
@@ -561,6 +565,9 @@ export interface TaskDto {
   body?: string | null;
   /** For UPLOAD_PHOTO: the fixture whose photo is wanted. */
   fixtureKey?: string | null;
+  /** The campaign this task accompanies (e.g. a "Report requested" notice) —
+   *  lets the manager Tasks list fold the notice into its report row. */
+  campaignId?: string | null;
   dueAt?: string | null;
   /**
    * Whether the CURRENT viewer has seen this task (per-user, from TaskRead).
@@ -994,8 +1001,6 @@ export interface ManagerReportListItem {
   totalScore?: number | null;
   dueAt?: string | null;
   submittedAt?: string | null;
-  /** True for the store's current (active/most-recent) campaign — the editable one. */
-  current: boolean;
 }
 
 /** The low-confidence flag threshold (AI confidence below this is flagged). */
@@ -1121,4 +1126,52 @@ export interface ResourceDto {
   attachmentName?: string | null;
   pinned: boolean;
   createdAt: string;
+}
+
+// ----- Review threads (comments on a store's report) -------------------------
+
+export type ReviewThreadStatus = 'OPEN' | 'RESOLVED';
+
+export interface ReviewCommentDto {
+  id: string;
+  body: string;
+  authorName: string;
+  /** Role chip next to the author — managers vs. head office reads differently. */
+  authorRole: Role;
+  createdAt: string;
+}
+
+/**
+ * A review conversation anchored to one piece of a store's report: a fixture's
+ * photo step (optionally pinned to a spot on one photo, normalized 0..1) or a
+ * question answer. Admin/reviewer opens it, the store manager replies, a
+ * moderator resolves.
+ */
+export interface ReviewThreadDto {
+  id: string;
+  storeId: string;
+  campaignId: string;
+  fixtureId: string | null;
+  questionId: string | null;
+  photoId: string | null;
+  pinX: number | null;
+  pinY: number | null;
+  status: ReviewThreadStatus;
+  createdAt: string;
+  createdByName: string;
+  resolvedAt: string | null;
+  resolvedByName: string | null;
+  comments: ReviewCommentDto[];
+}
+
+/** Body for opening a review thread (the first comment rides along). */
+export interface CreateReviewThreadBody {
+  storeId: string;
+  campaignId: string;
+  fixtureId?: string;
+  questionId?: string;
+  photoId?: string;
+  pinX?: number;
+  pinY?: number;
+  body: string;
 }

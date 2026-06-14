@@ -16,6 +16,7 @@ import type { StoreReportSummaryDto } from '@wally/sdk';
 import { api } from '../../lib/api';
 import { EmptyState, ErrorState } from '../../components/states';
 import { useSetStudioTopBar } from '../components/StudioContext';
+import { splitVenueName } from '../lib/venue';
 
 const STATUS_LABEL: Record<string, string> = {
   ACTIVE: 'Live',
@@ -53,7 +54,7 @@ export function ReportsView() {
     queryFn: () => api.campaigns.list(),
   });
   // Scoped to the task in the URL; falls back to the active task for the bare
-  // /studio/reports entry (kept so old links don't 404).
+  // /studio/reports entry (the reviewer rail item).
   const campaign =
     (paramId ? campaignsQ.data?.find((c) => c.id === paramId) : undefined) ??
     campaignsQ.data?.find((c) => c.status === 'ACTIVE') ??
@@ -159,8 +160,17 @@ export function ReportsView() {
           }
         />
       ) : (
-        <ul className="divide-y divide-mist/50 overflow-hidden rounded-lg border border-mist/60 bg-paper">
-          {rows.map((r) => (
+        <div className="space-y-4">
+          {groupRowsByVenue(rows).map((g) => (
+            <section key={g.venue}>
+              <h2 className="mb-1.5 text-[11px] font-semibold uppercase tracking-brand text-steel">
+                {g.venue}
+                <span className="ml-1.5 font-normal text-steel/70">
+                  ({g.rows.length})
+                </span>
+              </h2>
+              <ul className="divide-y divide-mist/50 overflow-hidden rounded-lg border border-mist/60 bg-paper">
+                {g.rows.map((r) => (
             <li key={r.storeId}>
               <Link
                 to={`/studio/tasks/${campaign!.id}/${r.storeId}`}
@@ -168,7 +178,7 @@ export function ReportsView() {
               >
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-display text-[15px] font-semibold text-ink">
-                    {r.storeName}{' '}
+                    {splitVenueName(r.storeName).brand || r.storeName}{' '}
                     <span className="font-normal text-steel">· {r.brand}</span>
                   </span>
                   <span className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -210,11 +220,28 @@ export function ReportsView() {
                 <ChevronRight className="h-4 w-4 shrink-0 text-mist" />
               </Link>
             </li>
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
+}
+
+/** Group submission rows under their physical venue, preserving sort order. */
+function groupRowsByVenue<T extends { storeName: string }>(
+  rows: T[],
+): { venue: string; rows: T[] }[] {
+  const map = new Map<string, { venue: string; rows: T[] }>();
+  for (const r of rows) {
+    const { venue } = splitVenueName(r.storeName);
+    const g = map.get(venue) ?? { venue, rows: [] };
+    g.rows.push(r);
+    map.set(venue, g);
+  }
+  return [...map.values()];
 }
 
 function StatusBadge({ status }: { status: string }) {

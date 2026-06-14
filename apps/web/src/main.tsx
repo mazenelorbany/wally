@@ -9,10 +9,6 @@ import '@wally/ui/styles.css';
 
 import { router } from './router';
 import { ToastProvider } from './lib/toast';
-import {
-  installConnectivityListeners,
-  useCaptureQueue,
-} from './lib/captureQueue';
 import { registerServiceWorker } from './sw-register';
 
 const queryClient = new QueryClient({
@@ -27,12 +23,6 @@ const queryClient = new QueryClient({
     },
   },
 });
-
-// Boot the offline capture queue from IndexedDB and start watching connectivity
-// before first paint, so a store manager who reopens the app mid-shoot sees
-// their pending uploads immediately and they resume on reconnect.
-void useCaptureQueue.getState().hydrate();
-installConnectivityListeners();
 
 // Register the offline service worker (production only; see sw-register).
 registerServiceWorker();

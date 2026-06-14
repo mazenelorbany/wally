@@ -13,32 +13,32 @@ type Variant =
 type Size = "sm" | "md" | "lg" | "icon";
 
 const variants: Record<Variant, string> = {
-  // Ink on paper — the calm default CTA. Gold focus ring brands the moment.
+  // Ink on paper — the calm default CTA. A whisper of inner light on top so
+  // the fill reads dimensional (the Stripe button trick). Gold focus ring.
   primary:
-    "bg-ink text-paper hover:bg-graphite focus-visible:ring-gold/55",
+    "bg-ink text-paper shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_1px_2px_rgba(20,23,31,0.24)] hover:bg-graphite focus-visible:ring-gold/55",
   // Quiet surface fill.
   secondary:
-    "bg-surface text-ink hover:bg-mist/40 focus-visible:ring-gold/45",
+    "bg-surface text-ink hover:bg-mist/50 focus-visible:ring-gold/45",
   // No chrome until hover.
   ghost:
-    "bg-transparent text-graphite hover:bg-surface focus-visible:ring-gold/45",
+    "bg-transparent text-graphite hover:bg-surface hover:text-ink focus-visible:ring-gold/45",
   // The one accent — destructive / stop. Reserve for genuine stop actions.
   signal:
-    "bg-signal text-paper hover:bg-signal/90 focus-visible:ring-signal/45",
-  // Hairline outline.
+    "bg-signal text-paper shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_1px_2px_rgba(201,44,38,0.28)] hover:bg-signal/90 focus-visible:ring-signal/45",
+  // White + hairline + soft drop — the Stripe secondary.
   outline:
-    "border border-mist bg-transparent text-ink hover:border-steel hover:bg-surface focus-visible:ring-gold/45",
-  // The brand accent — Cuisine::pro red for a headline CTA. Light text: the
-  // accent is now a deep red, so cream/white reads, not the dark chrome ink.
+    "border border-mist bg-white text-ink shadow-[0_1px_2px_rgba(20,23,31,0.05)] hover:border-steel/60 hover:bg-surface/60 focus-visible:ring-gold/45",
+  // The brand accent — Cuisine::pro red for a headline CTA.
   gold:
-    "bg-gold text-chrome-ink shadow-card hover:bg-gold-bright focus-visible:ring-gold/55",
+    "bg-gold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_1px_2px_rgba(122,0,0,0.35)] hover:bg-gold-bright focus-visible:ring-gold/55",
 };
 
 const sizes: Record<Size, string> = {
-  sm: "h-8 px-3 text-xs",
-  md: "h-9 px-4 text-sm",
-  lg: "h-11 px-6 text-sm",
-  icon: "h-9 w-9",
+  sm: "h-7 px-2.5 text-xs",
+  md: "h-8 px-3.5 text-[13px]",
+  lg: "h-10 px-5 text-sm",
+  icon: "h-8 w-8",
 };
 
 export interface ButtonProps

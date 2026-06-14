@@ -16,6 +16,7 @@ import type { StoreBand, StoreSales, StoreScore } from '@wally/types';
 import { api } from '../../lib/api';
 import { ErrorState } from '../../components/states';
 import { useProjectCampaign } from '../lib/useProjectCampaign';
+import { splitVenueName } from '../lib/venue';
 import { useSetStudioTopBar } from '../components/StudioContext';
 import {
   PERIOD_OPTIONS,
@@ -97,6 +98,66 @@ function mergeStores(sales: StoreSales[], scores: StoreScore[]): Merged[] {
     units: s.units,
     compliance: byStore.get(s.storeId),
   }));
+}
+
+/** Worst-wins ordering for the venue band chip (a failing concession drags the venue). */
+const BAND_SEVERITY: Record<string, number> = {
+  not_good: 0,
+  needs_review: 1,
+  incomplete: 2,
+  good: 3,
+  perfect: 4,
+};
+
+/**
+ * Fold concession mini-stores into ONE row per physical venue ("Adelaide City
+ * Myer — The Cookshop" + "— The Custom Chef" → "Adelaide City Myer"): revenue
+ * and units sum; compliance merges (fixtures concatenated, expected/submitted
+ * summed) so pass-rate and completion read across the whole venue; the band
+ * chip takes the WORST concession. The venue ranks as one store.
+ */
+function consolidateVenues(merged: Merged[]): Merged[] {
+  const byVenue = new Map<string, Merged[]>();
+  for (const m of merged) {
+    const { venue } = splitVenueName(m.storeName);
+    const list = byVenue.get(venue) ?? [];
+    list.push(m);
+    byVenue.set(venue, list);
+  }
+  return [...byVenue.entries()].map(([venue, subs]) => {
+    if (subs.length === 1) return { ...subs[0]!, storeName: venue };
+    const scores = subs.map((x) => x.compliance).filter((c): c is StoreScore => Boolean(c));
+    const compliance: StoreScore | undefined =
+      scores.length === 0
+        ? undefined
+        : {
+            ...scores[0]!,
+            storeName: venue,
+            expected: scores.reduce((n, c) => n + c.expected, 0),
+            submitted: scores.reduce((n, c) => n + c.submitted, 0),
+            fixtures: scores.flatMap((c) => c.fixtures),
+            failed: scores.flatMap((c) => c.failed),
+            review: scores.flatMap((c) => c.review),
+            missing: scores.flatMap((c) => c.missing),
+            needsReview: scores.some((c) => c.needsReview),
+            overall: scores.reduce(
+              (worst, c) =>
+                (BAND_SEVERITY[c.overall] ?? 9) < (BAND_SEVERITY[worst] ?? 9)
+                  ? c.overall
+                  : worst,
+              scores[0]!.overall,
+            ),
+          };
+    return {
+      // Stable id for rank-movement tracking across periods.
+      storeId: `venue:${venue}`,
+      storeName: venue,
+      region: subs[0]!.region,
+      revenue: subs.reduce((n, x) => n + x.revenue, 0),
+      units: subs.reduce((n, x) => n + x.units, 0),
+      compliance,
+    };
+  });
 }
 
 /**
@@ -185,17 +246,16 @@ export function LeaderboardView() {
   // Previous-period ranks (region-filtered the same way), for movement deltas.
   const prevRanks = React.useMemo(() => {
     if (!resolved.previous || prevSalesQ.data == null) return null;
-    const merged = mergeStores(
-      prevSalesQ.data,
-      prevQueueQ.data ?? [],
+    const merged = consolidateVenues(
+      mergeStores(prevSalesQ.data, prevQueueQ.data ?? []),
     ).filter((s) => region === 'all' || s.region === region);
     return rankMap(merged);
   }, [prevSalesQ.data, prevQueueQ.data, region, resolved.previous]);
 
   const ranked: Ranked[] = React.useMemo(() => {
-    const merged = mergeStores(salesQ.data ?? [], queueQ.data ?? []).filter(
-      (s) => region === 'all' || s.region === region,
-    );
+    const merged = consolidateVenues(
+      mergeStores(salesQ.data ?? [], queueQ.data ?? []),
+    ).filter((s) => region === 'all' || s.region === region);
     return [...merged].sort(compareMerged).map((s, i) => {
       const prev = prevRanks?.get(s.storeId);
       // Up = smaller rank number, so delta = prevRank - currentRank.

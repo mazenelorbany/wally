@@ -14,20 +14,19 @@ export {
   type VerdictIconName,
 } from "./colors";
 
-/** Geometric font stack — Century Gothic first, Questrial as the loaded web
- *  fallback, Futura + generic geometrics behind it. Mirrored in styles.css as
- *  `--font-display` / `--font-sans` and in the Tailwind preset. */
+/** Inter for everything — headings differ by weight + tracking, not face
+ *  (Linear/Stripe lineage). Mirrored in styles.css as `--font-display` /
+ *  `--font-sans` and in the Tailwind preset. */
 export const fontStack = {
-  display:
-    '"Century Gothic", "Questrial", "Futura", "Avenir Next", "Avenir", system-ui, sans-serif',
-  sans: '"Questrial", "Century Gothic", "Futura", system-ui, -apple-system, "Segoe UI", sans-serif',
+  display: '"Inter", system-ui, -apple-system, "Segoe UI", sans-serif',
+  sans: '"Inter", system-ui, -apple-system, "Segoe UI", sans-serif',
 } as const;
 
-/** Corner radii. Calm + editorial: small, consistent. */
+/** Corner radii. Calm + crisp: small, consistent. */
 export const radius = {
-  sm: "0.25rem",
+  sm: "0.375rem",
   md: "0.5rem",
-  lg: "0.75rem",
+  lg: "0.625rem",
   pill: "9999px",
 } as const;
 

@@ -39,6 +39,8 @@ interface NavItem {
   external?: boolean;
   soon?: boolean;
   end?: boolean;
+  /** Hidden from ADMINs (who reach the same surface elsewhere, e.g. a Tasks card). */
+  reviewerOnly?: boolean;
 }
 
 interface NavGroup {
@@ -84,9 +86,10 @@ const GROUPS: NavGroup[] = [
       { label: 'Dashboard', icon: LayoutDashboard, to: () => '/studio/dashboard' },
       { label: 'Leaderboard', icon: Trophy, to: () => '/studio/leaderboard' },
       { label: 'Insights', icon: BarChart3, to: () => '/studio/insights' },
-      // Read-only submissions browser (esp. for reviewers); admins also reach a
-      // task's submissions from its Tasks card.
-      { label: 'Submissions', icon: FileText, to: () => '/studio/reports' },
+      // Read-only submissions browser for REVIEWERs. Admins reach a task's
+      // submissions from its Tasks card — a duplicate rail item just made two
+      // modules look interlinked, so it's hidden for them.
+      { label: 'Submissions', icon: FileText, to: () => '/studio/reports', reviewerOnly: true },
     ],
   },
   {
@@ -173,7 +176,7 @@ export function Sidebar() {
   return (
     <nav
       aria-label="Studio navigation"
-      className="flex w-56 shrink-0 flex-col gap-3 overflow-y-auto border-r border-black/40 bg-chrome px-3 py-5 text-chrome-ink"
+      className="flex w-56 shrink-0 flex-col gap-3 overflow-y-auto border-r border-chrome-line/70 bg-chrome px-3 py-4 text-chrome-ink"
     >
       <div className="px-2">
         <Wordmark tone="dark" />
@@ -181,7 +184,11 @@ export function Sidebar() {
 
       <ProjectSwitcher />
 
-      {GROUPS.filter((group) => !group.adminOnly || isAdmin).map((group) => {
+      {GROUPS.filter((group) => !group.adminOnly || isAdmin).map((rawGroup) => {
+        const group = {
+          ...rawGroup,
+          items: rawGroup.items.filter((i) => !i.reviewerOnly || !isAdmin),
+        };
         // Auto-expand a collapsed section when you're on a page inside it, so
         // the active item is never hidden.
         const hasActive = group.items.some((i) =>
@@ -358,7 +365,7 @@ function NavRow({
   const Icon = item.icon;
   const to = item.to(params);
   const base =
-    'group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors duration-base ease-out';
+    'group relative flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors duration-base ease-out';
   const inner = (active: boolean) => (
     <>
       {active ? (
@@ -369,7 +376,7 @@ function NavRow({
       ) : null}
       <Icon
         className={cn(
-          'h-[18px] w-[18px] shrink-0 transition-colors',
+          'h-4 w-4 shrink-0 transition-colors',
           active ? 'text-gold-bright' : 'text-chrome-muted group-hover:text-chrome-ink',
         )}
         aria-hidden="true"

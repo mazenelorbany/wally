@@ -33,6 +33,7 @@ import { useToast } from '../../lib/toast';
 import { EmptyState, ErrorState } from '../../components/states';
 import { useSetStudioTopBar } from '../components/StudioContext';
 import { CampaignQuestionsDialog } from './CampaignQuestionsDialog';
+import { brandLabel, splitVenueName } from '../lib/venue';
 
 const fieldCls =
   'w-full rounded-md border border-mist/70 bg-paper px-3 py-2 text-sm text-ink transition-colors focus:border-graphite focus:outline-none';
@@ -65,6 +66,13 @@ const BUCKETS: { key: Bucket; label: string; dot: string }[] = [
   { key: 'done', label: 'Done', dot: 'bg-graphite' },
 ];
 
+// The status toggle above the grid: All shows every bucket grouped; a single
+// bucket filters to just those cards (same pattern as the manager's Tasks tab).
+const FILTERS: { key: Bucket | 'all'; label: string }[] = [
+  { key: 'all', label: 'All' },
+  ...BUCKETS.map(({ key, label }) => ({ key, label })),
+];
+
 /**
  * The Tasks hub — the single place an admin builds a job (fixtures + questions),
  * sends it to stores, and watches it get completed. Tasks are grouped by Live /
@@ -82,6 +90,7 @@ export function TasksView() {
   });
 
   const [creating, setCreating] = React.useState(false);
+  const [filter, setFilter] = React.useState<Bucket | 'all'>('all');
   const [editing, setEditing] = React.useState<CampaignSummary | null>(null);
   const [questioning, setQuestioning] = React.useState<CampaignSummary | null>(null);
   const [sending, setSending] = React.useState<CampaignSummary | null>(null);
@@ -194,8 +203,37 @@ export function TasksView() {
           body="Create your first task, add its fixtures and questions, then send it to your stores."
         />
       ) : (
-        <div className="space-y-7">
-          {BUCKETS.map(({ key, label, dot }) =>
+        <div className="space-y-5">
+          {/* Status toggle */}
+          <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter tasks">
+            {FILTERS.map((f) => {
+              const count =
+                f.key === 'all' ? tasks.length : grouped[f.key as Bucket].length;
+              return (
+                <button
+                  key={f.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={filter === f.key}
+                  onClick={() => setFilter(f.key)}
+                  className={cn(
+                    'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+                    filter === f.key
+                      ? 'border-ink bg-ink text-paper'
+                      : 'border-mist/70 bg-paper text-graphite hover:border-steel',
+                  )}
+                >
+                  {f.label}
+                  <span className={cn('ml-1', filter === f.key ? 'text-paper/70' : 'text-steel')}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {BUCKETS.filter(({ key }) => filter === 'all' || filter === key).map(
+            ({ key, label, dot }) =>
             grouped[key].length > 0 ? (
               <section key={key}>
                 <h2 className="mb-2.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-brand text-steel">
@@ -604,6 +642,20 @@ function EditForm({ task, onDone }: { task: CampaignSummary; onDone: () => void 
  * also makes it live (one button = "go live + assign") so the stores it's sent
  * to immediately see it in their Tasks.
  */
+/** Group a store list under its physical venue, preserving first-seen order. */
+function groupByVenue<T extends { storeName: string }>(
+  rows: T[],
+): { venue: string; stores: T[] }[] {
+  const map = new Map<string, { venue: string; stores: T[] }>();
+  for (const r of rows) {
+    const { venue } = splitVenueName(r.storeName);
+    const g = map.get(venue) ?? { venue, stores: [] };
+    g.stores.push(r);
+    map.set(venue, g);
+  }
+  return [...map.values()];
+}
+
 export function SendTaskDialog({
   task,
   onClose,
@@ -727,21 +779,33 @@ export function SendTaskDialog({
                 placeholder="Filter by name, brand, region…"
                 className={fieldCls}
               />
-              <ul className="mt-2 max-h-56 space-y-0.5 overflow-y-auto rounded-md border border-mist/70 bg-paper p-1">
-                {filtered.map((s) => (
-                  <li key={s.storeId}>
-                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-mist/30">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(s.storeId)}
-                        onChange={() => toggle(s.storeId)}
-                        className="h-4 w-4 shrink-0 rounded border-mist accent-graphite"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-ink">
-                        {s.storeName}
-                      </span>
-                      <span className="shrink-0 text-xs text-steel">{s.brand}</span>
-                    </label>
+              <ul className="mt-2 max-h-56 overflow-y-auto rounded-md border border-mist/70 bg-paper p-1">
+                {/* One venue = several concession mini-stores; group them under
+                    the venue so "Adelaide City Myer" reads as one place. */}
+                {groupByVenue(filtered).map((g) => (
+                  <li key={g.venue}>
+                    <p className="px-2 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-brand text-steel">
+                      {g.venue}
+                    </p>
+                    <ul className="space-y-0.5">
+                      {g.stores.map((s) => (
+                        <li key={s.storeId}>
+                          <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-mist/30">
+                            <input
+                              type="checkbox"
+                              checked={selected.has(s.storeId)}
+                              onChange={() => toggle(s.storeId)}
+                              className="h-4 w-4 shrink-0 rounded border-mist accent-graphite"
+                            />
+                            <span className="min-w-0 flex-1 truncate text-ink">
+                              {brandLabel(splitVenueName(s.storeName).brand) ||
+                                s.storeName}
+                            </span>
+                            <span className="shrink-0 text-xs text-steel">{s.brand}</span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
                   </li>
                 ))}
                 {filtered.length === 0 ? (

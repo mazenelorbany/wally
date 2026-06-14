@@ -1,0 +1,22 @@
+# Reinstalled / rebuilt inside the image — never copy host artifacts in.
+**/node_modules
+**/dist
+**/.turbo
+**/*.tsbuildinfo
+
+# Secrets stay on the host; Railway provides real env vars.
+.env
+.env.local
+**/.env
+!.env.example
+
+# Local-only state and uploads (photos may contain people).
+apps/api/storage/
+data/uploads/
+.gstack/
+.venv/
+coverage/
+**/.DS_Store
+.git
+# Baked demo data is added only for the enrichment deploy (see railway.json).
+seed-data/

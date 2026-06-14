@@ -72,7 +72,11 @@ export class CampaignService {
       activatedAt: c.activatedAt,
       closedAt: c.closedAt,
       archivedAt: c.archivedAt,
-      storeCount: c._count.submissions,
+      // Stores participating in the campaign. Floor-map campaigns track stores
+      // via legacy Submission rows; report/task campaigns via StoreReport
+      // assignments — counting only submissions left task campaigns reading
+      // "0 stores" in the reviewer console even after stores submitted.
+      storeCount: Math.max(c._count.submissions, c._count.storeReports),
       // Task-hub fields: what the task contains + how far along it is.
       fixtureCount: c._count.guideFixtures,
       questionCount: questionsBy.get(c.id) ?? 0,

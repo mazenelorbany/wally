@@ -167,7 +167,7 @@ export function GuideFixtureDetailView() {
                 {row.row ? (
                   <p className="mb-1.5 text-xs font-medium text-graphite">{row.row}</p>
                 ) : null}
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
                   {row.products.map((p) => (
                     <div
                       key={p.id}

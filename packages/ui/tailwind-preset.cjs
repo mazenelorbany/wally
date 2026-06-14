@@ -1,5 +1,5 @@
 // =============================================================================
-// @wally/ui — Tailwind preset (the TCC brand).
+// @wally/ui — Tailwind preset (the Wally design language).
 //
 // Consume from apps/web's tailwind config:
 //
@@ -14,7 +14,8 @@
 //
 // Colours resolve through CSS custom properties (defined in @wally/ui/styles.css)
 // so a single import themes the whole app, while the hex defaults below keep the
-// preset usable even before the stylesheet loads. Warm monochrome + ONE signal
+// preset usable even before the stylesheet loads. Cool monochrome canvas
+// (Stripe-style light), deep cool chrome rails (Linear-style dark), ONE brand
 // red; pass/warn hues are reinforcement only (always paired with icon + label).
 // =============================================================================
 
@@ -30,63 +31,59 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Warm monochrome scale (the data canvas).
-        paper: tone("--wally-paper", "#FBFBF9"),
-        surface: tone("--wally-surface", "#F3F2EE"),
-        ink: tone("--wally-ink", "#0E0E0D"),
-        graphite: tone("--wally-graphite", "#3C3B36"),
-        steel: tone("--wally-steel", "#7E7D77"),
-        mist: tone("--wally-mist", "#BEBDB6"),
+        // Cool monochrome scale (the data canvas).
+        paper: tone("--wally-paper", "#FCFCFD"),
+        surface: tone("--wally-surface", "#F4F5F8"),
+        ink: tone("--wally-ink", "#14171F"),
+        graphite: tone("--wally-graphite", "#3E4654"),
+        steel: tone("--wally-steel", "#686F83"),
+        mist: tone("--wally-mist", "#D9DCE3"),
 
         // Brand RED accent — Cuisine::pro red. `gold` for fills/borders/active
         // marks; `gold-bright` for glow on chrome; `gold-deep` for accent text
         // on light that must stay legible. (Token name kept `gold` so the
-        // re-theme was a value-only swap; the hue is now the brand red.)
+        // re-theme was a value-only swap; the hue is the brand red.)
         gold: {
           DEFAULT: v("--wally-gold", "#9A0000"),
           bright: v("--wally-gold-bright", "#C21A1A"),
           deep: v("--wally-gold-deep", "#7A0000"),
         },
 
-        // Premium dark CHROME (sidebars / login / brand surfaces).
+        // Deep cool CHROME (sidebars / login / brand surfaces).
         chrome: {
-          DEFAULT: v("--wally-chrome", "#16140E"),
-          raised: v("--wally-chrome-raised", "#221F16"),
-          line: v("--wally-chrome-line", "#322E20"),
-          ink: v("--wally-chrome-ink", "#F4F1E8"),
-          muted: v("--wally-chrome-muted", "#9E998B"),
+          DEFAULT: v("--wally-chrome", "#101216"),
+          raised: v("--wally-chrome-raised", "#1A1D24"),
+          line: v("--wally-chrome-line", "#272C37"),
+          ink: v("--wally-chrome-ink", "#EDEFF3"),
+          muted: v("--wally-chrome-muted", "#8B93A6"),
         },
 
         // The "stop" accent.
-        signal: tone("--wally-signal", "#A6342A"),
+        signal: tone("--wally-signal", "#C92C26"),
 
         // Reinforcement hues — never used hue-alone in components.
-        pass: tone("--wally-pass", "#3E7C5A"),
-        warn: tone("--wally-warn", "#5B6B7A"),
+        pass: tone("--wally-pass", "#148052"),
+        warn: tone("--wally-warn", "#5B6B83"),
 
         // Semantic aliases so component classes read intent, not raw tone.
-        background: tone("--wally-paper", "#FBFBF9"),
-        foreground: tone("--wally-ink", "#0E0E0D"),
-        muted: { DEFAULT: v("--wally-surface", "#F3F2EE"), foreground: v("--wally-steel", "#7E7D77") },
-        border: tone("--wally-mist", "#BEBDB6"),
-        ring: tone("--wally-ink", "#0E0E0D"),
+        background: tone("--wally-paper", "#FCFCFD"),
+        foreground: tone("--wally-ink", "#14171F"),
+        muted: { DEFAULT: v("--wally-surface", "#F4F5F8"), foreground: v("--wally-steel", "#686F83") },
+        border: tone("--wally-mist", "#D9DCE3"),
+        ring: tone("--wally-ink", "#14171F"),
       },
 
       fontFamily: {
-        // Century Gothic first, Questrial as the loaded fallback, then Futura.
+        // Inter everywhere — headings differ by weight + tracking, not face.
         display: [
-          v("--wally-font-display", '"Century Gothic"'),
-          "Questrial",
-          "Futura",
-          "Avenir Next",
-          "Avenir",
+          v("--wally-font-display", '"Inter"'),
           "system-ui",
+          "-apple-system",
+          '"Segoe UI"',
           "sans-serif",
         ],
         sans: [
-          v("--wally-font-sans", '"Questrial"'),
-          '"Century Gothic"',
-          "Futura",
+          v("--wally-font-sans", '"Inter"'),
           "system-ui",
           "-apple-system",
           '"Segoe UI"',
@@ -95,14 +92,14 @@ module.exports = {
       },
 
       borderRadius: {
-        sm: "0.25rem",
+        sm: "0.375rem",
         md: "0.5rem",
-        lg: "0.75rem",
+        lg: "0.625rem",
       },
 
       letterSpacing: {
-        // Geometric wordmarks breathe.
-        brand: "0.18em",
+        // Wordmarks / eyebrows breathe.
+        brand: "0.14em",
       },
 
       transitionTimingFunction: {
@@ -144,10 +141,11 @@ module.exports = {
       },
 
       boxShadow: {
-        // Calm, low elevation — editorial, not glossy.
-        card: "0 1px 2px rgba(14, 14, 13, 0.04), 0 1px 1px rgba(14, 14, 13, 0.03)",
-        raised: "0 6px 24px -8px rgba(14, 14, 13, 0.18)",
-        lift: "0 10px 30px -12px rgba(14, 14, 13, 0.22)",
+        // Layered, low elevation — crisp hairline ring + soft drop (Stripe).
+        card: "0 0 0 1px rgba(20, 23, 31, 0.04), 0 1px 1px rgba(20, 23, 31, 0.03), 0 1px 3px rgba(20, 23, 31, 0.05)",
+        raised:
+          "0 0 0 1px rgba(20, 23, 31, 0.04), 0 4px 8px -2px rgba(20, 23, 31, 0.06), 0 12px 20px -8px rgba(20, 23, 31, 0.10)",
+        lift: "0 0 0 1px rgba(20, 23, 31, 0.05), 0 8px 16px -6px rgba(20, 23, 31, 0.10), 0 24px 48px -16px rgba(20, 23, 31, 0.18)",
         // Soft red halo for the brand mark + key active/primary affordances.
         glow: "0 0 0 1px rgba(154, 0, 0, 0.32), 0 8px 24px -10px rgba(154, 0, 0, 0.42)",
       },

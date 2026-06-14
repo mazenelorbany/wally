@@ -8,57 +8,57 @@
  * tailwind-preset.cjs, so changing a value here re-themes every utility class
  * (bg-paper, text-signal, ease-spring, font-display, …) at once.
  *
- * TCC brand: warm monochrome paper→ink CANVAS, premium dark CHROME for the
- * rails, and the Cuisine::pro RED as the brand accent (editorial monochrome +
- * one red — the house signature). Stop/fail also uses red (status always carries
- * an icon + label, so brand-red vs stop-red never relies on hue alone). Pass
- * green / review slate are reinforcement only, behind an icon + label
- * (colour-blind safe — the CEO reliably sees red).
- * Type: Century Gothic → Questrial (loaded) → Futura, geometric.
+ * Wally design language: a cool near-white CANVAS (Stripe-style: white cards,
+ * hairline borders, layered low shadows), deep cool-dark CHROME for the rails
+ * (Linear-style sidebars), Inter for all type, and the Cuisine::pro RED as the
+ * single brand accent. Stop/fail also uses red (status always carries an icon
+ * + label, so brand-red vs stop-red never relies on hue alone). Pass green /
+ * review slate are reinforcement only, behind an icon + label (colour-blind
+ * safe — the CEO reliably sees red).
  * ========================================================================== */
 
-/* Questrial — the loaded geometric fallback for Century Gothic (which is not a
- * web font). Latin only; swap to keep text visible during load. */
-@import url("https://fonts.googleapis.com/css2?family=Questrial&display=swap");
+/* Inter — the UI face (Linear/Stripe lineage). Latin only; swap to keep text
+ * visible during load. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&display=swap");
 
 :root {
-  /* --- Warm monochrome scale (the data canvas) ------------------------- */
-  --wally-paper: #fbfbf9;     /* page */
-  --wally-surface: #f3f2ee;   /* cards, rails */
-  --wally-ink: #0e0e0d;       /* primary text */
-  --wally-graphite: #3c3b36;  /* strong body / secondary heads */
-  --wally-steel: #7e7d77;     /* labels, captions, metadata */
-  --wally-mist: #bebdb6;      /* hairlines, dividers, disabled */
+  /* --- Cool monochrome scale (the data canvas) -------------------------- */
+  --wally-paper: #fcfcfd;     /* page + cards */
+  --wally-surface: #f4f5f8;   /* muted fills, hover, rails */
+  --wally-ink: #14171f;       /* primary text */
+  --wally-graphite: #3e4654;  /* strong body / secondary heads */
+  --wally-steel: #686f83;     /* labels, captions, metadata */
+  --wally-mist: #d9dce3;      /* hairlines, dividers, disabled */
 
-  /* --- Brand RED accent: Cuisine::pro red (token name kept `gold`) -------- */
+  /* --- Brand RED accent: Cuisine::pro red (token name kept `gold`) ------ */
   --wally-gold: #9a0000;        /* active nav, brand mark, focus, emphasis */
   --wally-gold-bright: #c21a1a; /* brighter red / glow on dark chrome */
   --wally-gold-deep: #7a0000;   /* deep red-on-light text that must stay legible */
 
-  /* --- Premium dark CHROME (the rails) --------------------------------- */
-  --wally-chrome: #16140e;        /* sidebar / login / brand surfaces */
-  --wally-chrome-raised: #221f16; /* hover / active rows in chrome */
-  --wally-chrome-line: #322e20;   /* hairlines on chrome */
-  --wally-chrome-ink: #f4f1e8;    /* primary text on chrome (warm cream) */
-  --wally-chrome-muted: #9e998b;  /* muted text on chrome */
+  /* --- Deep cool CHROME (the rails) ------------------------------------- */
+  --wally-chrome: #101216;        /* sidebar / login / brand surfaces */
+  --wally-chrome-raised: #1a1d24; /* hover / active rows in chrome */
+  --wally-chrome-line: #272c37;   /* hairlines on chrome */
+  --wally-chrome-ink: #edeff3;    /* primary text on chrome (cool white) */
+  --wally-chrome-muted: #8b93a6;  /* muted text on chrome */
 
-  /* --- The "stop" accent ----------------------------------------------- */
-  --wally-signal: #a6342a;    /* stop / critical / fail only */
+  /* --- The "stop" accent ------------------------------------------------ */
+  --wally-signal: #c92c26;    /* stop / critical / fail only */
 
-  /* --- Reinforcement hues (never hue-alone) ---------------------------- */
-  --wally-pass: #3e7c5a;      /* pass / perfect */
-  --wally-warn: #5b6b7a;      /* needs-review / unsure (slate — distinct from teal accent + red/green, colour-blind safe) */
+  /* --- Reinforcement hues (never hue-alone) ----------------------------- */
+  --wally-pass: #148052;      /* pass / perfect */
+  --wally-warn: #5b6b83;      /* needs-review / unsure (slate — distinct from red/green, colour-blind safe) */
 
-  /* --- Type ------------------------------------------------------------ */
-  --wally-font-display: "Century Gothic";
-  --wally-font-sans: "Questrial";
+  /* --- Type -------------------------------------------------------------- */
+  --wally-font-display: "Inter";
+  --wally-font-sans: "Inter";
 
-  /* --- Radius ---------------------------------------------------------- */
-  --wally-radius-sm: 0.25rem;
+  /* --- Radius ------------------------------------------------------------ */
+  --wally-radius-sm: 0.375rem;
   --wally-radius-md: 0.5rem;
-  --wally-radius-lg: 0.75rem;
+  --wally-radius-lg: 0.625rem;
 
-  /* --- Motion ---------------------------------------------------------- */
+  /* --- Motion ------------------------------------------------------------ */
   --wally-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
   --wally-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --wally-ease-in: cubic-bezier(0.4, 0, 1, 1);
@@ -76,8 +76,10 @@
   background-color: var(--wally-paper);
   color: var(--wally-ink);
   font-family:
-    var(--wally-font-sans), "Century Gothic", "Futura", system-ui,
-    -apple-system, "Segoe UI", sans-serif;
+    var(--wally-font-sans), "Inter", system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  font-feature-settings: "cv11", "ss01", "calt";
+  letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }

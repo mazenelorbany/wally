@@ -35,8 +35,10 @@ import type {
 } from '@wally/types';
 import sharp from 'sharp';
 
+import { venueOf } from '../../lib/venue';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CampaignQuestionService } from '../campaign/campaign-question.service';
+import { seedChecklistFromTemplates } from '../guide-fixture/checklist-seed';
 import type { AnswerQuestionInput } from '../campaign/campaign-question.dto';
 import { StoreReportService } from '../report/store-report.service';
 import { StorageService } from '../storage/storage.service';
@@ -115,20 +117,36 @@ export class ManagerService {
     user: SessionUser,
     storeId?: string,
   ): Promise<{ id: string; name: string; projectId: string | null }> {
-    // STORE_MANAGER and SETUP_CREW are both pinned to their own store (the
-    // ?storeId query is ignored). Crew sees only their store's floor plan.
+    // STORE_MANAGER and SETUP_CREW are bound to their own store, but a venue
+    // hosts several concession mini-stores (e.g. "Adelaide City Myer — The
+    // Cookshop" + "— The Custom Chef") run by the same people — so a manager
+    // may address any SIBLING of their venue via ?storeId. Anything else 404s.
     if (user.role === 'STORE_MANAGER' || user.role === 'SETUP_CREW') {
       if (!user.storeId) {
         throw new NotFoundException(
           'No store is linked to this account. Ask head office to re-send your checklist link.',
         );
       }
-      const store = await this.prisma.store.findFirst({
+      const own = await this.prisma.store.findFirst({
         where: { id: user.storeId, orgId: user.orgId },
         select: { id: true, name: true, projectId: true },
       });
-      if (!store) throw new NotFoundException('store not found');
-      return store;
+      if (!own) throw new NotFoundException('store not found');
+      if (!storeId || storeId === own.id) return own;
+
+      const sibling = await this.prisma.store.findFirst({
+        where: {
+          id: storeId,
+          orgId: user.orgId,
+          projectId: own.projectId,
+          closedAt: null,
+        },
+        select: { id: true, name: true, projectId: true },
+      });
+      if (!sibling || venueOf(sibling.name) !== venueOf(own.name)) {
+        throw new NotFoundException('store not found');
+      }
+      return sibling;
     }
 
     // ADMIN / REVIEWER / VIEWER: explicit store (validated in-org) or the org's
@@ -202,9 +220,46 @@ export class ManagerService {
     return recent;
   }
 
-  /** Resolve (store, campaign) — most manager surfaces need both. */
-  private async resolveContext(user: SessionUser, storeId?: string) {
+  /**
+   * The stores a STORE_MANAGER can work as: every active concession of their
+   * venue (their own store first). Empty for other roles — admins/reviewers
+   * pick from the studio store list instead.
+   */
+  async venueStores(user: SessionUser): Promise<{ id: string; name: string }[]> {
+    if (user.role !== 'STORE_MANAGER') return [];
+    const own = await this.resolveStore(user);
+    const candidates = await this.prisma.store.findMany({
+      where: { orgId: user.orgId, projectId: own.projectId, closedAt: null },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    const venue = venueOf(own.name);
+    const siblings = candidates.filter((s) => venueOf(s.name) === venue);
+    return [
+      ...siblings.filter((s) => s.id === own.id),
+      ...siblings.filter((s) => s.id !== own.id),
+    ];
+  }
+
+  /**
+   * Resolve (store, campaign) — most manager surfaces need both. An explicit
+   * campaignId (a task/report row the manager opened) wins over the default
+   * active-campaign resolution, so multiple live tasks can be filled in.
+   */
+  private async resolveContext(
+    user: SessionUser,
+    storeId?: string,
+    campaignId?: string,
+  ) {
     const store = await this.resolveStore(user, storeId);
+    if (campaignId) {
+      const explicit = await this.prisma.campaign.findFirst({
+        where: { id: campaignId, orgId: user.orgId },
+        select: { id: true, key: true, name: true },
+      });
+      if (!explicit) throw new NotFoundException('campaign not found');
+      return { store, campaign: explicit };
+    }
     const campaign = await this.resolveCampaign(user.orgId, store.projectId);
     return { store, campaign };
   }
@@ -765,8 +820,9 @@ export class ManagerService {
   async compliance(
     user: SessionUser,
     storeId?: string,
+    campaignId?: string,
   ): Promise<FixtureCompliance[]> {
-    const { store, campaign } = await this.resolveContext(user, storeId);
+    const { store, campaign } = await this.resolveContext(user, storeId, campaignId);
 
     const placements = await this.prisma.placement.findMany({
       where: {
@@ -848,8 +904,9 @@ export class ManagerService {
     user: SessionUser,
     fixtureId: string,
     storeId?: string,
+    campaignId?: string,
   ): Promise<FixtureComplianceDetail> {
-    const { store, campaign } = await this.resolveContext(user, storeId);
+    const { store, campaign } = await this.resolveContext(user, storeId, campaignId);
     const placement = await this.requirePlacement(
       user.orgId,
       store.id,
@@ -896,8 +953,9 @@ export class ManagerService {
     fixtureId: string,
     file: { buffer: Buffer; mimetype: string; size: number },
     storeId?: string,
+    campaignId?: string,
   ): Promise<FixtureComplianceDetail> {
-    const { store, campaign } = await this.resolveContext(user, storeId);
+    const { store, campaign } = await this.resolveContext(user, storeId, campaignId);
     const placement = await this.requirePlacement(
       user.orgId,
       store.id,
@@ -1048,8 +1106,9 @@ export class ManagerService {
     fixtureId: string,
     photoId: string,
     storeId?: string,
+    campaignId?: string,
   ): Promise<FixtureComplianceDetail> {
-    const { store, campaign } = await this.resolveContext(user, storeId);
+    const { store, campaign } = await this.resolveContext(user, storeId, campaignId);
     const placement = await this.requirePlacement(
       user.orgId,
       store.id,
@@ -1116,8 +1175,9 @@ export class ManagerService {
   async listQuestions(
     user: SessionUser,
     storeId?: string,
+    campaignId?: string,
   ): Promise<CampaignQuestionWithAnswer[]> {
-    const { store, campaign } = await this.resolveContext(user, storeId);
+    const { store, campaign } = await this.resolveContext(user, storeId, campaignId);
     const questions = await this.prisma.campaignQuestion.findMany({
       where: { campaignId: campaign.id, orgId: user.orgId, archivedAt: null },
       orderBy: { order: 'asc' },
@@ -1156,8 +1216,9 @@ export class ManagerService {
     questionId: string,
     body: AnswerQuestionInput,
     storeId?: string,
+    campaignId?: string,
   ): Promise<CampaignQuestionWithAnswer[]> {
-    const { store, campaign } = await this.resolveContext(user, storeId);
+    const { store, campaign } = await this.resolveContext(user, storeId, campaignId);
     await this.questions.answer(
       user.orgId,
       store.id,
@@ -1167,14 +1228,18 @@ export class ManagerService {
       body,
     );
     await this.reports.markInProgress(user.orgId, store.id, campaign.id, user.id);
-    return this.listQuestions(user, storeId);
+    return this.listQuestions(user, storeId, campaignId);
   }
 
   // ----- the submittable report envelope ------------------------------------
 
   /** This store's report envelope (status, score, flags, progress). */
-  async getReport(user: SessionUser, storeId?: string): Promise<StoreReportDto> {
-    const { store, campaign } = await this.resolveContext(user, storeId);
+  async getReport(
+    user: SessionUser,
+    storeId?: string,
+    campaignId?: string,
+  ): Promise<StoreReportDto> {
+    const { store, campaign } = await this.resolveContext(user, storeId, campaignId);
     return this.reports.getReport(user.orgId, store.id, campaign.id);
   }
 
@@ -1182,8 +1247,9 @@ export class ManagerService {
   async submitReport(
     user: SessionUser,
     storeId?: string,
+    campaignId?: string,
   ): Promise<StoreReportDto> {
-    const { store, campaign } = await this.resolveContext(user, storeId);
+    const { store, campaign } = await this.resolveContext(user, storeId, campaignId);
     return this.reports.submit(user.orgId, store.id, campaign.id, user.id);
   }
 
@@ -1191,8 +1257,9 @@ export class ManagerService {
   async getReportDocument(
     user: SessionUser,
     storeId?: string,
+    campaignId?: string,
   ): Promise<StoreReportDocument> {
-    const { store, campaign } = await this.resolveContext(user, storeId);
+    const { store, campaign } = await this.resolveContext(user, storeId, campaignId);
     return this.reports.getDocument(user.orgId, store.id, campaign.id);
   }
 
@@ -1225,7 +1292,6 @@ export class ManagerService {
       totalScore: currentDto.totalScore ?? null,
       dueAt: currentDto.dueAt ?? null,
       submittedAt: currentDto.submittedAt ?? null,
-      current: true,
     });
     // Past campaigns the store has a report row for (stored status is reliable —
     // they're typically submitted/closed).
@@ -1239,7 +1305,6 @@ export class ManagerService {
         totalScore: r.totalScore ?? null,
         dueAt: r.dueAt ? r.dueAt.toISOString() : null,
         submittedAt: r.submittedAt ? r.submittedAt.toISOString() : null,
-        current: false,
       });
     }
     return items;
@@ -1252,8 +1317,9 @@ export class ManagerService {
     itemId: string,
     checked: boolean,
     storeId?: string,
+    campaignId?: string,
   ): Promise<FixtureComplianceDetail> {
-    const { store, campaign } = await this.resolveContext(user, storeId);
+    const { store, campaign } = await this.resolveContext(user, storeId, campaignId);
     const placement = await this.requirePlacement(
       user.orgId,
       store.id,
@@ -1315,6 +1381,7 @@ export class ManagerService {
     const gf = await this.prisma.guideFixture.findUnique({
       where: { campaignId_fixtureId: { campaignId, fixtureId } },
       select: {
+        id: true,
         orgId: true,
         checklistItems: {
           where: { archivedAt: null },
@@ -1323,13 +1390,31 @@ export class ManagerService {
         },
       },
     });
-    if (!gf || gf.orgId !== orgId || gf.checklistItems.length === 0) return [];
+    if (!gf || gf.orgId !== orgId) return [];
+    let items = gf.checklistItems;
+    if (items.length === 0) {
+      // The sheet may predate the library's default checklist — inherit it now
+      // so the report shows the standard without a studio open in between.
+      // No-op when the sheet ever had items (incl. deliberately cleared ones).
+      const seeded = await seedChecklistFromTemplates(
+        this.prisma,
+        orgId,
+        campaignId,
+        fixtureId,
+      );
+      if (seeded === 0) return [];
+      items = await this.prisma.guideFixtureChecklistItem.findMany({
+        where: { guideFixtureId: gf.id, archivedAt: null },
+        orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        select: { id: true, label: true, required: true },
+      });
+    }
     const ticks = await this.prisma.storeChecklistTick.findMany({
       where: { storeId, campaignId, checked: true },
       select: { itemId: true, aiTicked: true, aiConfidence: true },
     });
     const tickByItem = new Map(ticks.map((t) => [t.itemId, t]));
-    return gf.checklistItems.map((c) => {
+    return items.map((c) => {
       const t = tickByItem.get(c.id);
       return {
         id: c.id,
@@ -1540,8 +1625,9 @@ export class ManagerService {
     user: SessionUser,
     fixtureId: string,
     storeId?: string,
+    campaignId?: string,
   ): Promise<FixtureComplianceDetail> {
-    const { store, campaign } = await this.resolveContext(user, storeId);
+    const { store, campaign } = await this.resolveContext(user, storeId, campaignId);
     const placement = await this.requirePlacement(
       user.orgId,
       store.id,
@@ -1600,8 +1686,9 @@ export class ManagerService {
     fixtureId: string,
     input: { verdict: CaptureVerdictDto; note?: string },
     storeId?: string,
+    campaignId?: string,
   ): Promise<FixtureComplianceDetail> {
-    const { store, campaign } = await this.resolveContext(user, storeId);
+    const { store, campaign } = await this.resolveContext(user, storeId, campaignId);
     const placement = await this.requirePlacement(
       user.orgId,
       store.id,
@@ -1733,13 +1820,35 @@ export class ManagerService {
     // every guide/store. A guide's own example image is the FALLBACK, used only
     // when the library fixture has no reference of its own.
     const lib = await this.libraryReference(orgId, fixtureId);
+
+    // The campaign's ACTIVE rubric for this fixture is part of the grading
+    // standard: its criteria ride along in the scorer's notes, and its
+    // reference image is the last-resort comparison image. (Rubrics used to be
+    // free-text-keyed and connected to nothing — now they grade live.)
+    const rubric =
+      (await this.prisma.rubric.findFirst({
+        where: { orgId, campaignId, fixtureId, active: true },
+      })) ??
+      (await this.prisma.rubric.findFirst({
+        where: { orgId, campaignId, fixtureId },
+        orderBy: { version: 'desc' },
+      }));
+
     const reference =
-      lib ?? (best ? { storageKey: best.storageKey, caption: best.caption } : null);
+      lib ??
+      (best ? { storageKey: best.storageKey, caption: best.caption } : null) ??
+      (rubric?.referenceKey
+        ? { storageKey: rubric.referenceKey, caption: null }
+        : null);
+
+    const guideNotes =
+      guideFixture && guideFixture.orgId === orgId
+        ? (guideFixture.notes ?? '')
+        : '';
     return {
-      notes:
-        guideFixture && guideFixture.orgId === orgId
-          ? (guideFixture.notes ?? '')
-          : '',
+      notes: [guideNotes, rubricNotes(rubric?.criteria)]
+        .filter(Boolean)
+        .join('\n\n'),
       reference,
     };
   }
@@ -1888,6 +1997,7 @@ export function toTaskDto(t: TaskWithRelations): TaskDto {
     title: t.title,
     body: t.body,
     fixtureKey: t.fixtureKey,
+    campaignId: t.campaignId ?? null,
     dueAt: t.dueAt ? t.dueAt.toISOString() : null,
     seen: (t.reads?.length ?? 0) > 0,
     completedAt: t.completedAt ? t.completedAt.toISOString() : null,
@@ -1982,4 +2092,31 @@ function mimeToExt(mime: string): string {
     default:
       return '.jpg';
   }
+}
+
+/**
+ * Render a rubric's criteria into the scorer's notes block. Must-pass criteria
+ * read as hard requirements; quality criteria as judgement guidance. Returns ''
+ * when the rubric has no parseable criteria (the Json column is trusted-but-
+ * verified the same way the report doc treats persisted Json).
+ */
+function rubricNotes(criteria: unknown): string {
+  if (!Array.isArray(criteria)) return '';
+  const mustPass: string[] = [];
+  const quality: string[] = [];
+  for (const c of criteria) {
+    if (!c || typeof c !== 'object') continue;
+    const row = c as Record<string, unknown>;
+    if (typeof row.text !== 'string' || !row.text.trim()) continue;
+    (row.critical ? mustPass : quality).push(`- ${row.text.trim()}`);
+  }
+  if (mustPass.length === 0 && quality.length === 0) return '';
+  const parts: string[] = ['GRADING CRITERIA:'];
+  if (mustPass.length > 0) {
+    parts.push('Must pass (fail any of these → the fixture FAILS):', ...mustPass);
+  }
+  if (quality.length > 0) {
+    parts.push('Quality (judge, but not failing on its own):', ...quality);
+  }
+  return parts.join('\n');
 }

@@ -3,8 +3,14 @@
 // than class-validator. Keep these strict() so a typo'd field 400s loudly.
 import { z } from 'zod';
 
-// The three roles, as a zod enum that matches the Prisma `Role` enum values.
-const RoleSchema = z.enum(['ADMIN', 'REVIEWER', 'STORE_MANAGER']);
+// Every role, as a zod enum that matches the Prisma `Role` enum values.
+const RoleSchema = z.enum([
+  'ADMIN',
+  'REVIEWER',
+  'STORE_MANAGER',
+  'VIEWER',
+  'SETUP_CREW',
+]);
 
 /**
  * POST /auth/magic-link/request — invite a user into an org (and optionally a

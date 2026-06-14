@@ -28,6 +28,7 @@ import { useToast } from '../../lib/toast';
 import { EmptyState, ErrorState } from '../../components/states';
 import { useSetStudioTopBar } from '../components/StudioContext';
 import { useProject } from '../ProjectContext';
+import { brandLabel, isDefaultBrand, splitVenueName } from '../lib/venue';
 
 const fieldCls =
   'w-full rounded-md border border-mist/70 bg-paper px-3 py-2 text-sm text-ink transition-colors focus:border-graphite focus:outline-none';
@@ -150,22 +151,11 @@ interface VenueGroup {
   entries: { brand: string; store: StoreDto }[];
 }
 
-/** Store names are "{Venue} — {Brand}" — strip the trailing brand to get the venue. */
-function venueOf(s: StoreDto): string {
-  const parts = s.name.split(/\s*—\s*/);
-  return parts.length > 1 ? parts.slice(0, -1).join(' — ').trim() : s.name.trim();
-}
-
-/** "The Cookshop" → "Cookshop" for the brand toggle chips. */
-function brandLabel(brand: string): string {
-  return brand.replace(/^The\s+/i, '');
-}
-
 /** Group the flat store list by parent venue, preserving first-seen order. */
 function groupByVenue(stores: StoreDto[]): VenueGroup[] {
   const map = new Map<string, VenueGroup>();
   for (const s of stores) {
-    const venue = venueOf(s);
+    const { venue } = splitVenueName(s.name);
     const g = map.get(venue) ?? { venue, entries: [] };
     g.entries.push({ brand: s.brand, store: s });
     map.set(venue, g);
@@ -199,7 +189,7 @@ function VenueRow({
   // Floor plan + row actions default to the Custom Chef concession (else first
   // open, else first). Brand switching now happens on the floor plan, not here.
   const active = (
-    entries.find((e) => /custom chef/i.test(e.brand) && !e.store.closedAt) ??
+    entries.find((e) => isDefaultBrand(e.brand) && !e.store.closedAt) ??
     entries.find((e) => !e.store.closedAt) ??
     entries[0]!
   ).store;

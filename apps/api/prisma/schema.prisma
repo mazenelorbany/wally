@@ -52,6 +52,8 @@ model Org {
   checklistItems       GuideFixtureChecklistItem[]
   checklistTicks       StoreChecklistTick[]
   fixtureChecklistTemplates FixtureChecklistTemplate[]
+  reviewThreads             ReviewThread[]
+  reviewComments            ReviewComment[]
 }
 
 enum Role {
@@ -137,6 +139,9 @@ model User {
   submittedReports      StoreReport[]         @relation("ReportSubmittedBy")
   assignedReports       StoreReport[]         @relation("ReportAssignedBy")
   checkedTicks          StoreChecklistTick[]  @relation("TickCheckedBy")
+  reviewThreadsCreated  ReviewThread[]        @relation("ReviewThreadCreatedBy")
+  reviewThreadsResolved ReviewThread[]        @relation("ReviewThreadResolvedBy")
+  reviewComments        ReviewComment[]       @relation("ReviewCommentAuthor")
 
   @@index([orgId])
   @@index([storeId])
@@ -198,6 +203,7 @@ model Store {
   checklistTicks  StoreChecklistTick[]
 
   @@index([orgId])
+  reviewThreads ReviewThread[]
 }
 
 enum CampaignStatus {
@@ -246,6 +252,7 @@ model Campaign {
 
   @@unique([orgId, key])
   @@index([orgId])
+  reviewThreads ReviewThread[]
 }
 
 // How a ComplianceSnapshot row was written. The nightly cron is the canonical
@@ -291,7 +298,12 @@ model Rubric {
   id             String   @id @default(cuid())
   orgId          String
   campaignId     String
-  fixtureKey     String   // "storefront" | "vm_table" | "doorbuster"
+  // The library fixture this rubric grades. New rubrics always carry it (the
+  // editor picks a real fixture); legacy/seeded rows are keyed by fixtureKey
+  // only. fixtureKey doubles as the stable stamp segment — for fixture-linked
+  // rows it equals the fixture id.
+  fixtureId      String?
+  fixtureKey     String   // legacy "storefront" | "vm_table"; = fixtureId on new rows
   version        Int
   criteria       Json     // [{ id, kind, critical, text }]
   rollupRule     Json     @default("{\"not_good_if_any_critical_fails\":true,\"good_if_only_noncritical_fails\":true}")
@@ -305,9 +317,11 @@ model Rubric {
 
   org      Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  fixture  Fixture? @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
   verdicts Verdict[]
 
   @@unique([campaignId, fixtureKey, version])
+  @@index([campaignId, fixtureId])
   @@index([orgId])
 }
 
@@ -498,6 +512,7 @@ model Fixture {
   placements      Placement[]
   guideFixtures   GuideFixture[]
   captures        FixtureCapture[]
+  rubrics         Rubric[]
   defaultProducts FixtureProduct[]
   checklistTemplate FixtureChecklistTemplate[]
 
@@ -745,6 +760,9 @@ model Task {
   body        String? // what the admin is asking for
   fixtureKey  String? // for UPLOAD_PHOTO: which fixture
   dueAt       DateTime?
+  // The review thread this task notifies about (one task per thread: re-lit on
+  // new head-office comments, auto-completed when the thread is resolved).
+  threadId    String?
   // Lifecycle audit: who completed it (stamped on completeTask, cleared on
   // reopen) and the optional individual it was assigned to (store-level by
   // default; assignedToId narrows it to one manager).
@@ -758,10 +776,12 @@ model Task {
   campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   completedBy User?   @relation("TaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
   assignedTo  User?   @relation("TaskAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  thread      ReviewThread? @relation(fields: [threadId], references: [id], onDelete: Cascade)
   reads       TaskRead[]
 
   @@index([storeId, status])
   @@index([orgId])
+  @@index([threadId])
 }
 
 // One reader's "I've seen this task" receipt — the per-user notification badge.
@@ -1086,4 +1106,61 @@ model Resource {
   org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId])
+}
+
+// =============================================================================
+// Review conversations — an admin/reviewer comments on one piece of a store's
+// report (a fixture's photo step or a question answer), optionally pinned to a
+// spot on one photo; the store manager replies; a moderator resolves.
+// =============================================================================
+
+enum ReviewThreadStatus {
+  OPEN
+  RESOLVED
+}
+
+model ReviewThread {
+  id           String             @id @default(cuid())
+  orgId        String
+  storeId      String
+  campaignId   String
+  // Anchor: exactly one of fixtureId / questionId (validated at the API edge).
+  fixtureId    String?
+  questionId   String?
+  // Optional image pin: which gallery photo and where on it (normalized 0..1).
+  photoId      String?
+  pinX         Float?
+  pinY         Float?
+  status       ReviewThreadStatus @default(OPEN)
+  createdById  String
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @default(now()) @updatedAt
+
+  org        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  createdBy  User     @relation("ReviewThreadCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  resolvedBy User?    @relation("ReviewThreadResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  comments   ReviewComment[]
+  tasks      Task[]
+
+  @@index([storeId, campaignId])
+  @@index([campaignId, status])
+}
+
+model ReviewComment {
+  id        String   @id @default(cuid())
+  orgId     String
+  threadId  String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  org    Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  thread ReviewThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author User         @relation("ReviewCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
 }

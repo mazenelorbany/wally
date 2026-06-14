@@ -169,3 +169,74 @@ describe('StoreReportService — score + flags', () => {
     });
   });
 });
+
+// =============================================================================
+// sendToStores — assigns a PENDING report per store AND surfaces the assignment
+// as an OPEN task in each store's Tasks list (deduped on re-send).
+// =============================================================================
+
+describe('StoreReportService — sendToStores', () => {
+  function makeSendPrisma(opts: { existingTaskStoreIds?: string[] } = {}) {
+    const created: {
+      reports: Record<string, unknown>[];
+      tasks: Record<string, unknown>[];
+    } = { reports: [], tasks: [] };
+    const prisma = {
+      campaign: {
+        findFirst: async () => ({ id: CAMPAIGN, name: 'Window check' }),
+      },
+      store: {
+        findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
+          where.id.in.map((id) => ({ id })),
+      },
+      storeReport: {
+        findMany: async () => [],
+        updateMany: async () => ({ count: 0 }),
+        createMany: ({ data }: { data: Record<string, unknown>[] }) => {
+          created.reports.push(...data);
+          return Promise.resolve({ count: data.length });
+        },
+      },
+      task: {
+        findMany: async () =>
+          (opts.existingTaskStoreIds ?? []).map((storeId) => ({ storeId })),
+        createMany: async ({ data }: { data: Record<string, unknown>[] }) => {
+          created.tasks.push(...data);
+          return { count: data.length };
+        },
+      },
+      $transaction: async (ops: Promise<unknown>[]) => Promise.all(ops),
+    };
+    const service = new StoreReportService(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      prisma as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { signedGetUrl: (k: string) => `https://signed/${k}` } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { summarize: async () => null } as any,
+    );
+    return { service, created };
+  }
+
+  it('assigns a PENDING report and fans out one OPEN task per store', async () => {
+    const { service, created } = makeSendPrisma();
+    const res = await service.sendToStores(ORG, CAMPAIGN, ['s1', 's2'], 'user_1');
+    expect(res.sent).toBe(2);
+    expect(created.reports).toHaveLength(2);
+    expect(created.reports[0]).toMatchObject({ storeId: 's1', status: 'PENDING' });
+    expect(created.tasks.map((t) => t.storeId)).toEqual(['s1', 's2']);
+    expect(created.tasks[0]).toMatchObject({
+      campaignId: CAMPAIGN,
+      kind: 'GENERAL',
+      status: 'OPEN',
+      title: 'Report requested — Window check',
+    });
+  });
+
+  it('re-sending skips stores that already have the OPEN task notice', async () => {
+    const { service, created } = makeSendPrisma({ existingTaskStoreIds: ['s1'] });
+    const res = await service.sendToStores(ORG, CAMPAIGN, ['s1', 's2'], 'user_1');
+    expect(res.sent).toBe(2); // both reports re-stamped…
+    expect(created.tasks.map((t) => t.storeId)).toEqual(['s2']); // …one new notice
+  });
+});

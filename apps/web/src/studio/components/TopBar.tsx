@@ -37,7 +37,7 @@ export function TopBar({
   const hasStores = stores.length > 0;
 
   return (
-    <header className="relative z-40 flex h-16 shrink-0 items-center gap-4 border-b border-mist/60 bg-paper/85 px-5 backdrop-blur">
+    <header className="relative z-40 flex h-14 shrink-0 items-center gap-4 border-b border-mist/60 bg-paper/85 px-5 backdrop-blur">
       {/* Store selector — only on store-scoped pages (floor plan). Hidden on
           org-level pages that pass no stores, so it doesn't read as a stray
           "No store selected" control everywhere. */}
@@ -54,7 +54,7 @@ export function TopBar({
       {/* Guide name */}
       <div className="min-w-0 leading-tight">
         <div className="flex items-center gap-2">
-          <h1 className="truncate font-display text-base font-semibold tracking-tight text-ink">
+          <h1 className="truncate font-display text-[15px] font-semibold tracking-[-0.01em] text-ink">
             {guideName}
           </h1>
           {guideKey ? (

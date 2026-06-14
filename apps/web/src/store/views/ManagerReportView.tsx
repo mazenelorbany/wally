@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
@@ -29,6 +30,9 @@ import { ErrorState } from '../../components/states';
 import { useManagerStore } from '../ManagerStoreContext';
 import { ReportQuestions } from '../components/ReportQuestions';
 import { FixtureCapture } from '../components/FixtureCapture';
+import { ThreadList, type ThreadActions } from '../../components/report/ReviewThreads';
+import { useReviewThreads } from '../../components/report/useReviewThreads';
+import type { ReviewThreadDto } from '@wally/sdk';
 
 const VERDICT: Record<
   CaptureVerdict,
@@ -41,23 +45,39 @@ const VERDICT: Record<
 
 export function ManagerReportView() {
   const { storeId } = useManagerStore();
+  // An explicit campaign (a task row the manager opened) — without it, the
+  // active campaign resolves server-side, the single-campaign default.
+  const { campaignId } = useParams();
   const qc = useQueryClient();
   const toast = useToast();
   const [confirming, setConfirming] = React.useState(false);
 
   const reportQ = useQuery({
-    queryKey: ['manager', 'report', storeId],
-    queryFn: () => api.manager.getReport(storeId),
+    queryKey: ['manager', 'report', storeId, campaignId],
+    queryFn: () => api.manager.getReport(storeId, campaignId),
   });
   const compQ = useQuery({
-    queryKey: ['manager', 'compliance', storeId],
-    queryFn: () => api.manager.compliance(storeId),
+    queryKey: ['manager', 'compliance', storeId, campaignId],
+    queryFn: () => api.manager.compliance(storeId, campaignId),
   });
 
+  // Head-office comments on this report — shown inline so the manager can fix
+  // and reply without leaving the form. r.campaignId resolves the default route.
+  const reportCampaignId = campaignId ?? reportQ.data?.campaignId;
+  const review = useReviewThreads(reportCampaignId, reportQ.data?.storeId);
+  const threadActions: ThreadActions = {
+    canReply: true,
+    canModerate: false,
+    busy: review.busy,
+    onReply: (threadId, body) => review.reply.mutate({ threadId, body }),
+    onResolve: () => undefined,
+    onReopen: () => undefined,
+  };
+
   const submit = useMutation({
-    mutationFn: () => api.manager.submitReport(storeId),
+    mutationFn: () => api.manager.submitReport(storeId, campaignId),
     onSuccess: (r) => {
-      qc.setQueryData(['manager', 'report', storeId], r);
+      qc.setQueryData(['manager', 'report', storeId, campaignId], r);
       void qc.invalidateQueries({ queryKey: ['manager', 'home', storeId] });
       setConfirming(false);
       toast.success('Report submitted');
@@ -96,7 +116,7 @@ export function ManagerReportView() {
   const missingFixtures = r.fixturesExpected - r.fixturesScored;
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className="space-y-5 pb-6">
       <header className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] uppercase tracking-brand text-steel">
@@ -141,6 +161,8 @@ export function ManagerReportView() {
               fixture={f}
               storeId={storeId}
               campaignId={r.campaignId}
+              threads={review.threads.filter((t) => t.fixtureId === f.fixtureId)}
+              threadActions={threadActions}
             />
           ))}
           {fixtures.length === 0 ? (
@@ -152,12 +174,16 @@ export function ManagerReportView() {
       </section>
 
       {/* Extra questions */}
-      <ReportQuestions storeId={storeId} readOnly={submitted} />
+      <ReportQuestions storeId={storeId} campaignId={campaignId} readOnly={submitted} />
 
-      {/* Sticky submit bar */}
+      {/* Head-office comments on the answers — reply inline. */}
+      <QuestionThreads threads={review.threads} actions={threadActions} />
+
+      {/* Sticky submit bar — sticks inside the content column's scroll area so
+          it never overlays the sidebar (Settings / Sign out stay clickable). */}
       {!submitted ? (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-mist/60 bg-paper/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-paper/80">
-          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+        <div className="sticky bottom-0 z-30 -mx-4 border-t border-mist/60 bg-paper/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-paper/80 sm:-mx-6 sm:px-6">
+          <div className="flex items-center justify-between gap-3">
             <span className="text-xs text-steel">
               {requiredGaps > 0
                 ? `${requiredGaps} required item${requiredGaps === 1 ? '' : 's'} left`
@@ -204,12 +230,17 @@ function FixtureStep({
   fixture: f,
   storeId,
   campaignId,
+  threads,
+  threadActions,
 }: {
   fixture: FixtureCompliance;
   storeId?: string;
   campaignId: string;
+  threads: ReviewThreadDto[];
+  threadActions: ThreadActions;
 }) {
   const [open, setOpen] = React.useState(false);
+  const openThreads = threads.filter((t) => t.status === 'OPEN').length;
   const verdict = f.effectiveVerdict ?? f.overall ?? null;
   let icon = <Camera className="h-4 w-4 text-gold-deep" />;
   let note = 'Needs a photo';
@@ -243,6 +274,11 @@ function FixtureStep({
           </span>
           <span className={`text-xs ${noteCls}`}>{note}</span>
         </span>
+        {openThreads > 0 ? (
+          <span className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-gold px-1.5 text-[10px] font-semibold text-chrome-ink">
+            {openThreads}
+          </span>
+        ) : null}
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-mist transition-transform ${
             open ? 'rotate-180' : ''
@@ -251,10 +287,41 @@ function FixtureStep({
       </button>
       {open ? (
         <div className="border-t border-mist/50 bg-surface/20 px-4 py-4">
+          {threads.length > 0 ? (
+            <div className="mb-3">
+              <p className="mb-1 text-[11px] uppercase tracking-brand text-steel">
+                Head office comments
+              </p>
+              <ThreadList threads={threads} actions={threadActions} />
+            </div>
+          ) : null}
           <FixtureCapture fixtureId={f.fixtureId} storeId={storeId} campaignId={campaignId} />
         </div>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * Comments anchored to the report's QUESTION answers, grouped under one block
+ * (the question text itself lives in ReportQuestions just above).
+ */
+function QuestionThreads({
+  threads,
+  actions,
+}: {
+  threads: ReviewThreadDto[];
+  actions: ThreadActions;
+}) {
+  const questionThreads = threads.filter((t) => t.questionId);
+  if (questionThreads.length === 0) return null;
+  return (
+    <section>
+      <p className="mb-1 text-[11px] uppercase tracking-brand text-steel">
+        Head office comments on your answers
+      </p>
+      <ThreadList threads={questionThreads} actions={actions} />
+    </section>
   );
 }
 

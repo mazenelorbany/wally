@@ -21,8 +21,10 @@ import type {
 import { api, errorMessage } from '../../lib/api';
 import { useToast } from '../../lib/toast';
 
+// No width here on purpose: each use site sets its own (`flex-1`, `w-28`…) — a
+// baked-in `w-full` would win the Tailwind conflict and blow the selects out.
 const fieldCls =
-  'w-full rounded-md border border-mist/70 bg-paper px-3 py-2 text-sm text-ink transition-colors focus:border-graphite focus:outline-none';
+  'rounded-md border border-mist bg-white px-3 py-2 text-sm text-ink shadow-[0_1px_2px_rgba(20,23,31,0.04)] transition-colors hover:border-steel/55 focus:outline-none';
 
 const TYPES: { value: CampaignQuestionType; label: string }[] = [
   { value: 'SHORT_TEXT', label: 'Short text' },
@@ -104,7 +106,7 @@ export function CampaignQuestionsDialog({
         if (!o) onClose();
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Report questions</DialogTitle>
           <DialogDescription>
@@ -143,34 +145,44 @@ export function CampaignQuestionsDialog({
           </div>
         )}
 
-        {/* Add a question */}
-        <form onSubmit={addQuestion} className="mt-1 flex items-end gap-2">
-          <label className="block flex-1">
-            <span className="mb-1 block text-xs font-medium text-graphite">
+        {/* Add a question — a composer panel: the question gets the full row
+            to itself (it's the thing you type), controls sit beneath. */}
+        <form
+          onSubmit={addQuestion}
+          className="mt-1 space-y-2.5 rounded-lg border border-mist/60 bg-surface/50 p-3.5"
+        >
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-graphite">
               New question
             </span>
             <input
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
               placeholder="e.g. Who completed this task?"
-              className={fieldCls}
+              className={`${fieldCls} w-full`}
             />
           </label>
-          <select
-            value={newType}
-            onChange={(e) => setNewType(e.target.value as CampaignQuestionType)}
-            className={`${fieldCls} w-32 shrink-0`}
-            aria-label="Question type"
-          >
-            {TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-          <Button type="submit" disabled={!newLabel.trim() || create.isPending}>
-            <Plus className="h-4 w-4" /> Add
-          </Button>
+          <div className="flex items-center gap-2">
+            <select
+              value={newType}
+              onChange={(e) => setNewType(e.target.value as CampaignQuestionType)}
+              className={`${fieldCls} w-36 shrink-0`}
+              aria-label="Question type"
+            >
+              {TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            <Button
+              type="submit"
+              className="ml-auto"
+              disabled={!newLabel.trim() || create.isPending}
+            >
+              <Plus className="h-4 w-4" /> Add question
+            </Button>
+          </div>
         </form>
 
         <DialogFooter>

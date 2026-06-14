@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { ReportController } from './report.controller';
 import { ReportService } from './report.service';
 import { ReportSummaryService } from './report-summary.service';
+import { ReviewThreadController } from './review-thread.controller';
+import { ReviewThreadService } from './review-thread.service';
 import { StoreReportController } from './store-report.controller';
 import { StoreReportService } from './store-report.service';
 
@@ -14,8 +16,13 @@ import { StoreReportService } from './store-report.service';
 // the submittable-report envelope (score + flags + submit), exported for the
 // manager surface to compose.
 @Module({
-  controllers: [ReportController, StoreReportController],
-  providers: [ReportService, StoreReportService, ReportSummaryService],
+  controllers: [ReportController, StoreReportController, ReviewThreadController],
+  providers: [
+    ReportService,
+    StoreReportService,
+    ReportSummaryService,
+    ReviewThreadService,
+  ],
   exports: [ReportService, StoreReportService],
 })
 export class ReportModule {}

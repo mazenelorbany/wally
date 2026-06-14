@@ -50,18 +50,19 @@ export interface ComplianceScoreResult {
   issues: ComplianceIssue[];
 }
 
-// Google Generative Language REST: `gemini-2.5-flash` first (best at bounding
-// boxes), then a PINNED fallback (the unversioned `gemini-2.0-flash` alias has
-// 404'd intermittently; `-001` is stable). Transient 5xx/429 are retried per
-// model before falling through — see callGemini.
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash-001'] as const;
+// Google Generative Language REST: `gemini-3.5-flash` first (sharpest vision +
+// counting), then `gemini-2.5-flash` as the stable fallback (the older 2.0
+// fallback 404s intermittently despite being listed). Transient 5xx/429 are
+// retried per model before falling through — see callGemini.
+const GEMINI_MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash'] as const;
 // HTTP statuses worth retrying (Google overload / rate spikes are transient).
 const GEMINI_RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 const GEMINI_MAX_ATTEMPTS = 3;
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-// A generous-but-bounded timeout: the compare is a tiny JSON reply over two
-// small images; we don't want a hung request to block the upload response.
-const GEMINI_TIMEOUT_MS = 20_000;
+// Bounded but roomy: the audit prompt asks the model to enumerate differences
+// and count stock tiers before answering, so replies run well past the old 20s
+// on busy days — aborting mid-think turned real verdicts into "unavailable".
+const GEMINI_TIMEOUT_MS = 45_000;
 
 // Local Ollama daemon. Inference is slower than a hosted API, so a longer (but
 // still bounded) timeout — a wedged daemon must never hang the upload forever.
@@ -175,7 +176,16 @@ export class ComplianceScorer {
     if (!text) {
       throw new Error('empty response text');
     }
-    const parsed = parseVerdict(text);
+    let parsed = parseVerdict(text);
+    const short = parsed.verdict === 'PASS' ? stockShortfall(text) : null;
+    if (short) {
+      // The model's own counts contradict its PASS — trust the counts.
+      parsed = {
+        verdict: 'FAIL',
+        confidence: Math.max(parsed.confidence, 0.8),
+        notes: `Understocked: ${short.section} shows ${short.store} of the guide's ${short.guide} product tiers — restock to match the guide.`,
+      };
+    }
     this.logger.log(
       `compliance score via ollama/${model}: ${parsed.verdict} (conf ${parsed.confidence})`,
     );
@@ -224,8 +234,29 @@ export class ComplianceScorer {
     for (const model of GEMINI_MODELS) {
       try {
         const text = await this.callGemini(model, apiKey, body);
-        const parsed = parseVerdict(text);
-        const issues = parseIssues(text, input.photos.length);
+        let parsed = parseVerdict(text);
+        let issues = parseIssues(text, input.photos.length);
+        const short = parsed.verdict === 'PASS' ? stockShortfall(text) : null;
+        if (short) {
+          // The model's own counts contradict its PASS — trust the counts.
+          this.logger.warn(
+            `stock guard: PASS overridden to FAIL (${short.section}: ${short.store}/${short.guide} tiers)`,
+          );
+          parsed = {
+            verdict: 'FAIL',
+            confidence: Math.max(parsed.confidence, 0.8),
+            notes: `Understocked: ${short.section} shows ${short.store} of the guide's ${short.guide} product tiers — restock to match the guide.`,
+          };
+          issues = [
+            {
+              label: 'Understocked section',
+              fix: 'Restock to match the guide',
+              severity: 'major',
+              box: null,
+              photoIndex: 0,
+            },
+          ];
+        }
         this.logger.log(
           `compliance score via ${model}: ${parsed.verdict} (conf ${parsed.confidence}, ${issues.length} issue(s))`,
         );
@@ -342,6 +373,44 @@ function parseIssues(text: string, photoCount: number): ComplianceIssue[] {
   return out;
 }
 
+/**
+ * Belt-and-braces understocking guard. The model is asked to COUNT product
+ * tiers per section (guide vs store) into `stock_check`; when its own counts
+ * show a shortfall but it still said PASS (the classic "looks tidy" rubber
+ * stamp), downgrade to FAIL with a concrete restock note. Counts the model
+ * reported as equal leave the verdict untouched, so a clean photo still
+ * passes. Tolerant of a missing/garbled field — returns null (no change).
+ */
+function stockShortfall(
+  text: string,
+): { section: string; guide: number; store: number } | null {
+  const json = extractJsonObject(text);
+  if (!json) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  const arr = (raw as { stock_check?: unknown })?.stock_check;
+  if (!Array.isArray(arr)) return null;
+  for (const it of arr) {
+    if (!it || typeof it !== 'object') continue;
+    const row = it as Record<string, unknown>;
+    const guide = Math.floor(Number(row.guide_units));
+    const store = Math.floor(Number(row.store_units));
+    if (!Number.isFinite(guide) || !Number.isFinite(store)) continue;
+    if (guide > 0 && store < guide) {
+      const section =
+        typeof row.section === 'string' && row.section.trim()
+          ? row.section.trim().slice(0, 60)
+          : 'one section';
+      return { section, guide, store };
+    }
+  }
+  return null;
+}
+
 /** Coerce a model-supplied photo index into a valid [0, count-1] slot. Defaults
  *  to 0 (the cover) for a missing/garbled value or a single-photo set. */
 function clampIndex(v: unknown, count: number): number {
@@ -400,8 +469,17 @@ function buildInstruction(input: ComplianceScoreInput): string {
       `or product (e.g. a stand mixer display vs a cookware display), then verdict=FAIL, set "notes" to ` +
       `say it looks like a DIFFERENT display than the guide — likely the wrong fixture or photo, recapture ` +
       `the correct stand — set "issues" to exactly [{"label":"Wrong display","severity":"major"}] with NO box, ` +
-      `and STOP (do NOT report the merchandising defects below). STEP 2 — only if it IS the same display, ` +
-      `audit for ANY of these defects:`
+      `and STOP (do NOT report the merchandising defects below). ` +
+      // STOCK COUNT is its own numbered step because understocking is the defect
+      // vision models rubber-stamp: a half-empty stand "looks tidy", and bare
+      // black shelf on a black fixture reads as "background" unless the model is
+      // forced to count tiers against the guide.
+      `STEP 2 — STOCK COUNT: for EACH stand/section, COUNT the tiers (rows) of product visible in ` +
+      `the GUIDE, then count them in the STORE ${photoWord}, and report both numbers in the JSON ` +
+      `"stock_check" field. Count carefully — bare fixture surface (even dark/black shelving) where ` +
+      `the guide shows product is a missing tier. If ANY section shows fewer tiers or units than the ` +
+      `guide, that is understocking: verdict=FAIL. ` +
+      `STEP 3 — only if it is the same display AND fully stocked, audit for ANY of these defects:`
     : ` Look for ANY of these defects:`;
   // The closing "first list what differs, THEN reply" is load-bearing: it makes
   // the model enumerate differences as a reasoning step instead of rubber-
@@ -419,16 +497,25 @@ function buildInstruction(input: ComplianceScoreInput): string {
     `${intro}${mismatchClause} ` +
     `(a) empty/gap slots or missing units in a stack; ` +
     `(b) toppled, leaning, crooked, or piled-on-top boxes; ` +
-    `(c) bare or understocked shelves showing the floor/fixture; ` +
+    `(c) bare or understocked shelves or tiers — fixture surface (even dark/black shelving) showing ` +
+    `where product should sit, or visibly fewer units than the standard; ` +
     `(d) missing or hidden price tickets or promotional ("FREE GIFT" / sale) signage; ` +
     `(e) anything obstructing, covering, or blocking part of the display. ` +
-    `Be skeptical: if you see ANY such defect, the verdict is FAIL (or NEEDS_REVIEW if you ` +
-    `genuinely cannot tell — blur, glare, crop). Only PASS when the store ${photoWord} clearly ` +
-    `${n === 1 ? 'matches' : 'match'} the standard with NO defects.${refClause} ` +
+    `Be skeptical and DECISIVE: if ANY such defect is clearly visible, the verdict is FAIL — ` +
+    `never soften a visible defect to NEEDS_REVIEW. Something physically covering or blocking ` +
+    `the display IS defect (e) and a FAIL, not a reason you "cannot audit". NEEDS_REVIEW is ONLY ` +
+    `for CAMERA problems (blur, glare, too dark, badly cropped framing) that genuinely prevent ` +
+    `judgement. Only PASS when the store ${photoWord} clearly ` +
+    `${n === 1 ? 'matches' : 'match'} the standard with NO defects — if you are not CERTAIN the ` +
+    `display is defect-free, do not PASS.${refClause} ` +
     // "on the last line" is load-bearing: it makes the model enumerate the
     // differences first, instead of jumping straight to a rubber-stamp PASS.
     `First list what differs from the guide, then reply with ONLY this JSON on the last line: ` +
     `{"verdict":"PASS|NEEDS_REVIEW|FAIL","confidence":0..1,` +
+    (hasRef
+      ? `"stock_check":[{"section":"<stand name/position>","guide_units":<tiers of product in the guide>,` +
+        `"store_units":<tiers of product in the store ${photoWord.slice(0, 5)}>}],`
+      : '') +
     `"notes":"ONE short, specific, actionable sentence the store can act on now. ` +
     `If it fails, name the single most important defect AND where it is AND the fix ` +
     `(e.g. \\"Restock the empty slot on the bottom-left shelf.\\" / \\"Straighten the leaning box on the top-left stack.\\"). ` +

@@ -88,6 +88,14 @@ export class ManagerController {
     return this.manager.home(user, q.storeId);
   }
 
+  /** The manager's venue stores (their own + sibling concessions) — the switcher. */
+  @Get('stores')
+  venueStores(
+    @CurrentUser() user: SessionUser,
+  ): Promise<{ id: string; name: string }[]> {
+    return this.manager.venueStores(user);
+  }
+
   @Get('tasks')
   tasks(
     @CurrentUser() user: SessionUser,
@@ -194,7 +202,7 @@ export class ManagerController {
     @CurrentUser() user: SessionUser,
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<FixtureCompliance[]> {
-    return this.manager.compliance(user, q.storeId);
+    return this.manager.compliance(user, q.storeId, q.campaignId);
   }
 
   /** One fixture's compliance sheet: reference, notes, my photo, AI verdict. */
@@ -204,7 +212,7 @@ export class ManagerController {
     @Param('fixtureId') fixtureId: string,
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<FixtureComplianceDetail> {
-    return this.manager.fixtureCompliance(user, fixtureId, q.storeId);
+    return this.manager.fixtureCompliance(user, fixtureId, q.storeId, q.campaignId);
   }
 
   /**
@@ -230,6 +238,7 @@ export class ManagerController {
         size: file?.size ?? 0,
       },
       q.storeId,
+      q.campaignId,
     );
   }
 
@@ -245,7 +254,7 @@ export class ManagerController {
     @Param('photoId') photoId: string,
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<FixtureComplianceDetail> {
-    return this.manager.deleteFixturePhoto(user, fixtureId, photoId, q.storeId);
+    return this.manager.deleteFixturePhoto(user, fixtureId, photoId, q.storeId, q.campaignId);
   }
 
   /**
@@ -259,7 +268,7 @@ export class ManagerController {
     @Param('fixtureId') fixtureId: string,
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<FixtureComplianceDetail> {
-    return this.manager.requestCapturePhoto(user, fixtureId, q.storeId);
+    return this.manager.requestCapturePhoto(user, fixtureId, q.storeId, q.campaignId);
   }
 
   /**
@@ -274,7 +283,7 @@ export class ManagerController {
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
     @Body(new ZodValidationPipe(OverrideCaptureSchema)) body: OverrideCaptureInput,
   ): Promise<FixtureComplianceDetail> {
-    return this.manager.overrideCapture(user, fixtureId, body, q.storeId);
+    return this.manager.overrideCapture(user, fixtureId, body, q.storeId, q.campaignId);
   }
 
   // ----- report extra questions (text / yes-no / note) ----------------------
@@ -285,7 +294,7 @@ export class ManagerController {
     @CurrentUser() user: SessionUser,
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<CampaignQuestionWithAnswer[]> {
-    return this.manager.listQuestions(user, q.storeId);
+    return this.manager.listQuestions(user, q.storeId, q.campaignId);
   }
 
   /** Upsert this store's answer to one report question. */
@@ -297,7 +306,7 @@ export class ManagerController {
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
     @Body(new ZodValidationPipe(AnswerQuestionSchema)) body: AnswerQuestionInput,
   ): Promise<CampaignQuestionWithAnswer[]> {
-    return this.manager.answerQuestion(user, questionId, body, q.storeId);
+    return this.manager.answerQuestion(user, questionId, body, q.storeId, q.campaignId);
   }
 
   // ----- the submittable report ---------------------------------------------
@@ -308,7 +317,7 @@ export class ManagerController {
     @CurrentUser() user: SessionUser,
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<StoreReportDto> {
-    return this.manager.getReport(user, q.storeId);
+    return this.manager.getReport(user, q.storeId, q.campaignId);
   }
 
   /** Submit this store's report (blocks on unanswered required questions). */
@@ -318,7 +327,7 @@ export class ManagerController {
     @CurrentUser() user: SessionUser,
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<StoreReportDto> {
-    return this.manager.submitReport(user, q.storeId);
+    return this.manager.submitReport(user, q.storeId, q.campaignId);
   }
 
   /** The full report document for this store (read-only submitted view). */
@@ -327,7 +336,7 @@ export class ManagerController {
     @CurrentUser() user: SessionUser,
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<StoreReportDocument> {
-    return this.manager.getReportDocument(user, q.storeId);
+    return this.manager.getReportDocument(user, q.storeId, q.campaignId);
   }
 
   /** This store's reports across campaigns (current + past) for the Tasks list. */
@@ -355,6 +364,7 @@ export class ManagerController {
       itemId,
       body.checked,
       q.storeId,
+      q.campaignId,
     );
   }
 }

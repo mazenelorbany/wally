@@ -90,16 +90,4 @@ export {
   type VerdictTone,
 } from "./components/Verdict";
 
-export {
-  StatusSpine,
-  type StatusSpineProps,
-  type SpineStep,
-  type StepState,
-} from "./components/StatusSpine";
-
-export {
-  ConfidenceBar,
-  type ConfidenceBarProps,
-} from "./components/ConfidenceBar";
-
 export { Brandmark, type BrandmarkProps } from "./components/Brandmark";

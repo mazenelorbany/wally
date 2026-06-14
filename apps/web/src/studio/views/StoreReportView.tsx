@@ -6,8 +6,10 @@ import { Spinner } from '@wally/ui';
 
 import { api, errorMessage } from '../../lib/api';
 import { useToast } from '../../lib/toast';
+import { useSession } from '../../lib/auth';
 import { ErrorState } from '../../components/states';
 import { ReportDocument } from '../../components/report/ReportDocument';
+import { useReviewThreads } from '../../components/report/useReviewThreads';
 import { useSetStudioTopBar } from '../components/StudioContext';
 
 /** Admin/reviewer view of one store's report (the rendered document + PDF). */
@@ -15,7 +17,13 @@ export function StoreReportView() {
   const { campaignId = '', storeId = '' } = useParams();
   const qc = useQueryClient();
   const toast = useToast();
+  const { user } = useSession();
   useSetStudioTopBar({ guideName: 'Store report', stores: [] });
+
+  // The review-comment loop: admins/reviewers open threads (incl. photo pins)
+  // and resolve them; the store's manager replies from their side.
+  const canModerate = user?.role === 'ADMIN' || user?.role === 'REVIEWER';
+  const review = useReviewThreads(campaignId, storeId);
 
   const key = ['studio', 'report-document', campaignId, storeId];
   const docQ = useQuery({
@@ -67,6 +75,20 @@ export function StoreReportView() {
           doc={docQ.data}
           onRegenerateSummary={() => regen.mutate()}
           regenerating={regen.isPending}
+          review={{
+            threads: review.threads,
+            canCreate: canModerate,
+            onCreate: (body) =>
+              review.create.mutate({ ...body, storeId, campaignId }),
+            actions: {
+              canReply: canModerate,
+              canModerate,
+              busy: review.busy,
+              onReply: (threadId, body) => review.reply.mutate({ threadId, body }),
+              onResolve: (threadId) => review.resolve.mutate(threadId),
+              onReopen: (threadId) => review.reopen.mutate(threadId),
+            },
+          }}
         />
       ) : null}
     </div>

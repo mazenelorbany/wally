@@ -30,6 +30,7 @@
     "@wally/types": "workspace:*",
     "argon2": "^0.41.1",
     "cookie-parser": "^1.4.7",
+    "express": "^5.2.1",
     "helmet": "^8.0.0",
     "nestjs-pino": "^4.3.0",
     "nodemailer": "^6.9.16",

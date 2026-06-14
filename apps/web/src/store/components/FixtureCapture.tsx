@@ -53,8 +53,8 @@ export function FixtureCapture({
   const [zoom, setZoom] = React.useState<ZoomTarget | null>(null);
 
   const compQ = useQuery({
-    queryKey: ['manager', 'fixture-compliance', storeId, fixtureId],
-    queryFn: () => api.manager.fixtureCompliance(fixtureId, storeId),
+    queryKey: ['manager', 'fixture-compliance', storeId, campaignId, fixtureId],
+    queryFn: () => api.manager.fixtureCompliance(fixtureId, storeId, campaignId),
     enabled: Boolean(fixtureId),
   });
 
@@ -68,7 +68,7 @@ export function FixtureCapture({
   // including the report progress, so the form's step counter updates live.
   const invalidateCapture = () => {
     void qc.invalidateQueries({
-      queryKey: ['manager', 'fixture-compliance', storeId, fixtureId],
+      queryKey: ['manager', 'fixture-compliance', storeId, campaignId, fixtureId],
     });
     void qc.invalidateQueries({ queryKey: ['manager', 'compliance', storeId] });
     void qc.invalidateQueries({ queryKey: ['manager', 'report', storeId] });
@@ -77,33 +77,33 @@ export function FixtureCapture({
 
   const upload = useMutation({
     mutationFn: (file: File) =>
-      api.manager.uploadFixturePhoto(fixtureId, file, storeId),
+      api.manager.uploadFixturePhoto(fixtureId, file, storeId, campaignId),
     onSuccess: invalidateCapture,
   });
 
   const removePhoto = useMutation({
     mutationFn: (photoId: string) =>
-      api.manager.deleteFixturePhoto(fixtureId, photoId, storeId),
+      api.manager.deleteFixturePhoto(fixtureId, photoId, storeId, campaignId),
     onSuccess: invalidateCapture,
   });
 
   // Tick/untick a checklist item while filling the report.
   const tick = useMutation({
     mutationFn: (v: { itemId: string; checked: boolean }) =>
-      api.manager.tickChecklist(fixtureId, v.itemId, v.checked, storeId),
+      api.manager.tickChecklist(fixtureId, v.itemId, v.checked, storeId, campaignId),
     onSuccess: invalidateCapture,
   });
 
   // REVIEWER/ADMIN: re-request a photo ("redo this").
   const requestPhoto = useMutation({
-    mutationFn: () => api.manager.requestCapturePhoto(fixtureId, storeId),
+    mutationFn: () => api.manager.requestCapturePhoto(fixtureId, storeId, campaignId),
     onSuccess: invalidateCapture,
   });
 
   // REVIEWER/ADMIN: override the AI verdict with a human decision.
   const override = useMutation({
     mutationFn: (body: { verdict: CaptureVerdict; note?: string }) =>
-      api.manager.overrideCapture(fixtureId, body, storeId),
+      api.manager.overrideCapture(fixtureId, body, storeId, campaignId),
     onSuccess: invalidateCapture,
   });
 
@@ -127,23 +127,27 @@ export function FixtureCapture({
     <div className="space-y-5">
       {/* Compliance: reference + notes + my photo gallery + verdict */}
       <section className="space-y-3">
-        <Frame label="Guide reference">
-          {c?.referenceUrl ? (
-            <ZoomableImage src={c.referenceUrl} label="Guide reference" onZoom={setZoom} />
-          ) : (
-            <Placeholder text="No reference" />
-          )}
-        </Frame>
+        {/* Reference and the manager's own shots side by side on wider screens —
+            the comparison IS the job, and stacking them forces a scroll. */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Frame label="Guide reference">
+            {c?.referenceUrl ? (
+              <ZoomableImage src={c.referenceUrl} label="Guide reference" onZoom={setZoom} />
+            ) : (
+              <Placeholder text="No reference" />
+            )}
+          </Frame>
 
-        {/* Your photos — a fixture step can hold several angles of one display. */}
-        <YourPhotos
-          photos={c?.photos ?? []}
-          onZoom={setZoom}
-          onRemove={(id) => removePhoto.mutate(id)}
-          removingId={
-            removePhoto.isPending ? (removePhoto.variables as string) : null
-          }
-        />
+          {/* Your photos — a fixture step can hold several angles of one display. */}
+          <YourPhotos
+            photos={c?.photos ?? []}
+            onZoom={setZoom}
+            onRemove={(id) => removePhoto.mutate(id)}
+            removingId={
+              removePhoto.isPending ? (removePhoto.variables as string) : null
+            }
+          />
+        </div>
         {removePhoto.isError ? (
           <p className="text-center text-sm text-fail">
             {errorMessage(removePhoto.error)}
@@ -199,6 +203,13 @@ export function FixtureCapture({
                 </li>
               ))}
             </ul>
+          </div>
+        ) : isReviewer ? (
+          // Only reviewers/admins see this — they're the ones who can author
+          // items. Store managers just get no checklist section.
+          <div className="rounded-lg border border-dashed border-mist/70 bg-surface/30 p-3.5 text-sm text-steel">
+            No checklist for this fixture — add items on its sheet in the task
+            build, or as fixture-library defaults so every task inherits them.
           </div>
         ) : null}
 
@@ -323,7 +334,7 @@ export function FixtureCapture({
                 {row.row ? (
                   <p className="mb-1.5 text-xs font-medium text-graphite">{row.row}</p>
                 ) : null}
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
                   {row.products.map((p) => (
                     <div
                       key={p.id}
@@ -570,7 +581,7 @@ function YourPhotos({
           </span>
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-2">
           {photos.map((p, i) => (
             <figure
               key={p.id}

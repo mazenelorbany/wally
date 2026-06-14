@@ -6,7 +6,6 @@
 // browser attaches the `wally_session` cookie set by the API.
 
 import type {
-  ScoreResult,
   StoreScore,
   StoreSales,
   StoreDto,
@@ -68,6 +67,8 @@ import type {
   BulletinAckRow,
   BulletinScheduleState,
   ResourceDto,
+  ReviewThreadDto,
+  CreateReviewThreadBody,
 } from "@wally/types";
 
 /* -------------------------------------------------------------------------- */
@@ -146,69 +147,6 @@ export interface CampaignSummary {
   /** Progress: stores the report was sent to, and how many have submitted. */
   storesSent: number;
   storesSubmitted: number;
-}
-
-export interface Submission {
-  id: string;
-  storeId: string;
-  campaignId: string;
-  storeName: string;
-  campaignKey: string;
-  /** The store's applicable fixtures = the checklist (ordered). */
-  fixtures: SubmissionFixture[];
-  photos: SubmissionPhoto[];
-}
-
-export interface SubmissionFixture {
-  fixtureKey: string;
-  label: string;
-  order: number;
-}
-
-/**
- * A scored photo on the reviewer bench. The full ScoreResult (overall,
- * confidence, flags, per-criterion results, rubricVersion) plus the VERDICT id
- * — the review endpoint is keyed by verdict id, so the bench submits decisions
- * against `score.id`, not the photo id.
- */
-export interface ReviewableScore extends ScoreResult {
-  /** The verdict id — pass to `verdicts.review(id, …)`. */
-  id: string;
-  createdAt?: string;
-}
-
-export interface SubmissionPhoto {
-  id: string;
-  fixtureKey: string;
-  status: string;
-  /** Signed, time-limited URL — never the raw storage key. */
-  url?: string;
-  /** The AI verdict, presented for review. Null/absent until scored. */
-  score?: ReviewableScore | null;
-}
-
-/** Result of uploading one photo to a submission. */
-export interface UploadedPhoto {
-  id: string;
-  submissionId: string;
-  fixtureKey: string;
-  status: string;
-}
-
-export type ReviewAction = "CONFIRM" | "OVERRIDE" | "ESCALATE";
-
-/** Body for a reviewer's decision on a verdict. */
-export interface ReviewBody {
-  action: ReviewAction;
-  /** Required when action is OVERRIDE — the corrected overall band. */
-  overall?: ScoreResult["overall"];
-  note?: string;
-}
-
-export interface ReviewResult {
-  id: string;
-  verdictId: string;
-  action: ReviewAction;
 }
 
 /** A signed, time-limited URL to a store's PDF/report. */
@@ -520,7 +458,8 @@ export interface UpdateUserBody {
 
 /** Body for publishing a new rubric version for one fixture. */
 export interface PublishRubricBody {
-  fixtureKey: string;
+  /** The library fixture this rubric grades (picked in the editor). */
+  fixtureId: string;
   criteria: Criterion[];
   rollupRule?: RollupRule;
   /**
@@ -696,22 +635,21 @@ export interface WallyClient {
      */
     activate(
       campaignId: string,
-      fixtureKey: string,
+      fixtureId: string,
       version: number,
     ): Promise<Rubric>;
   };
-  submissions: {
-    /** The signed-in store manager's current checklist (store + active campaign). */
-    current(): Promise<{ submissionId: string; campaignKey: string }>;
-    get(id: string): Promise<Submission>;
-    uploadPhoto(
-      submissionId: string,
-      fixtureKey: string,
-      file: Blob | File,
-    ): Promise<UploadedPhoto>;
-  };
-  verdicts: {
-    review(id: string, body: ReviewBody): Promise<ReviewResult>;
+  /** Review conversations on a store's report (comments / pins / resolve). */
+  reviewThreads: {
+    /** Threads for one store × campaign. Managers omit storeId (own store). */
+    list(campaignId: string, storeId?: string): Promise<ReviewThreadDto[]>;
+    /** Open a thread on a fixture step or question answer. REVIEWER/ADMIN. */
+    create(body: CreateReviewThreadBody): Promise<ReviewThreadDto>;
+    /** Reply (head office anywhere; the store's manager on their own threads). */
+    reply(threadId: string, body: string): Promise<ReviewThreadDto>;
+    /** Mark handled / reopen. REVIEWER/ADMIN. */
+    resolve(threadId: string): Promise<ReviewThreadDto>;
+    reopen(threadId: string): Promise<ReviewThreadDto>;
   };
   reports: {
     /** Resolve a signed URL to the store's report (does not fetch the bytes). */
@@ -843,6 +781,10 @@ export interface WallyClient {
   guideFixtures: {
     /** A task's photo-request fixtures with content-fill summaries. */
     list(campaignId: string): Promise<CampaignFixtureSummary[]>;
+    /** Add a library fixture to the task as a photo request (every store). */
+    addRequest(campaignId: string, fixtureId: string): Promise<void>;
+    /** Remove a photo request. 400 once a store has photographed it. */
+    removeRequest(campaignId: string, fixtureId: string): Promise<void>;
     detail(
       campaignId: string,
       fixtureId: string,
@@ -936,6 +878,8 @@ export interface WallyClient {
    */
   manager: {
     home(storeId?: string): Promise<ManagerHome>;
+    /** The manager's venue stores (own + sibling concessions) for the switcher. */
+    myStores(): Promise<{ id: string; name: string }[]>;
     tasks(storeId?: string): Promise<TaskDto[]>;
     completeTask(taskId: string, storeId?: string): Promise<void>;
     /** Reopen a completed task (DONE → OPEN) — recover a mis-tapped completion. */
@@ -960,23 +904,26 @@ export interface WallyClient {
       date?: string,
     ): Promise<void>;
     /** Per-fixture compliance status for the floor map (photo wanted / scored). */
-    compliance(storeId?: string): Promise<FixtureCompliance[]>;
+    compliance(storeId?: string, campaignId?: string): Promise<FixtureCompliance[]>;
     /** One fixture's compliance sheet: reference, notes, my photo, verdict. */
     fixtureCompliance(
       fixtureId: string,
       storeId?: string,
+      campaignId?: string,
     ): Promise<FixtureComplianceDetail>;
     /** Add a photo to a fixture's gallery; AI re-scores the whole set. */
     uploadFixturePhoto(
       fixtureId: string,
       file: Blob | File,
       storeId?: string,
+      campaignId?: string,
     ): Promise<FixtureComplianceDetail>;
     /** Remove one photo from a fixture's gallery; AI re-scores the remainder. */
     deleteFixturePhoto(
       fixtureId: string,
       photoId: string,
       storeId?: string,
+      campaignId?: string,
     ): Promise<FixtureComplianceDetail>;
     /**
      * REVIEWER/ADMIN: re-request a photo for a fixture ("redo this") — raises
@@ -985,6 +932,7 @@ export interface WallyClient {
     requestCapturePhoto(
       fixtureId: string,
       storeId?: string,
+      campaignId?: string,
     ): Promise<FixtureComplianceDetail>;
     /**
      * REVIEWER/ADMIN: override a fixture-capture's AI verdict with a human
@@ -994,21 +942,23 @@ export interface WallyClient {
       fixtureId: string,
       body: OverrideCaptureBody,
       storeId?: string,
+      campaignId?: string,
     ): Promise<FixtureComplianceDetail>;
     /** The campaign's extra report questions paired with this store's answers. */
-    listQuestions(storeId?: string): Promise<CampaignQuestionWithAnswer[]>;
+    listQuestions(storeId?: string, campaignId?: string): Promise<CampaignQuestionWithAnswer[]>;
     /** Upsert this store's answer to one report question. */
     answerQuestion(
       questionId: string,
       body: AnswerQuestionBody,
       storeId?: string,
+      campaignId?: string,
     ): Promise<CampaignQuestionWithAnswer[]>;
     /** This store's report envelope (status, score, flags, progress). */
-    getReport(storeId?: string): Promise<StoreReportDto>;
+    getReport(storeId?: string, campaignId?: string): Promise<StoreReportDto>;
     /** Submit this store's report (blocks on unanswered required questions). */
-    submitReport(storeId?: string): Promise<StoreReportDto>;
+    submitReport(storeId?: string, campaignId?: string): Promise<StoreReportDto>;
     /** The full report document for this store (read-only submitted view). */
-    getReportDocument(storeId?: string): Promise<StoreReportDocument>;
+    getReportDocument(storeId?: string, campaignId?: string): Promise<StoreReportDocument>;
     /** This store's reports across campaigns (current + past) for the Tasks list. */
     listReports(storeId?: string): Promise<ManagerReportListItem[]>;
     /** Tick/untick a fixture checklist item; returns the updated sheet. */
@@ -1017,6 +967,7 @@ export interface WallyClient {
       itemId: string,
       checked: boolean,
       storeId?: string,
+      campaignId?: string,
     ): Promise<FixtureComplianceDetail>;
   };
   /** ADMIN — assign / list / edit / cancel store tasks. */
@@ -1344,32 +1295,28 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           { body: form },
         );
       },
-      activate: (campaignId, fixtureKey, version) =>
+      activate: (campaignId, fixtureId, version) =>
         post<Rubric>(
-          `campaigns/${encodeURIComponent(campaignId)}/rubrics/${encodeURIComponent(fixtureKey)}/activate`,
+          `campaigns/${encodeURIComponent(campaignId)}/rubrics/${encodeURIComponent(fixtureId)}/activate`,
           { version },
         ),
     },
-    submissions: {
-      current: () =>
-        get<{ submissionId: string; campaignKey: string }>("submissions/current"),
-      get: (id) => get<Submission>(`submissions/${encodeURIComponent(id)}`),
-      uploadPhoto: (submissionId, fixtureKey, file) => {
-        const form = new FormData();
-        form.append("fixtureKey", fixtureKey);
-        form.append("file", file);
-        return request<UploadedPhoto>(
-          "POST",
-          `submissions/${encodeURIComponent(submissionId)}/photos`,
-          { body: form },
-        );
-      },
-    },
-    verdicts: {
-      review: (id, body) =>
-        post<ReviewResult>(
-          `verdicts/${encodeURIComponent(id)}/review`,
-          body,
+    reviewThreads: {
+      list: (campaignId, storeId) =>
+        get<ReviewThreadDto[]>(`report-threads${query({ campaignId, storeId })}`),
+      create: (body) => post<ReviewThreadDto>("report-threads", body),
+      reply: (threadId, body) =>
+        post<ReviewThreadDto>(
+          `report-threads/${encodeURIComponent(threadId)}/comments`,
+          { body },
+        ),
+      resolve: (threadId) =>
+        post<ReviewThreadDto>(
+          `report-threads/${encodeURIComponent(threadId)}/resolve`,
+        ),
+      reopen: (threadId) =>
+        post<ReviewThreadDto>(
+          `report-threads/${encodeURIComponent(threadId)}/reopen`,
         ),
     },
     reports: {
@@ -1528,6 +1475,14 @@ export function createClient(opts: CreateClientOptions): WallyClient {
         get<CampaignFixtureSummary[]>(
           `campaigns/${encodeURIComponent(campaignId)}/fixtures`,
         ),
+      addRequest: (campaignId, fixtureId) =>
+        post<void>(
+          `campaigns/${encodeURIComponent(campaignId)}/fixtures/${encodeURIComponent(fixtureId)}/request`,
+        ),
+      removeRequest: (campaignId, fixtureId) =>
+        del<void>(
+          `campaigns/${encodeURIComponent(campaignId)}/fixtures/${encodeURIComponent(fixtureId)}/request`,
+        ),
       detail: (campaignId, fixtureId) =>
         get<GuideFixtureDetail>(
           `campaigns/${encodeURIComponent(campaignId)}/fixtures/${encodeURIComponent(fixtureId)}/detail`,
@@ -1626,6 +1581,7 @@ export function createClient(opts: CreateClientOptions): WallyClient {
     manager: {
       home: (storeId) =>
         get<ManagerHome>(`manager/home${query({ storeId })}`),
+      myStores: () => get<{ id: string; name: string }[]>("manager/stores"),
       tasks: (storeId) =>
         get<TaskDto[]>(`manager/tasks${query({ storeId })}`),
       completeTask: (taskId, storeId) =>
@@ -1652,54 +1608,54 @@ export function createClient(opts: CreateClientOptions): WallyClient {
           `manager/sales/${encodeURIComponent(productId)}${query({ storeId })}`,
           { units, ...(date ? { date } : {}) },
         ),
-      compliance: (storeId) =>
-        get<FixtureCompliance[]>(`manager/compliance${query({ storeId })}`),
-      fixtureCompliance: (fixtureId, storeId) =>
+      compliance: (storeId, campaignId) =>
+        get<FixtureCompliance[]>(`manager/compliance${query({ storeId, campaignId })}`),
+      fixtureCompliance: (fixtureId, storeId, campaignId) =>
         get<FixtureComplianceDetail>(
-          `manager/fixtures/${encodeURIComponent(fixtureId)}/compliance${query({ storeId })}`,
+          `manager/fixtures/${encodeURIComponent(fixtureId)}/compliance${query({ storeId, campaignId })}`,
         ),
-      uploadFixturePhoto: (fixtureId, file, storeId) => {
+      uploadFixturePhoto: (fixtureId, file, storeId, campaignId) => {
         const form = new FormData();
         form.append("file", file);
         return request<FixtureComplianceDetail>(
           "POST",
-          `manager/fixtures/${encodeURIComponent(fixtureId)}/photo${query({ storeId })}`,
+          `manager/fixtures/${encodeURIComponent(fixtureId)}/photo${query({ storeId, campaignId })}`,
           { body: form },
         );
       },
-      deleteFixturePhoto: (fixtureId, photoId, storeId) =>
+      deleteFixturePhoto: (fixtureId, photoId, storeId, campaignId) =>
         del<FixtureComplianceDetail>(
-          `manager/fixtures/${encodeURIComponent(fixtureId)}/photos/${encodeURIComponent(photoId)}${query({ storeId })}`,
+          `manager/fixtures/${encodeURIComponent(fixtureId)}/photos/${encodeURIComponent(photoId)}${query({ storeId, campaignId })}`,
         ),
-      requestCapturePhoto: (fixtureId, storeId) =>
+      requestCapturePhoto: (fixtureId, storeId, campaignId) =>
         post<FixtureComplianceDetail>(
-          `manager/fixtures/${encodeURIComponent(fixtureId)}/request-photo${query({ storeId })}`,
+          `manager/fixtures/${encodeURIComponent(fixtureId)}/request-photo${query({ storeId, campaignId })}`,
         ),
-      overrideCapture: (fixtureId, body, storeId) =>
+      overrideCapture: (fixtureId, body, storeId, campaignId) =>
         post<FixtureComplianceDetail>(
-          `manager/fixtures/${encodeURIComponent(fixtureId)}/override${query({ storeId })}`,
+          `manager/fixtures/${encodeURIComponent(fixtureId)}/override${query({ storeId, campaignId })}`,
           body,
         ),
-      listQuestions: (storeId) =>
+      listQuestions: (storeId, campaignId) =>
         get<CampaignQuestionWithAnswer[]>(
-          `manager/questions${query({ storeId })}`,
+          `manager/questions${query({ storeId, campaignId })}`,
         ),
-      answerQuestion: (questionId, body, storeId) =>
+      answerQuestion: (questionId, body, storeId, campaignId) =>
         put<CampaignQuestionWithAnswer[]>(
-          `manager/questions/${encodeURIComponent(questionId)}/answer${query({ storeId })}`,
+          `manager/questions/${encodeURIComponent(questionId)}/answer${query({ storeId, campaignId })}`,
           body,
         ),
-      getReport: (storeId) =>
-        get<StoreReportDto>(`manager/report${query({ storeId })}`),
-      submitReport: (storeId) =>
-        post<StoreReportDto>(`manager/report/submit${query({ storeId })}`),
-      getReportDocument: (storeId) =>
-        get<StoreReportDocument>(`manager/report/document${query({ storeId })}`),
+      getReport: (storeId, campaignId) =>
+        get<StoreReportDto>(`manager/report${query({ storeId, campaignId })}`),
+      submitReport: (storeId, campaignId) =>
+        post<StoreReportDto>(`manager/report/submit${query({ storeId, campaignId })}`),
+      getReportDocument: (storeId, campaignId) =>
+        get<StoreReportDocument>(`manager/report/document${query({ storeId, campaignId })}`),
       listReports: (storeId) =>
         get<ManagerReportListItem[]>(`manager/reports${query({ storeId })}`),
-      tickChecklist: (fixtureId, itemId, checked, storeId) =>
+      tickChecklist: (fixtureId, itemId, checked, storeId, campaignId) =>
         put<FixtureComplianceDetail>(
-          `manager/fixtures/${encodeURIComponent(fixtureId)}/checklist/${encodeURIComponent(itemId)}${query({ storeId })}`,
+          `manager/fixtures/${encodeURIComponent(fixtureId)}/checklist/${encodeURIComponent(itemId)}${query({ storeId, campaignId })}`,
           { checked },
         ),
     },
@@ -1809,7 +1765,6 @@ export function createClient(opts: CreateClientOptions): WallyClient {
 }
 
 export type {
-  ScoreResult,
   StoreScore,
   StoreSales,
   ComplianceTurnaround,
@@ -1876,6 +1831,10 @@ export type {
   BulletinAckRow,
   BulletinScheduleState,
   ResourceDto,
+  ReviewThreadDto,
+  ReviewCommentDto,
+  ReviewThreadStatus,
+  CreateReviewThreadBody,
 } from "@wally/types";
 
 export default createClient;

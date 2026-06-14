@@ -20,23 +20,25 @@ const fieldCls =
  */
 export function ReportQuestions({
   storeId,
+  campaignId,
   readOnly = false,
 }: {
   storeId?: string;
+  campaignId?: string;
   readOnly?: boolean;
 }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const key = ['manager', 'questions', storeId];
+  const key = ['manager', 'questions', storeId, campaignId];
 
   const questionsQ = useQuery({
     queryKey: key,
-    queryFn: () => api.manager.listQuestions(storeId),
+    queryFn: () => api.manager.listQuestions(storeId, campaignId),
   });
 
   const save = useMutation({
     mutationFn: ({ id, body }: { id: string; body: AnswerQuestionBody }) =>
-      api.manager.answerQuestion(id, body, storeId),
+      api.manager.answerQuestion(id, body, storeId, campaignId),
     onSuccess: (rows) => qc.setQueryData(key, rows),
     onError: (e) => toast.error(errorMessage(e)),
   });
