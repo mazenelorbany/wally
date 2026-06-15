@@ -59,12 +59,14 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_ID: optionalNonEmpty,
   GOOGLE_CLIENT_SECRET: optionalNonEmpty,
 
-  // Vision model (scoring core). `anthropic` (hosted Claude) or `ollama` (a
-  // local, offline, vision-capable model — no cloud key, bytes stay on-box).
-  WALLY_VISION_PROVIDER: z.enum(['anthropic', 'ollama']).default('anthropic'),
+  // Vision model (scoring core). `anthropic` (hosted Claude), `gemini` (hosted
+  // Google, GEMINI_API_KEY), or `ollama` (a local, offline, vision-capable
+  // model — no cloud key, bytes stay on-box).
+  WALLY_VISION_PROVIDER: z.enum(['anthropic', 'gemini', 'ollama']).default('anthropic'),
   ANTHROPIC_API_KEY: optionalNonEmpty,
   // Default model depends on the provider; the provider applies its own default
-  // when this is unset (claude-sonnet-4-6 for anthropic, qwen2.5vl:7b for ollama).
+  // when this is unset (claude-sonnet-4-6 for anthropic, gemini-3.5-flash for
+  // gemini, qwen2.5vl:7b for ollama).
   WALLY_VISION_MODEL: optionalNonEmpty,
   // Ollama daemon endpoint (used only when WALLY_VISION_PROVIDER=ollama).
   OLLAMA_HOST: z.string().url().default('http://localhost:11434'),
