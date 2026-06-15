@@ -1,0 +1,84 @@
+# Store-entry GWP / Door Buster bulk stack — Myer Stocktake Sale P2, SALE 3.
+# Source: VM Guide Sale 3, "Store Entry Bulk Stack 1/2/3 — Front" (pp. 9-11) +
+# "Store Entry Bulk Stacks — Call Outs" (p. 8) + Priority Locations (p. 3).
+# These are the 3-4 GWP/Door Buster set-up stacks at the store entry.
+# Example deals: GWP1 buy iD3 SS Cookset 6pc free DM Mizu Knife Block 7pc ($399.99);
+# GWP2 buy iD3 Gozen2 Knife Block free Airfryer 9L ($299.99); GWP3 buy iconiX
+# Cookset 6pc free Nook Airfryer 15L ($399.99).
+fixture: doorbuster
+campaign: MSP2-2026
+version: 1
+reference_image: data/samples/directive-01.png
+
+rollup:
+  not_good_if_any_critical_fails: true
+  good_if_only_noncritical_fails: true
+
+criteria:
+  # --- Simple presence checks (high bar; AI reliable) ---
+  - id: at_front_high_traffic
+    kind: presence
+    critical: true
+    text: "The bulk stack is positioned at the FRONT of the store in a high-traffic
+      area (main customer flow) — not pushed in-store or away from the aisle."
+
+  - id: not_empty
+    kind: presence
+    critical: true
+    text: "The stack is full and built up — not half-empty, gapped, or showing
+      bare base/shelf."
+
+  - id: current_pos_only
+    kind: presence
+    critical: true
+    text: "Only current Sale 3 ticketing is shown — Door Buster / black & yellow
+      'OFF RRP' tickets. No expired or prior-campaign signage."
+
+  - id: a3_callout_on_deal
+    kind: presence
+    critical: true
+    text: "The A3 free-gift / deal call-out is on display, placed inside the A3
+      signage holder at the centre of the deal."
+
+  - id: doorbuster_price_ticket
+    kind: presence
+    critical: true
+    text: "The Door Buster '$ OFF RRP' price ticket is present and legible on the
+      stack (e.g. the $399.99 / $299.99 deal price)."
+
+  - id: free_gift_red_ribbon
+    kind: presence
+    critical: false
+    text: "The Free Gift (GWP) item is wrapped with the red ribbon, per the guide
+      example."
+
+  - id: cooksets_match_sale_item
+    kind: presence
+    critical: false
+    text: "The cooksets / products on display match the advertised sale item for
+      this stack."
+
+  # --- Aesthetic checks, decomposed into concrete sub-rules ---
+  - id: gwps_separated
+    kind: aesthetic
+    critical: false
+    text: "Separate GWP deals are not joined — there is a clear gap between them
+      (guide calls for a minimum ~80cm separation), not one merged pile."
+
+  - id: hero_anchors_build
+    kind: aesthetic
+    critical: false
+    text: "The largest / hero product anchors the build; frypan stands and risers
+      are used so heights vary, not one flat plane."
+
+  - id: colour_rhythm
+    kind: aesthetic
+    critical: false
+    text: "Colours are broken up across the stack, not all one colour clustered
+      together."
+
+  - id: sale_blocks
+    kind: aesthetic
+    critical: false
+    text: "Product is built as defined sale blocks (knife block / cookset /
+      airfryer columns), not a single undifferentiated square pile."

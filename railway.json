@@ -5,8 +5,8 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "preDeployCommand": "pnpm --filter @wally/api exec prisma db push --accept-data-loss && pnpm --filter @wally/api exec tsx prisma/seed.ts",
-    "startCommand": "node apps/api/dist/main.js",
+    "preDeployCommand": "pnpm --filter @wally/api exec prisma db push --accept-data-loss",
+    "startCommand": "sh -c 'mkdir -p \"$WALLY_STORAGE_DIR\" && cp -rn /app/apps/api/prisma/seed-storage/. \"$WALLY_STORAGE_DIR\"/ 2>/dev/null || true; node apps/api/dist/main.js'",
     "healthcheckPath": "/",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",

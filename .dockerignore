@@ -18,5 +18,3 @@ data/uploads/
 coverage/
 **/.DS_Store
 .git
-# Baked demo data is added only for the enrichment deploy (see railway.json).
-seed-data/
