@@ -12,15 +12,15 @@ import { useManagerStore } from '../ManagerStoreContext';
 
 // Logical floor-plan plane — same units as the studio canvas (FloorPlanCanvas),
 // so the manager sees the SAME block layout admins lay out, just read-only.
-const PLAN_W = 1000;
-const PLAN_H = 640;
+export const PLAN_W = 1000;
+export const PLAN_H = 640;
 
 /**
- * The manager's OWN store floor map. Read-only geometry (reused from the studio
- * canvas), but every applicable fixture is a tap target into its compliance
- * sheet: reference photo + VM notes → upload yours → AI compares. Fixtures
- * needing a photo this sale carry a camera flag; captured ones a check. Status
- * is icon + label, never colour alone (colour-blind safe).
+ * The manager's OWN store floor map — a pure REFERENCE. Read-only geometry
+ * (reused from the studio canvas); tapping a fixture opens its setup guide
+ * (reference image + instructions + products + checklist). Photos and checklist
+ * ticks are filled in the report (Tasks), not here — the floor map never asks
+ * for a photo, so it reads as a guide, not a task.
  */
 export function ManagerFloorView() {
   const { storeId } = useManagerStore();
@@ -38,17 +38,6 @@ export function ManagerFloorView() {
     queryFn: () => api.floorplan.get(campaignId!, resolvedStoreId!),
     enabled: Boolean(campaignId && resolvedStoreId),
   });
-
-  // Per-fixture compliance status for this store (photo wanted / captured / scored).
-  const statusQ = useQuery({
-    queryKey: ['manager', 'compliance', storeId],
-    queryFn: () => api.manager.compliance(storeId),
-  });
-  const statusByFixture = React.useMemo(() => {
-    const m = new Map<string, FixtureCompliance>();
-    for (const s of statusQ.data ?? []) m.set(s.fixtureId, s);
-    return m;
-  }, [statusQ.data]);
 
   if (homeQ.isLoading || planQ.isLoading) {
     return (
@@ -75,58 +64,36 @@ export function ManagerFloorView() {
   }
 
   const applicable = plan.placements.filter((p) => p.applicable);
-  const needed = applicable.filter((p) => statusByFixture.get(p.fixtureId)?.needsPhoto).length;
 
   return (
     <div className="space-y-4">
-      <header className="flex items-end justify-between gap-3">
-        <div>
-          <p className="text-[11px] uppercase tracking-brand text-steel">
-            {plan.campaignKey} · Floor map
-          </p>
-          <h1 className="mt-0.5 font-display text-2xl font-semibold tracking-tight text-ink">
-            {plan.storeName}
-          </h1>
-        </div>
-        {needed > 0 ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-signal/10 px-2.5 py-1 text-xs font-medium text-signal">
-            <Camera className="h-3.5 w-3.5" /> {needed} need a photo
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-pass/10 px-2.5 py-1 text-xs font-medium text-pass">
-            <CheckCircle2 className="h-3.5 w-3.5" /> All captured
-          </span>
-        )}
+      <header>
+        <p className="text-[11px] uppercase tracking-brand text-steel">
+          {plan.campaignKey} · Floor map
+        </p>
+        <h1 className="mt-0.5 font-display text-2xl font-semibold tracking-tight text-ink">
+          {plan.storeName}
+        </h1>
       </header>
 
       <p className="flex items-center gap-1.5 text-xs text-steel">
-        <Info className="h-3.5 w-3.5" /> Tap a fixture to see the guide and submit
-        your photo for review.
+        <Info className="h-3.5 w-3.5" /> Tap a fixture for its setup guide —
+        reference photo, instructions, products and checklist.
       </p>
 
       <FloorCanvas
         placements={applicable}
-        statusByFixture={statusByFixture}
+        statusByFixture={EMPTY_STATUS}
         onPick={(p) => navigate(`/store/guide/${encodeURIComponent(p.fixtureId)}`)}
       />
-
-      {/* Legend — icon + label, colour-blind safe */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-steel">
-        <span className="inline-flex items-center gap-1">
-          <Camera className="h-3.5 w-3.5 text-signal" /> Needs photo
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <CircleDashed className="h-3.5 w-3.5 text-steel" /> Awaiting score
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <CheckCircle2 className="h-3.5 w-3.5 text-pass" /> Scored
-        </span>
-      </div>
     </div>
   );
 }
 
-function FloorCanvas({
+/** The floor map is reference-only, so no per-fixture status is overlaid. */
+const EMPTY_STATUS: Map<string, FixtureCompliance> = new Map();
+
+export function FloorCanvas({
   placements,
   statusByFixture,
   onPick,

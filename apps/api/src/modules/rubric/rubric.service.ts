@@ -70,6 +70,7 @@ export class RubricService {
 
     const rubrics = await this.prisma.rubric.findMany({
       where: { orgId, campaignId },
+      include: { fixture: { select: { name: true, kind: true } } },
       orderBy: [{ fixtureKey: 'asc' }, { version: 'desc' }],
     });
     return rubrics.map((r) => this.present(r));
@@ -115,10 +116,18 @@ export class RubricService {
   async publish(orgId: string, campaignId: string, input: PublishRubricInput) {
     await this.authorizeCampaign(orgId, campaignId);
 
+    // Rubrics grade REAL fixtures — resolve the library fixture first (org-
+    // scoped 404). Its id doubles as the stable fixtureKey stamp segment.
+    const fixture = await this.prisma.fixture.findFirst({
+      where: { id: input.fixtureId, orgId },
+      select: { id: true, name: true, kind: true },
+    });
+    if (!fixture) throw new NotFoundException('fixture not found');
+
     try {
       const created = await this.prisma.$transaction(async (tx) => {
         const latest = await tx.rubric.findFirst({
-          where: { campaignId, fixtureKey: input.fixtureKey },
+          where: { campaignId, fixtureId: fixture.id },
           orderBy: { version: 'desc' },
           select: { version: true, referenceKey: true },
         });
@@ -135,7 +144,7 @@ export class RubricService {
         // The new version becomes live; clear the flag on every existing version
         // of this pair so exactly one row is active.
         await tx.rubric.updateMany({
-          where: { campaignId, fixtureKey: input.fixtureKey, active: true },
+          where: { campaignId, fixtureId: fixture.id, active: true },
           data: { active: false },
         });
 
@@ -143,7 +152,8 @@ export class RubricService {
           data: {
             orgId,
             campaignId,
-            fixtureKey: input.fixtureKey,
+            fixtureId: fixture.id,
+            fixtureKey: fixture.id,
             version: nextVersion,
             // Criterion[] / RollupRule are plain JSON-serialisable shapes; cast
             // to Prisma's InputJsonValue for the Json columns.
@@ -152,6 +162,7 @@ export class RubricService {
             referenceKey,
             active: true,
           },
+          include: { fixture: { select: { name: true, kind: true } } },
         });
       });
       return this.present(created);
@@ -162,7 +173,7 @@ export class RubricService {
       ) {
         // Concurrent publish won the version number first — caller should retry.
         throw new ConflictException(
-          `a newer rubric version for "${input.fixtureKey}" was just published; retry`,
+          `a newer rubric version for "${fixture.name}" was just published; retry`,
         );
       }
       throw err;
@@ -179,17 +190,25 @@ export class RubricService {
   async activate(
     orgId: string,
     campaignId: string,
-    fixtureKey: string,
+    fixtureRef: string,
     version: number,
   ) {
     await this.authorizeCampaign(orgId, campaignId);
 
+    // `fixtureRef` is the fixture id for fixture-linked rubrics; legacy rows
+    // (free-text keys, no fixtureId) still resolve via fixtureKey.
     const target = await this.prisma.rubric.findFirst({
-      where: { orgId, campaignId, fixtureKey, version },
+      where: {
+        orgId,
+        campaignId,
+        version,
+        OR: [{ fixtureId: fixtureRef }, { fixtureKey: fixtureRef }],
+      },
+      include: { fixture: { select: { name: true, kind: true } } },
     });
     if (!target) {
       throw new NotFoundException(
-        `no rubric version ${version} for fixture "${fixtureKey}"`,
+        `no rubric version ${version} for fixture "${fixtureRef}"`,
       );
     }
 
@@ -198,7 +217,7 @@ export class RubricService {
       this.prisma.rubric.updateMany({
         where: {
           campaignId,
-          fixtureKey,
+          fixtureKey: target.fixtureKey,
           active: true,
           id: { not: target.id },
         },
@@ -235,12 +254,16 @@ export class RubricService {
   private present(
     r: Prisma.RubricGetPayload<Record<string, never>> & {
       campaign?: { key: string } | null;
+      fixture?: { name: string; kind: string } | null;
     },
   ) {
     return {
       id: r.id,
       campaignId: r.campaignId,
       fixtureKey: r.fixtureKey,
+      fixtureId: r.fixtureId ?? null,
+      // Legacy rows have no linked fixture — their free-text key is the label.
+      fixtureName: r.fixture?.name ?? null,
       version: r.version,
       criteria: r.criteria as unknown as Criterion[],
       rollupRule: r.rollupRule as unknown as RollupRule,

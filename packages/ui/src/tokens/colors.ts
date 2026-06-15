@@ -1,17 +1,15 @@
 // =============================================================================
-// TCC brand colour tokens — the single source of truth for @wally/ui.
+// Wally colour tokens — the single source of truth for @wally/ui.
 //
-// The Custom Chef™ brand: a warm near-black, polished steel greys, a premium
-// GOLD accent (Black Samurai / Emperor / Kiyoshi gold; #FFCC00 on the live
-// site), and a deep Japanese-steel RED. So the system is warm-monochrome paper
-// → ink for the data CANVAS, premium dark CHROME for the rails, GOLD as the
-// brand accent, and RED reserved for "stop".
+// The design language is a Linear × Stripe mix wearing the TCC accent: a cool
+// near-white CANVAS with hairline borders and layered low shadows (Stripe),
+// deep cool-dark CHROME for the rails (Linear), Inter type, and the
+// Cuisine::pro RED as the single brand accent, with RED also meaning "stop".
 //
 // Colour is never load-bearing alone: every verdict also carries an icon + a
 // text label (see `verdictMeta`). The GRB CEO is colour blind and sees red, so
 // red means genuine "stop" and is always paired with the cross-circle icon +
-// the word. Gold is colour-blind-safe (distinct from the red/green verdict
-// hues) and so does the brand-accent work the lone red used to overreach into.
+// the word.
 //
 // These hexes are mirrored as CSS custom properties in ./../styles.css and as
 // named Tailwind colours in ../../tailwind-preset.cjs. Keep all three in sync.
@@ -20,18 +18,18 @@
 /** Raw brand hexes. Use the semantic Tailwind tokens in components; reach for
  *  these only when an inline style or canvas/SVG fill needs a literal value. */
 export const palette = {
-  /** Warm monochrome — lightest surface, the "page" (the data canvas). */
-  paper: "#FBFBF9",
-  /** One step up from paper — cards, rails, raised surfaces. */
-  surface: "#F3F2EE",
-  /** Near-black warm ink — primary text. */
-  ink: "#0E0E0D",
+  /** Cool monochrome — lightest surface, the "page" + cards (the data canvas). */
+  paper: "#FCFCFD",
+  /** One step up from paper — muted fills, hover states, rails. */
+  surface: "#F4F5F8",
+  /** Near-black cool ink — primary text. */
+  ink: "#14171F",
   /** Softer ink — secondary headings, strong body. */
-  graphite: "#3C3B36",
+  graphite: "#3E4654",
   /** Muted text — labels, captions, metadata. */
-  steel: "#7E7D77",
+  steel: "#686F83",
   /** Hairlines, dividers, disabled strokes. */
-  mist: "#BEBDB6",
+  mist: "#D9DCE3",
 
   /** The brand RED — Cuisine::pro red. Active nav, brand mark, focus, CTAs.
    *  (Token name kept `gold` so the re-theme stays a value-only swap.) */
@@ -41,23 +39,23 @@ export const palette = {
   /** Deep red for accent-on-light text that must stay legible. */
   goldDeep: "#7A0000",
 
-  /** Premium dark CHROME — the rails (sidebar / login / brand surfaces). */
-  chrome: "#16140E",
+  /** Deep cool CHROME — the rails (sidebar / login / brand surfaces). */
+  chrome: "#101216",
   /** Raised within chrome — hover / active row backgrounds. */
-  chromeRaised: "#221F16",
+  chromeRaised: "#1A1D24",
   /** Hairlines / dividers on chrome. */
-  chromeLine: "#322E20",
-  /** Primary text on chrome — warm cream. */
-  chromeInk: "#F4F1E8",
+  chromeLine: "#272C37",
+  /** Primary text on chrome — cool white. */
+  chromeInk: "#EDEFF3",
   /** Muted text on chrome — labels, inactive nav. */
-  chromeMuted: "#9E998B",
+  chromeMuted: "#8B93A6",
 
-  /** The "stop" accent — deep Japanese-steel red. Critical / fail only. */
-  signal: "#A6342A",
+  /** The "stop" accent — modern stop red. Critical / fail only. */
+  signal: "#C92C26",
 
   /** Reinforcement hues — only ever shown alongside an icon + label. */
-  pass: "#3E7C5A",
-  warn: "#5B6B7A",
+  pass: "#148052",
+  warn: "#5B6B83",
 } as const;
 
 export type PaletteToken = keyof typeof palette;

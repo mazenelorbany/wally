@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -20,14 +21,22 @@ import { ZodValidationPipe } from '../org/zod-validation.pipe';
 import { MAX_IMAGE_BYTES } from '../storage/image-upload.util';
 
 import {
+  AddChecklistSchema,
+  type AddChecklistInput,
   AddExampleImageSchema,
   type AddExampleImageInput,
   AddMerchandiseSchema,
   type AddMerchandiseInput,
+  ReorderChecklistSchema,
+  type ReorderChecklistInput,
   ReorderPlanogramSchema,
   type ReorderPlanogramInput,
+  SaveInstructionsSchema,
+  type SaveInstructionsInput,
   SaveNotesSchema,
   type SaveNotesInput,
+  UpdateChecklistSchema,
+  type UpdateChecklistInput,
   UpdateExampleImageSchema,
   type UpdateExampleImageInput,
 } from './guide-fixture.dto';
@@ -51,6 +60,15 @@ interface UploadedImage {
 @UseGuards(SessionGuard)
 export class GuideFixtureDetailController {
   constructor(private readonly guideFixtures: GuideFixtureService) {}
+
+  /** The task's photo-request fixtures (the "Build" view list). */
+  @Get(':campaignId/fixtures')
+  listForCampaign(
+    @CurrentUser() user: SessionUser,
+    @Param('campaignId') campaignId: string,
+  ) {
+    return this.guideFixtures.listForCampaign(user.orgId, campaignId);
+  }
 
   /** The full instruction sheet for one fixture in a guide (render-on-read). */
   @Get(':campaignId/fixtures/:fixtureId/detail')
@@ -76,6 +94,32 @@ export class GuideFixtureDetailController {
       fixtureId,
     );
   }
+
+  /** Add a library fixture to the task as a photo request (places it on every store). */
+  @Post(':campaignId/fixtures/:fixtureId/request')
+  @UseGuards(NoViewerGuard)
+  addRequest(
+    @CurrentUser() user: SessionUser,
+    @Param('campaignId') campaignId: string,
+    @Param('fixtureId') fixtureId: string,
+  ) {
+    return this.guideFixtures.addFixtureToCampaign(user.orgId, campaignId, fixtureId);
+  }
+
+  /** Remove a photo request (refused once a store has photographed it). */
+  @Delete(':campaignId/fixtures/:fixtureId/request')
+  @UseGuards(NoViewerGuard)
+  removeRequest(
+    @CurrentUser() user: SessionUser,
+    @Param('campaignId') campaignId: string,
+    @Param('fixtureId') fixtureId: string,
+  ) {
+    return this.guideFixtures.removeFixtureFromCampaign(
+      user.orgId,
+      campaignId,
+      fixtureId,
+    );
+  }
 }
 
 // Mutations addressed by the GuideFixture's own id. All mutating, so the whole
@@ -93,6 +137,62 @@ export class GuideFixtureController {
     @Body(new ZodValidationPipe(SaveNotesSchema)) dto: SaveNotesInput,
   ) {
     return this.guideFixtures.saveNotes(user.orgId, id, dto.notes);
+  }
+
+  /** Replace the ordered instructions list. */
+  @Put(':id/instructions')
+  saveInstructions(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(SaveInstructionsSchema)) dto: SaveInstructionsInput,
+  ) {
+    return this.guideFixtures.saveInstructions(user.orgId, id, dto.steps);
+  }
+
+  /** Add a checklist item to the fixture. */
+  @Post(':id/checklist')
+  addChecklistItem(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(AddChecklistSchema)) dto: AddChecklistInput,
+  ) {
+    return this.guideFixtures.addChecklistItem(
+      user.orgId,
+      id,
+      dto.label,
+      dto.required ?? false,
+    );
+  }
+
+  /** Edit a checklist item. */
+  @Patch(':id/checklist/:itemId')
+  updateChecklistItem(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body(new ZodValidationPipe(UpdateChecklistSchema)) dto: UpdateChecklistInput,
+  ) {
+    return this.guideFixtures.updateChecklistItem(user.orgId, id, itemId, dto);
+  }
+
+  /** Remove a checklist item (soft-archived if it already has ticks). */
+  @Delete(':id/checklist/:itemId')
+  removeChecklistItem(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+  ) {
+    return this.guideFixtures.removeChecklistItem(user.orgId, id, itemId);
+  }
+
+  /** Reorder the checklist items. */
+  @Post(':id/checklist/reorder')
+  reorderChecklist(
+    @CurrentUser() user: SessionUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ReorderChecklistSchema)) dto: ReorderChecklistInput,
+  ) {
+    return this.guideFixtures.reorderChecklist(user.orgId, id, dto.ids);
   }
 
   /** Place a product on the sheet's planogram. */

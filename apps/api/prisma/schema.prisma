@@ -21,6 +21,10 @@ model Org {
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
+  // Which promo wave is selling right now: 'AUTO' follows the TCC calendar
+  // (odd months = Sale 1, even months = Sale 2), or pin 'SALE_1' / 'SALE_2',
+  // or 'ALL' to put the whole catalog on sale.
+  saleMode  String   @default("AUTO")
   createdAt DateTime @default(now())
 
   users      User[]
@@ -45,6 +49,11 @@ model Org {
   campaignQuestions    CampaignQuestion[]
   storeQuestionAnswers StoreQuestionAnswer[]
   storeReports         StoreReport[]
+  checklistItems       GuideFixtureChecklistItem[]
+  checklistTicks       StoreChecklistTick[]
+  fixtureChecklistTemplates FixtureChecklistTemplate[]
+  reviewThreads             ReviewThread[]
+  reviewComments            ReviewComment[]
 }
 
 enum Role {
@@ -52,6 +61,7 @@ enum Role {
   REVIEWER
   STORE_MANAGER
   VIEWER // read-only: sees layouts, photos, and scores; cannot edit or upload
+  SETUP_CREW // store-scoped; sees ONLY the floor plan + per-fixture setup reference
 }
 
 // A project is the top-level container an admin works in: a retail VM campaign
@@ -127,6 +137,11 @@ model User {
   uploadedCapturePhotos FixtureCapturePhoto[] @relation("CapturePhotoUploadedBy")
   answeredQuestions     StoreQuestionAnswer[] @relation("AnswerAnsweredBy")
   submittedReports      StoreReport[]         @relation("ReportSubmittedBy")
+  assignedReports       StoreReport[]         @relation("ReportAssignedBy")
+  checkedTicks          StoreChecklistTick[]  @relation("TickCheckedBy")
+  reviewThreadsCreated  ReviewThread[]        @relation("ReviewThreadCreatedBy")
+  reviewThreadsResolved ReviewThread[]        @relation("ReviewThreadResolvedBy")
+  reviewComments        ReviewComment[]       @relation("ReviewCommentAuthor")
 
   @@index([orgId])
   @@index([storeId])
@@ -185,8 +200,10 @@ model Store {
   bulletinAcks  BulletinAck[]
   questionAnswers StoreQuestionAnswer[]
   reports         StoreReport[]
+  checklistTicks  StoreChecklistTick[]
 
   @@index([orgId])
+  reviewThreads ReviewThread[]
 }
 
 enum CampaignStatus {
@@ -231,9 +248,11 @@ model Campaign {
   campaignQuestions CampaignQuestion[]
   questionAnswers   StoreQuestionAnswer[]
   storeReports      StoreReport[]
+  checklistTicks    StoreChecklistTick[]
 
   @@unique([orgId, key])
   @@index([orgId])
+  reviewThreads ReviewThread[]
 }
 
 // How a ComplianceSnapshot row was written. The nightly cron is the canonical
@@ -279,7 +298,12 @@ model Rubric {
   id             String   @id @default(cuid())
   orgId          String
   campaignId     String
-  fixtureKey     String   // "storefront" | "vm_table" | "doorbuster"
+  // The library fixture this rubric grades. New rubrics always carry it (the
+  // editor picks a real fixture); legacy/seeded rows are keyed by fixtureKey
+  // only. fixtureKey doubles as the stable stamp segment — for fixture-linked
+  // rows it equals the fixture id.
+  fixtureId      String?
+  fixtureKey     String   // legacy "storefront" | "vm_table"; = fixtureId on new rows
   version        Int
   criteria       Json     // [{ id, kind, critical, text }]
   rollupRule     Json     @default("{\"not_good_if_any_critical_fails\":true,\"good_if_only_noncritical_fails\":true}")
@@ -293,9 +317,11 @@ model Rubric {
 
   org      Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  fixture  Fixture? @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
   verdicts Verdict[]
 
   @@unique([campaignId, fixtureKey, version])
+  @@index([campaignId, fixtureId])
   @@index([orgId])
 }
 
@@ -470,6 +496,12 @@ model Fixture {
   // canonical reference instead of re-uploading it per store.
   referenceKey     String?
   referenceCaption String?
+  // Library-level DEFAULT guide content the fixture carries: VM notes + ordered
+  // instructions ([{id,text}]) + the checklistTemplate rows below. The first
+  // time a task opens this fixture, the new GuideFixture inherits all three — so
+  // the standard for a fixture type is authored once and flows into every task.
+  defaultNotes        String  @default("")
+  defaultInstructions Json?
   createdAt  DateTime @default(now())
   archivedAt DateTime? // soft-delete: hidden from the library, placements kept
 
@@ -480,11 +512,32 @@ model Fixture {
   placements      Placement[]
   guideFixtures   GuideFixture[]
   captures        FixtureCapture[]
+  rubrics         Rubric[]
   defaultProducts FixtureProduct[]
+  checklistTemplate FixtureChecklistTemplate[]
 
   @@unique([orgId, name])
   @@index([orgId])
   @@index([orgId, projectId])
+}
+
+// A library-level default checklist item for a fixture type. Copied into a
+// GuideFixture's checklist (GuideFixtureChecklistItem) the first time a task
+// opens that fixture, so a fixture's standard checklist is authored once.
+model FixtureChecklistTemplate {
+  id         String    @id @default(cuid())
+  orgId      String
+  fixtureId  String
+  label      String
+  required   Boolean   @default(false)
+  order      Int       @default(0)
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  fixture Fixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+
+  @@index([fixtureId])
 }
 
 // A fixture placed on one store's floor plan for one guide (its x/y/w/h on the
@@ -525,6 +578,9 @@ model GuideFixture {
   campaignId String
   fixtureId  String
   notes      String   @default("") // rich text / markdown
+  // Ordered structured setup steps, distinct from the free-form `notes`:
+  // [{ id, text }]. Rendered as a numbered list to the manager + setup crew.
+  instructions Json?
   order      Int      @default(0)
   createdAt  DateTime @default(now())
 
@@ -533,9 +589,56 @@ model GuideFixture {
   fixture       Fixture        @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
   merchandise   Merchandise[]
   exampleImages ExampleImage[]
+  checklistItems GuideFixtureChecklistItem[]
 
   @@unique([campaignId, fixtureId])
   @@index([campaignId])
+}
+
+// A per-fixture checklist item the store manager ticks while filling the report
+// (e.g. "Hero SKU at eye level"). Authored by the admin on the guide fixture;
+// ticks are recorded per store in StoreChecklistTick. Soft-archived once ticked.
+model GuideFixtureChecklistItem {
+  id             String    @id @default(cuid())
+  orgId          String
+  guideFixtureId String
+  label          String
+  required       Boolean   @default(false)
+  order          Int       @default(0)
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  org          Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  guideFixture GuideFixture @relation(fields: [guideFixtureId], references: [id], onDelete: Cascade)
+  ticks        StoreChecklistTick[]
+
+  @@index([guideFixtureId, order])
+}
+
+// One store's tick of one checklist item. Keyed (storeId, itemId) so a store has
+// at most one tick per item. campaignId denormalised for the report read.
+model StoreChecklistTick {
+  id          String   @id @default(cuid())
+  orgId       String
+  storeId     String
+  campaignId  String
+  itemId      String
+  checked     Boolean  @default(true)
+  checkedById String?
+  checkedAt   DateTime @default(now())
+  // Set when the AI auto-ticked this item (high-confidence PASS) rather than a
+  // person. Only non-required items are ever auto-ticked; the manager can untick.
+  aiTicked     Boolean @default(false)
+  aiConfidence Float?
+
+  org       Org                       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  store     Store                     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign  Campaign                  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  item      GuideFixtureChecklistItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  checkedBy User?                     @relation("TickCheckedBy", fields: [checkedById], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, itemId])
+  @@index([storeId, campaignId])
 }
 
 // Product catalog (connected to the buying/allocation source).
@@ -552,6 +655,14 @@ model Product {
   imageUrl  String?
   rrp       Float?   // recommended retail price
   salePrice Float?   // current sale/ticket price — the per-unit price sales log against
+  // Promo-wave membership: 'SALE_1' | 'SALE_2' | 'BOTH'; null = never on promo.
+  // The product sells at salePrice only when its wave matches Org.saleMode.
+  saleWave  String?
+  // Gift-with-purchase: offered free alongside a qualifying purchase.
+  gwp       Boolean  @default(false)
+  // The qualifying product this gift is free WITH (self-relation). Deleting
+  // the qualifying product orphans the gift (SetNull) rather than deleting it.
+  gwpWithId String?
   createdAt DateTime @default(now())
   // Soft-delete: an archived product leaves the working catalog (and the picker)
   // but its merchandise placements + sales history stay intact. Null = active.
@@ -561,6 +672,8 @@ model Product {
   merchandise     Merchandise[]
   salesEntries    SalesEntry[]
   fixtureDefaults FixtureProduct[]
+  gwpWith         Product?         @relation("GwpPair", fields: [gwpWithId], references: [id], onDelete: SetNull)
+  gwpGifts        Product[]        @relation("GwpPair")
 
   @@unique([orgId, sku])
   @@index([orgId])
@@ -647,6 +760,9 @@ model Task {
   body        String? // what the admin is asking for
   fixtureKey  String? // for UPLOAD_PHOTO: which fixture
   dueAt       DateTime?
+  // The review thread this task notifies about (one task per thread: re-lit on
+  // new head-office comments, auto-completed when the thread is resolved).
+  threadId    String?
   // Lifecycle audit: who completed it (stamped on completeTask, cleared on
   // reopen) and the optional individual it was assigned to (store-level by
   // default; assignedToId narrows it to one manager).
@@ -660,10 +776,12 @@ model Task {
   campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   completedBy User?   @relation("TaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
   assignedTo  User?   @relation("TaskAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  thread      ReviewThread? @relation(fields: [threadId], references: [id], onDelete: Cascade)
   reads       TaskRead[]
 
   @@index([storeId, status])
   @@index([orgId])
+  @@index([threadId])
 }
 
 // One reader's "I've seen this task" receipt — the per-user notification badge.
@@ -873,7 +991,9 @@ model StoreQuestionAnswer {
 }
 
 enum StoreReportStatus {
-  DRAFT
+  DRAFT // legacy: a row that exists without an explicit assignment (kept for back-compat)
+  PENDING // sent to the store, not started yet
+  IN_PROGRESS // the manager has started filling it (a photo/answer/tick exists)
   SUBMITTED
   REOPENED // a reviewer requested a re-shoot after submit; the store re-submits
 }
@@ -888,6 +1008,11 @@ model StoreReport {
   storeId            String
   campaignId         String
   status             StoreReportStatus @default(DRAFT)
+  // "Sent" record: an admin assigned this report to the store.
+  assignedAt         DateTime?
+  assignedById       String?
+  dueAt              DateTime?
+  startedAt          DateTime? // first manager edit (PENDING → IN_PROGRESS)
   submittedAt        DateTime?
   submittedById      String?
   totalScore         Float? // pass-rate % frozen at submit
@@ -902,6 +1027,7 @@ model StoreReport {
   store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   submittedBy User?    @relation("ReportSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+  assignedBy  User?    @relation("ReportAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
 
   @@unique([storeId, campaignId])
   @@index([orgId, campaignId])
@@ -980,4 +1106,61 @@ model Resource {
   org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId])
+}
+
+// =============================================================================
+// Review conversations — an admin/reviewer comments on one piece of a store's
+// report (a fixture's photo step or a question answer), optionally pinned to a
+// spot on one photo; the store manager replies; a moderator resolves.
+// =============================================================================
+
+enum ReviewThreadStatus {
+  OPEN
+  RESOLVED
+}
+
+model ReviewThread {
+  id           String             @id @default(cuid())
+  orgId        String
+  storeId      String
+  campaignId   String
+  // Anchor: exactly one of fixtureId / questionId (validated at the API edge).
+  fixtureId    String?
+  questionId   String?
+  // Optional image pin: which gallery photo and where on it (normalized 0..1).
+  photoId      String?
+  pinX         Float?
+  pinY         Float?
+  status       ReviewThreadStatus @default(OPEN)
+  createdById  String
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @default(now()) @updatedAt
+
+  org        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  createdBy  User     @relation("ReviewThreadCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  resolvedBy User?    @relation("ReviewThreadResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  comments   ReviewComment[]
+  tasks      Task[]
+
+  @@index([storeId, campaignId])
+  @@index([campaignId, status])
+}
+
+model ReviewComment {
+  id        String   @id @default(cuid())
+  orgId     String
+  threadId  String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  org    Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  thread ReviewThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author User         @relation("ReviewCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
 }

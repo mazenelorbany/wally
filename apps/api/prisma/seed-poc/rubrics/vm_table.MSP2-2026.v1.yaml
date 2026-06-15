@@ -1,0 +1,73 @@
+# VM table (promo table) — Myer Stocktake Sale P2, SALE 3.
+# Source: VM Guide Sale 3, Priority Locations (p. 3) + Sale Tickets (p. 2).
+# One table is photographed per VM-table slot. Range assignment is per-store:
+#   VM Table 1 (promo, 33 stores) front & back = Le Connoisseur
+#   VM Table 2 (33 stores) = Nook · VM Table 3 (33 stores) front iD3 SS / back iconiX
+#   VM Tables 4-12 = selected stores only (Bessemer, Diamond 9, Gourmet, ...).
+# Applicability ("don't have this table") is handled per-store by the engine, not
+# encoded here — this grades whatever VM table the store did set up.
+fixture: vm_table
+campaign: MSP2-2026
+version: 1
+reference_image: data/samples/directive-02.png
+
+rollup:
+  not_good_if_any_critical_fails: true
+  good_if_only_noncritical_fails: true
+
+criteria:
+  # --- Simple presence checks (high bar) ---
+  - id: table_built
+    kind: presence
+    critical: true
+    text: "The VM table is built and merchandised with product — not bare, and not
+      used as a stock-dump or holding surface."
+
+  - id: single_range_front_back
+    kind: presence
+    critical: true
+    text: "The table shows the single range assigned to it in the guide, merchandised
+      front AND back (e.g. Le Connoisseur on VM Table 1; Nook on VM Table 2)."
+
+  - id: sale_ticketing_present
+    kind: presence
+    critical: true
+    text: "Current Sale 3 black & yellow ticketing is on the table (A6 / A7 / square
+      flipper as applicable). No expired or prior-campaign tickets."
+
+  - id: table_full
+    kind: presence
+    critical: true
+    text: "The table is well-stocked and full across its surface, not sparse or
+      half-empty."
+
+  - id: category_callout_present
+    kind: presence
+    critical: false
+    text: "The required category call-out is present (e.g. A6 category ticket; Le
+      Connoisseur French-oven 'LE CON FC' ticket where Le Connoisseur is shown)."
+
+  # --- Aesthetic checks (decomposed sub-rules) ---
+  - id: hero_anchors_table
+    kind: aesthetic
+    critical: false
+    text: "A hero product anchors the table and risers create height variation —
+      not one flat single-level spread."
+
+  - id: colour_rhythm
+    kind: aesthetic
+    critical: false
+    text: "Colour is broken up across the table with rhythm, not one solid block of
+      a single colour."
+
+  - id: front_back_consistent
+    kind: aesthetic
+    critical: false
+    text: "Front and back of the table are merchandised consistently as the same
+      range, so the table reads as one cohesive display."
+
+  - id: faced_and_clean
+    kind: aesthetic
+    critical: false
+    text: "Product is faced, tidy and shoppable — boxes squared and forward-facing,
+      no clutter or empty gaps."

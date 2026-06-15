@@ -2,10 +2,13 @@ import { z } from 'zod';
 
 // Shared store-resolution query: `?storeId=` is optional. For a STORE_MANAGER
 // it's ignored (their own store is used); for ADMIN/REVIEWER it selects which
-// store's workspace to view (the demo "view as store" switcher).
+// store's workspace to view (the demo "view as store" switcher). `?campaignId=`
+// optionally addresses a specific campaign/task report — without it the active
+// campaign is resolved (the single-campaign default).
 export const StoreScopeSchema = z
   .object({
     storeId: z.string().min(1).optional(),
+    campaignId: z.string().min(1).optional(),
   })
   .strict();
 
@@ -58,3 +61,7 @@ export const OverrideCaptureSchema = z
   .strict();
 
 export type OverrideCaptureInput = z.infer<typeof OverrideCaptureSchema>;
+
+// PUT /manager/fixtures/:fixtureId/checklist/:itemId — tick/untick a checklist item.
+export const TickChecklistSchema = z.object({ checked: z.boolean() }).strict();
+export type TickChecklistInput = z.infer<typeof TickChecklistSchema>;

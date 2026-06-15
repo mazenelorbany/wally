@@ -1,8 +1,12 @@
 import 'reflect-metadata';
 
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
+import express, { type Request, type Response, type NextFunction } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 
@@ -37,6 +41,23 @@ async function bootstrap(): Promise<void> {
   // Health + signed-photo blob routes stay at the root; everything else is
   // namespaced under /api.
   app.setGlobalPrefix('api', { exclude: ['health'] });
+
+  // In production the built SPA ships alongside the API in this same service
+  // (single origin → the session cookie's sameSite=lax just works, no CORS).
+  // The Docker build copies apps/web/dist into <api dist>/public. Serve those
+  // assets, then fall back to index.html for any non-/api GET so client-side
+  // routing (react-router) resolves deep links. Skipped when the dir is absent
+  // (local dev runs the SPA on its own Vite server).
+  const webDir = Env.WALLY_WEB_DIR ?? join(__dirname, 'public');
+  if (existsSync(webDir)) {
+    const http = app.getHttpAdapter().getInstance() as express.Express;
+    http.use(express.static(webDir, { index: false, maxAge: '1h' }));
+    http.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+      if (req.path.startsWith('/api') || req.path === '/health') return next();
+      res.sendFile(join(webDir, 'index.html'));
+    });
+  }
 
   app.enableShutdownHooks();
 

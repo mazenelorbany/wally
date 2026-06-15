@@ -1,4 +1,8 @@
-import type { Overall } from '@wally/types';
+import type {
+  CampaignQuestionType,
+  Overall,
+  StoreReportStatus,
+} from '@wally/types';
 
 // The status a fixture can carry in a report: the four scored bands, plus the
 // two non-scored states (not submitted / not applicable).
@@ -19,6 +23,17 @@ export interface ReportFixture {
   confidence?: number;
   rubricVersion?: string;
   flags?: ReportFlag[];
+  /** Who took the most recent shot (name or email). */
+  completedBy?: string | null;
+}
+
+// One extra-question answer in the report (the non-photo steps).
+export interface ReportExtraAnswer {
+  label: string;
+  type: CampaignQuestionType;
+  valueText?: string | null;
+  valueBool?: boolean | null;
+  isNA: boolean;
 }
 
 // The whole payload the renderer turns into a PDF.
@@ -37,4 +52,11 @@ export interface ReportData {
   expected: number;
   fixtures: ReportFixture[];
   rubricVersions: string[];
+  // Store-report envelope (optional — present once a report exists / on submit).
+  status?: StoreReportStatus;
+  submittedAt?: Date | null;
+  submittedByName?: string | null;
+  totalScore?: number | null;
+  aiSummary?: string | null;
+  extraAnswers?: ReportExtraAnswer[];
 }

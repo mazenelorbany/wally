@@ -59,17 +59,22 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_ID: optionalNonEmpty,
   GOOGLE_CLIENT_SECRET: optionalNonEmpty,
 
-  // Vision model (scoring core). `anthropic` (hosted Claude) or `ollama` (a
-  // local, offline, vision-capable model — no cloud key, bytes stay on-box).
-  WALLY_VISION_PROVIDER: z.enum(['anthropic', 'ollama']).default('anthropic'),
+  // Vision model (scoring core). `anthropic` (hosted Claude), `gemini` (hosted
+  // Google, GEMINI_API_KEY), or `ollama` (a local, offline, vision-capable
+  // model — no cloud key, bytes stay on-box).
+  WALLY_VISION_PROVIDER: z.enum(['anthropic', 'gemini', 'ollama']).default('anthropic'),
   ANTHROPIC_API_KEY: optionalNonEmpty,
   // Default model depends on the provider; the provider applies its own default
-  // when this is unset (claude-sonnet-4-6 for anthropic, qwen2.5vl:7b for ollama).
+  // when this is unset (claude-sonnet-4-6 for anthropic, gemini-3.5-flash for
+  // gemini, qwen2.5vl:7b for ollama).
   WALLY_VISION_MODEL: optionalNonEmpty,
   // Ollama daemon endpoint (used only when WALLY_VISION_PROVIDER=ollama).
   OLLAMA_HOST: z.string().url().default('http://localhost:11434'),
   // Verdicts below this confidence are forced to needs_review (no silent pass).
   WALLY_CONFIDENCE_FLOOR: z.coerce.number().min(0).max(1).default(0.7),
+  // Floor-map compliance compare (manager loop) uses Gemini when set and the
+  // vision provider isn't ollama; otherwise a deterministic stub.
+  GEMINI_API_KEY: optionalNonEmpty,
 
   // Mail (magic links) — Mailhog in dev (SMTP :1025, web UI :8025).
   SMTP_HOST: z.string().default('localhost'),
@@ -81,6 +86,11 @@ const EnvSchema = z.object({
   // Photo storage. local = disk (apps/api/storage); railway = Volume mount.
   WALLY_STORAGE_DRIVER: z.enum(['local', 'railway']).default('local'),
   WALLY_STORAGE_DIR: z.string().default('./storage'),
+
+  // Production only: directory holding the built SPA (apps/web/dist), served
+  // from this same service. Unset in dev (the SPA runs on its own Vite server);
+  // the Docker build copies the SPA to <api dist>/public, the default lookup.
+  WALLY_WEB_DIR: optionalNonEmpty,
 });
 
 export type EnvType = z.infer<typeof EnvSchema>;
@@ -112,13 +122,21 @@ function bootGuard(env: EnvType): void {
     }
   }
 
-  // Vision scoring is the product. A production deploy without an API key would
-  // boot, then fail every score job — surface it loudly at boot instead.
-  if (env.WALLY_VISION_PROVIDER === 'anthropic' && !env.ANTHROPIC_API_KEY) {
-    violations.push({
-      name: 'ANTHROPIC_API_KEY',
-      hint: 'Required when WALLY_VISION_PROVIDER=anthropic — scoring cannot run without it.',
-    });
+  // Vision scoring is the product, but the providers are built to serve the
+  // console without a key (AnthropicVisionProvider warns at construction and
+  // only throws when a score actually runs; the floor-map compliance loop falls
+  // back to GEMINI_API_KEY or a stub). So a missing key is a loud WARNING, not a
+  // hard boot failure — this lets the deploy come up and become fully functional
+  // the moment a key (ANTHROPIC_API_KEY, or GEMINI_API_KEY for the compliance
+  // loop) is added to the environment. JWT placeholders below still hard-fail.
+  const hasVisionKey =
+    env.WALLY_VISION_PROVIDER === 'ollama' || !!env.ANTHROPIC_API_KEY || !!env.GEMINI_API_KEY;
+  if (!hasVisionKey) {
+    // intentional — boot log.
+    console.warn(
+      '[boot] No vision key set (ANTHROPIC_API_KEY / GEMINI_API_KEY). The console ' +
+        'will serve, but scoring + floor-map compliance stay unavailable until one is added.',
+    );
   }
 
   if (violations.length === 0) return;

@@ -48,7 +48,13 @@ export const UpdateTaskSchema = z
 
 export type UpdateTaskInput = z.infer<typeof UpdateTaskSchema>;
 
-const ROLES = ['ADMIN', 'REVIEWER', 'STORE_MANAGER', 'VIEWER'] as const;
+const ROLES = [
+  'ADMIN',
+  'REVIEWER',
+  'STORE_MANAGER',
+  'SETUP_CREW',
+  'VIEWER',
+] as const;
 
 // Invite a teammate: creates/links the user at this org with a role (+ store for
 // managers) and emails them a magic link to sign in.

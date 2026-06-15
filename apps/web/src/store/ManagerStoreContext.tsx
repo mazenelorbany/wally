@@ -27,7 +27,8 @@ const Ctx = React.createContext<ManagerStoreValue | null>(null);
 
 export function ManagerStoreProvider({ children }: { children: React.ReactNode }) {
   const { user } = useSession();
-  const canSwitch = user?.role === 'ADMIN' || user?.role === 'REVIEWER';
+  const adminSwitch = user?.role === 'ADMIN' || user?.role === 'REVIEWER';
+  const isManager = user?.role === 'STORE_MANAGER';
 
   // Admins pick from the real store list. Managers run RETAIL stores, so resolve
   // the retail project (Myer) and list its venues — NOT campaigns.queue, which is
@@ -36,7 +37,7 @@ export function ManagerStoreProvider({ children }: { children: React.ReactNode }
   const projectsQ = useQuery({
     queryKey: ['manager', 'projects'],
     queryFn: () => api.projects.list(),
-    enabled: canSwitch,
+    enabled: adminSwitch,
   });
   const project = React.useMemo(() => {
     const all = projectsQ.data ?? [];
@@ -50,17 +51,33 @@ export function ManagerStoreProvider({ children }: { children: React.ReactNode }
   const venuesQ = useQuery({
     queryKey: ['manager', 'venues', project?.id],
     queryFn: () => api.projects.venues(project!.id),
-    enabled: canSwitch && Boolean(project?.id),
+    enabled: adminSwitch && Boolean(project?.id),
+  });
+
+  // A real manager runs every concession of their venue (e.g. Adelaide City
+  // Myer hosts BOTH The Cookshop and The Custom Chef) — the API lists the
+  // siblings and the same switcher lets them flip between the sub-stores.
+  const myStoresQ = useQuery({
+    queryKey: ['manager', 'my-stores'],
+    queryFn: () => api.manager.myStores(),
+    enabled: isManager,
   });
 
   const stores = React.useMemo(
     () =>
-      (venuesQ.data ?? []).map((s) => ({ id: s.storeId, name: s.storeName })),
-    [venuesQ.data],
+      adminSwitch
+        ? (venuesQ.data ?? []).map((s) => ({ id: s.storeId, name: s.storeName }))
+        : (myStoresQ.data ?? []),
+    [adminSwitch, venuesQ.data, myStoresQ.data],
   );
 
+  const canSwitch = adminSwitch || stores.length > 1;
   const [picked, setPicked] = React.useState<string | undefined>();
-  const storeId = canSwitch ? picked ?? stores[0]?.id : undefined;
+  // Until the sibling list loads, undefined = "my own store" server-side;
+  // after that the manager's own store (first in the list) is the explicit
+  // default and picking a sibling passes it the same way (the API verifies
+  // it's the same venue).
+  const storeId = picked ?? stores[0]?.id;
   const campaignId = project?.campaignId ?? undefined;
 
   const value = React.useMemo<ManagerStoreValue>(

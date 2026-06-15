@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Pencil,
@@ -10,10 +11,11 @@ import {
   X,
 } from 'lucide-react';
 import { Badge, Button, cn, Spinner } from '@wally/ui';
-import type { GuideFixtureExampleImage } from '@wally/types';
+import type { GuideChecklistItem, GuideFixtureExampleImage } from '@wally/types';
 
 import { ErrorState } from '../../components/states';
 import { errorMessage } from '../../lib/api';
+import { studio } from '../lib/sdk';
 import { useToast } from '../../lib/toast';
 import {
   useAddExampleImage,
@@ -34,10 +36,9 @@ import { ProductThumb } from './ProductThumb';
 import { PlanogramEditor } from './PlanogramEditor';
 
 /**
- * The fixture instruction sheet — a right-rail slide-over opened by clicking a
- * box on the floor plan. Shows the fixture name + kind, the editable VM notes
- * (saved on blur), the "what good looks like" example images, and the
- * merchandise planogram grouped by row.
+ * The fixture instruction sheet — opened in a roomy dialog by clicking a box
+ * on the floor plan. Two columns (notes + instructions | example images +
+ * checklist) with the merchandise planogram full-width underneath.
  */
 export function FixtureDetailPanel({
   campaignId,
@@ -121,45 +122,70 @@ export function FixtureDetailPanel({
             title="Could not load this fixture"
           />
         ) : detail ? (
-          <div className="flex flex-col gap-7">
-            {/* Notes */}
-            <section>
-              <SectionLabel
-                text="VM notes"
-                hint={
-                  saveNotes.isPending
-                    ? 'Saving…'
-                    : saveNotes.isError
-                      ? 'Save failed'
-                      : 'Saved on blur'
-                }
-                tone={saveNotes.isError ? 'signal' : 'neutral'}
-              />
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onBlur={commitNotes}
-                rows={6}
-                placeholder="How should this fixture be merchandised? Facings, hero SKUs, signage, do's and don'ts…"
-                className="w-full resize-y rounded-md border border-mist bg-surface/40 px-3 py-2.5 font-sans text-sm leading-relaxed text-ink placeholder:text-steel focus-visible:bg-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
-              />
-            </section>
+          <div className="grid grid-cols-1 gap-x-8 gap-y-7 lg:grid-cols-2">
+            {/* Left column — the written brief */}
+            <div className="flex min-w-0 flex-col gap-7">
+              {/* Notes */}
+              <section>
+                <SectionLabel
+                  text="VM notes"
+                  hint={
+                    saveNotes.isPending
+                      ? 'Saving…'
+                      : saveNotes.isError
+                        ? 'Save failed'
+                        : 'Saved on blur'
+                  }
+                  tone={saveNotes.isError ? 'signal' : 'neutral'}
+                />
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={commitNotes}
+                  rows={6}
+                  placeholder="How should this fixture be merchandised? Facings, hero SKUs, signage, do's and don'ts…"
+                  className="w-full resize-y rounded-md border border-mist bg-surface/40 px-3 py-2.5 font-sans text-sm leading-relaxed text-ink placeholder:text-steel focus-visible:bg-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
+                />
+              </section>
 
-            {/* Example images — "what good looks like" */}
-            <ExampleImagesSection
-              campaignId={campaignId}
-              fixtureId={fixtureId}
-              guideFixtureId={detail.guideFixtureId}
-              images={detail.exampleImages}
-            />
+              {/* Instructions — ordered setup steps (separate from notes) */}
+              <InstructionsSection
+                campaignId={campaignId}
+                fixtureId={fixtureId}
+                guideFixtureId={detail.guideFixtureId}
+                steps={detail.instructions}
+              />
+            </div>
 
-            {/* Merchandise planogram — add / remove products */}
-            <MerchandiseSection
-              campaignId={campaignId}
-              fixtureId={fixtureId}
-              guideFixtureId={detail.guideFixtureId}
-              merchandise={detail.merchandise}
-            />
+            {/* Right column — the visual reference + report checklist */}
+            <div className="flex min-w-0 flex-col gap-7">
+              {/* Example images — "what good looks like" */}
+              <ExampleImagesSection
+                campaignId={campaignId}
+                fixtureId={fixtureId}
+                guideFixtureId={detail.guideFixtureId}
+                images={detail.exampleImages}
+              />
+
+              {/* Checklist — the manager ticks these while filling the report */}
+              <ChecklistSection
+                campaignId={campaignId}
+                fixtureId={fixtureId}
+                guideFixtureId={detail.guideFixtureId}
+                items={detail.checklist}
+              />
+            </div>
+
+            {/* Merchandise planogram — shelves read left-to-right, so it gets
+                the full dialog width below the two columns. */}
+            <div className="min-w-0 lg:col-span-2">
+              <MerchandiseSection
+                campaignId={campaignId}
+                fixtureId={fixtureId}
+                guideFixtureId={detail.guideFixtureId}
+                merchandise={detail.merchandise}
+              />
+            </div>
           </div>
         ) : null}
       </div>
@@ -694,5 +720,205 @@ function EmptyHint({
       {icon ? <span aria-hidden="true">{icon}</span> : null}
       {text}
     </div>
+  );
+}
+
+const guideFixtureKey = (campaignId: string, fixtureId: string) => [
+  'studio',
+  'guide-fixture',
+  campaignId,
+  fixtureId,
+];
+
+/** Ordered setup steps — one per line; saved on blur (replaces the whole list). */
+function InstructionsSection({
+  campaignId,
+  fixtureId,
+  guideFixtureId,
+  steps,
+}: {
+  campaignId: string;
+  fixtureId: string;
+  guideFixtureId: string;
+  steps: { id: string; text: string }[];
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const initial = steps.map((s) => s.text).join('\n');
+  const [draft, setDraft] = React.useState(initial);
+  const lastRef = React.useRef(initial);
+  React.useEffect(() => {
+    setDraft(initial);
+    lastRef.current = initial;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guideFixtureId, steps.length]);
+
+  const save = useMutation({
+    mutationFn: (text: string) =>
+      studio.guideFixtures.saveInstructions(
+        guideFixtureId,
+        text
+          .split('\n')
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .map((t) => ({ text: t })),
+      ),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: guideFixtureKey(campaignId, fixtureId) }),
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const commit = () => {
+    if (draft === lastRef.current) return;
+    lastRef.current = draft;
+    save.mutate(draft);
+  };
+
+  return (
+    <section>
+      <SectionLabel
+        text="Instructions"
+        hint={save.isPending ? 'Saving…' : 'One step per line'}
+        tone={save.isError ? 'signal' : 'neutral'}
+      />
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        rows={5}
+        placeholder={'Build the base unit\nLoad hero SKUs at eye level\nAdd price tickets + signage'}
+        className="w-full resize-y rounded-md border border-mist bg-surface/40 px-3 py-2.5 font-sans text-sm leading-relaxed text-ink placeholder:text-steel focus-visible:bg-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
+      />
+    </section>
+  );
+}
+
+/** Per-fixture checklist authoring — the manager ticks these in the report. */
+function ChecklistSection({
+  campaignId,
+  fixtureId,
+  guideFixtureId,
+  items,
+}: {
+  campaignId: string;
+  fixtureId: string;
+  guideFixtureId: string;
+  items: GuideChecklistItem[];
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [newLabel, setNewLabel] = React.useState('');
+  const invalidate = () =>
+    void qc.invalidateQueries({ queryKey: guideFixtureKey(campaignId, fixtureId) });
+
+  const add = useMutation({
+    mutationFn: (label: string) =>
+      studio.guideFixtures.checklist.add(guideFixtureId, { label }),
+    onSuccess: () => {
+      setNewLabel('');
+      invalidate();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const update = useMutation({
+    mutationFn: (v: { itemId: string; body: { label?: string; required?: boolean } }) =>
+      studio.guideFixtures.checklist.update(guideFixtureId, v.itemId, v.body),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const remove = useMutation({
+    mutationFn: (itemId: string) =>
+      studio.guideFixtures.checklist.remove(guideFixtureId, itemId),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  return (
+    <section>
+      <SectionLabel text="Checklist" hint="Ticked by the store in the report" />
+      <ul className="space-y-1.5">
+        {items.map((it) => (
+          <ChecklistRow
+            key={it.id}
+            item={it}
+            onLabel={(label) => update.mutate({ itemId: it.id, body: { label } })}
+            onRequired={(required) =>
+              update.mutate({ itemId: it.id, body: { required } })
+            }
+            onRemove={() => remove.mutate(it.id)}
+            removing={remove.isPending && remove.variables === it.id}
+          />
+        ))}
+        {items.length === 0 ? (
+          <EmptyHint text="No checklist items yet." />
+        ) : null}
+      </ul>
+      <form
+        className="mt-2 flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (newLabel.trim() && !add.isPending) add.mutate(newLabel.trim());
+        }}
+      >
+        <input
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          placeholder="Add a checklist item…"
+          className="w-full rounded-md border border-mist bg-surface/40 px-3 py-2 text-sm text-ink placeholder:text-steel focus-visible:bg-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
+        />
+        <Button type="submit" size="sm" disabled={!newLabel.trim() || add.isPending}>
+          <Plus className="h-4 w-4" /> Add
+        </Button>
+      </form>
+    </section>
+  );
+}
+
+function ChecklistRow({
+  item,
+  onLabel,
+  onRequired,
+  onRemove,
+  removing,
+}: {
+  item: GuideChecklistItem;
+  onLabel: (label: string) => void;
+  onRequired: (required: boolean) => void;
+  onRemove: () => void;
+  removing: boolean;
+}) {
+  const [label, setLabel] = React.useState(item.label);
+  React.useEffect(() => setLabel(item.label), [item.label]);
+  return (
+    <li className="flex items-center gap-2 rounded-md border border-mist/60 bg-paper px-2.5 py-1.5">
+      <input
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
+        onBlur={() => {
+          const next = label.trim();
+          if (next && next !== item.label) onLabel(next);
+          else setLabel(item.label);
+        }}
+        className="min-w-0 flex-1 bg-transparent text-sm text-ink focus:outline-none"
+      />
+      <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-graphite">
+        <input
+          type="checkbox"
+          checked={item.required}
+          onChange={(e) => onRequired(e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-mist accent-graphite"
+        />
+        Required
+      </label>
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={removing}
+        aria-label={`Remove “${item.label}”`}
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-steel transition-colors hover:bg-fail/10 hover:text-fail disabled:opacity-40"
+      >
+        {removing ? <Spinner className="text-xs" /> : <Trash2 className="h-3.5 w-3.5" />}
+      </button>
+    </li>
   );
 }

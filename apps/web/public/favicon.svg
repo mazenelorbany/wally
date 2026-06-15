@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect width="32" height="32" rx="7" fill="#0E0E0D"/>
-  <text x="16" y="22" font-family="'Century Gothic','Questrial','Futura',system-ui,sans-serif"
-        font-size="18" font-weight="600" fill="#FBFBF9" text-anchor="middle">w</text>
-  <circle cx="24.5" cy="22" r="1.7" fill="#B23A2E"/>
+  <rect width="32" height="32" rx="7" fill="#14171F"/>
+  <text x="16" y="22" font-family="'Inter',system-ui,sans-serif"
+        font-size="18" font-weight="600" fill="#FCFCFD" text-anchor="middle">w</text>
+  <circle cx="24.5" cy="22" r="1.7" fill="#C21A1A"/>
 </svg>

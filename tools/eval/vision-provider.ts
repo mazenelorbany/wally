@@ -12,6 +12,13 @@ import sharp from "sharp";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Criterion, CriterionResult, VerdictValue } from "@wally/types";
 
+// The REAL deployed Gemini provider + prompt stamp from the API — so a Gemini
+// eval run exercises the exact production code path (buildParts → parse →
+// reconcile), not a re-implementation.
+import { GeminiVisionProvider as ApiGeminiProvider } from "../../apps/api/src/modules/scoring/gemini.provider";
+import { PROMPT_VERSION as API_PROMPT_VERSION } from "../../apps/api/src/modules/scoring/prompt";
+import type { ImageInput } from "../../apps/api/src/modules/scoring/vision";
+
 // Max image edge. 1024 keeps requests small and fast while storefront signage
 // stays legible (matches the POC).
 const MAX_EDGE = 1024;
@@ -153,5 +160,51 @@ export class AnthropicVisionProvider implements VisionProvider {
       confidence: typeof v.confidence === "number" ? v.confidence : 0,
       evidence: v.evidence ?? "",
     }));
+  }
+}
+
+// Match ScoringService.loadImage so the eval feeds Gemini the same bytes prod
+// does: EXIF-rotated, longest edge capped at 1568, metadata stripped.
+const GEMINI_MAX_EDGE = Number(process.env.WALLY_VISION_MAX_EDGE ?? 1568);
+
+async function normalisedImageInput(path: string): Promise<ImageInput> {
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(path);
+  } catch (e) {
+    throw new Error(`cannot read image ${path}: ${(e as Error).message}`);
+  }
+  const out = await sharp(bytes)
+    .rotate()
+    .resize(GEMINI_MAX_EDGE, GEMINI_MAX_EDGE, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 82 })
+    .toBuffer();
+  return { bytes: out, mediaType: "image/jpeg" };
+}
+
+/**
+ * Cloud vision via Google Gemini. Thin adapter over the API's real
+ * GeminiVisionProvider — it normalises the file paths to ImageInput (as the
+ * scoring service does) and delegates scoring, so an eval run validates the
+ * deployed Gemini code, reference-image wiring included. Needs GEMINI_API_KEY.
+ */
+export class GeminiVisionProvider implements VisionProvider {
+  readonly promptVersion = API_PROMPT_VERSION;
+  private readonly impl = new ApiGeminiProvider();
+
+  get modelId(): string {
+    return this.impl.modelId;
+  }
+
+  async score(args: {
+    imagePath: string;
+    referencePath?: string | null;
+    criteria: Criterion[];
+  }): Promise<CriterionResult[]> {
+    const image = await normalisedImageInput(args.imagePath);
+    const reference = args.referencePath
+      ? await normalisedImageInput(args.referencePath)
+      : undefined;
+    return this.impl.score(image, args.criteria, reference);
   }
 }

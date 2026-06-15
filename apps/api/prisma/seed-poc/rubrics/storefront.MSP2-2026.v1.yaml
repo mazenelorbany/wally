@@ -1,0 +1,75 @@
+# Storefront-level compliance — Myer Stocktake Sale P2, SALE 3.
+# Source: Bulletin #89 (28 May 2026) + "TCC x TCS x Myer VM Guide — Sale 3"
+# (Store Wide P2). Sale runs Mon 1 Jun → Mon 6 Jul 2026, all stores.
+# Tuned to whole-store entrance photos (Custom Chef / Cook Shop concession @ Myer).
+# Wording pulled from the directive so the model and a human judge the same way.
+fixture: storefront
+campaign: MSP2-2026
+version: 1
+reference_image: data/samples/directive-03.png
+
+rollup:
+  not_good_if_any_critical_fails: true
+  good_if_only_noncritical_fails: true
+
+criteria:
+  # --- Simple presence checks (high bar) ---
+  - id: storewide_callouts_front
+    kind: presence
+    critical: true
+    text: "At least 2 x A1 store-wide call-outs ('SAVE 30-70% OFF RRP', black &
+      yellow) are placed at the front of the store in high-traffic areas."
+
+  - id: everything_ticketed_black_yellow
+    kind: presence
+    critical: true
+    text: "The sale is live store-wide: product at the front carries the Sale 3
+      black & yellow sale ticket. No un-ticketed full-price product on show."
+
+  - id: no_expired_signage
+    kind: presence
+    critical: true
+    text: "No expired or prior-campaign signage is up (no Easter, no earlier-sale
+      tickets). Sale 3 ticketing is the yellow Stocktake P2 template only."
+
+  - id: store_shoppable
+    kind: presence
+    critical: true
+    text: "The entrance is open and the store is shoppable — not gated, blocked,
+      or visibly closed."
+
+  - id: entry_bulk_stacks_built
+    kind: presence
+    critical: false
+    text: "The store-entry GWP / Door Buster bulk stacks (3-4 set-up stacks) are
+      built at the front, per the setup guide."
+
+  - id: brand_fascia_correct
+    kind: presence
+    critical: false
+    text: "The brand fascia (The Custom Chef / The Cook Shop) is correct and lit."
+
+  # --- Aesthetic checks (decomposed sub-rules) ---
+  - id: signage_not_cluttered
+    kind: aesthetic
+    critical: false
+    text: "Sale signage is balanced across the storefront, not crammed,
+      overlapping, or chaotic."
+
+  - id: fixtures_full
+    kind: aesthetic
+    critical: false
+    text: "Front tables and bulk stacks look full and abundant, not sparse or
+      picked-over."
+
+  - id: clear_sightline
+    kind: aesthetic
+    critical: false
+    text: "There is a clear sightline into the store, with the hero entry stacks
+      drawing the eye inward."
+
+  - id: cohesive_campaign_look
+    kind: aesthetic
+    critical: false
+    text: "The storefront reads as one cohesive Stocktake Sale look — consistent
+      black & yellow sale theme, not mismatched."

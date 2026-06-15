@@ -26,7 +26,13 @@ import type {
 // =============================================================================
 
 // Keep the picker payload bounded — the UI is a searchable list, not a full dump.
-const MAX_PRODUCTS = 200;
+// (500 comfortably fits the full ~318-SKU Cuisine::pro catalog in one page.)
+const MAX_PRODUCTS = 500;
+
+// Join the gift's qualifying product so the UI can show "Free with <name>".
+const GWP_WITH_INCLUDE = {
+  gwpWith: { select: { id: true, name: true, sku: true } },
+} as const;
 
 @Injectable()
 export class ProductService {
@@ -63,6 +69,7 @@ export class ProductService {
       },
       orderBy: [{ brand: 'asc' }, { name: 'asc' }],
       take: MAX_PRODUCTS,
+      include: GWP_WITH_INCLUDE,
     });
 
     return products.map(toProductDto);
@@ -73,6 +80,7 @@ export class ProductService {
    * duplicate sku surfaces as a 409 rather than a raw Prisma error.
    */
   async create(orgId: string, input: CreateProductInput): Promise<ProductDto> {
+    if (input.gwpWithId) await this.assertGwpTarget(orgId, input.gwpWithId);
     try {
       const created = await this.prisma.product.create({
         data: {
@@ -87,7 +95,12 @@ export class ProductService {
           imageUrl: input.imageUrl ?? null,
           rrp: input.rrp ?? null,
           salePrice: input.salePrice ?? null,
+          saleWave: input.saleWave ?? null,
+          // A gift always knows what it's free with — setting a target implies gwp.
+          gwp: input.gwpWithId ? true : (input.gwp ?? false),
+          gwpWithId: input.gwpWithId ?? null,
         },
+        include: GWP_WITH_INCLUDE,
       });
       return toProductDto(created);
     } catch (err) {
@@ -123,7 +136,7 @@ export class ProductService {
     if (!existing) throw new NotFoundException('product not found');
 
     // Only assign keys the caller sent; null clears a nullable column.
-    const data: Prisma.ProductUpdateInput = {};
+    const data: Prisma.ProductUncheckedUpdateInput = {};
     if (input.sku !== undefined) data.sku = input.sku;
     if (input.name !== undefined) data.name = input.name;
     if (input.webTitle !== undefined) data.webTitle = input.webTitle;
@@ -134,11 +147,27 @@ export class ProductService {
     if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl;
     if (input.rrp !== undefined) data.rrp = input.rrp;
     if (input.salePrice !== undefined) data.salePrice = input.salePrice;
+    if (input.saleWave !== undefined) data.saleWave = input.saleWave;
+    if (input.gwp !== undefined) data.gwp = input.gwp;
+    if (input.gwpWithId !== undefined) {
+      if (input.gwpWithId !== null) {
+        if (input.gwpWithId === id) {
+          throw new ConflictException("a product can't be its own gift target");
+        }
+        await this.assertGwpTarget(orgId, input.gwpWithId);
+        // Setting a target implies the product is a gift.
+        data.gwp = true;
+      }
+      data.gwpWithId = input.gwpWithId;
+    }
+    // A non-gift never keeps a stale qualifying-product pointer.
+    if (input.gwp === false) data.gwpWithId = null;
 
     try {
       const updated = await this.prisma.product.update({
         where: { id: existing.id },
         data,
+        include: GWP_WITH_INCLUDE,
       });
       return toProductDto(updated);
     } catch (err) {
@@ -216,9 +245,21 @@ export class ProductService {
   private async getOne(orgId: string, id: string): Promise<ProductDto> {
     const product = await this.prisma.product.findFirst({
       where: { id, orgId },
+      include: GWP_WITH_INCLUDE,
     });
     if (!product) throw new NotFoundException('product not found');
     return toProductDto(product);
+  }
+
+  /** A gwp target must be an existing, unarchived product in the caller's org. */
+  private async assertGwpTarget(orgId: string, targetId: string): Promise<void> {
+    const target = await this.prisma.product.findFirst({
+      where: { id: targetId, orgId, archivedAt: null },
+      select: { id: true },
+    });
+    if (!target) {
+      throw new NotFoundException('gift-with-purchase target product not found');
+    }
   }
 }
 
@@ -228,7 +269,9 @@ export class ProductService {
  * at this boundary rather than leaking `null` into the web app's types. archivedAt
  * is the one field kept tri-state (null = active) so the UI can show archived state.
  */
-export function toProductDto(p: Product): ProductDto {
+export function toProductDto(
+  p: Product & { gwpWith?: Pick<Product, 'id' | 'name' | 'sku'> | null },
+): ProductDto {
   return {
     id: p.id,
     sku: p.sku,
@@ -241,6 +284,17 @@ export function toProductDto(p: Product): ProductDto {
     ...(p.imageUrl != null ? { imageUrl: p.imageUrl } : {}),
     ...(p.rrp != null ? { rrp: p.rrp } : {}),
     ...(p.salePrice != null ? { salePrice: p.salePrice } : {}),
+    saleWave: (p.saleWave as ProductDto['saleWave']) ?? null,
+    gwp: p.gwp,
+    // Only present when the caller joined the relation (catalog surfaces do;
+    // merchandise rows don't need it).
+    ...(p.gwpWith !== undefined
+      ? {
+          gwpWith: p.gwpWith
+            ? { id: p.gwpWith.id, name: p.gwpWith.name, sku: p.gwpWith.sku }
+            : null,
+        }
+      : {}),
     archivedAt: p.archivedAt ? p.archivedAt.toISOString() : null,
   };
 }

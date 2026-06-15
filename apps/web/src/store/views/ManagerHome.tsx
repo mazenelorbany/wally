@@ -72,9 +72,10 @@ export function ManagerHome() {
         </h1>
       </header>
 
-      {/* Floor map — the manager's main monthly job: capture each fixture */}
+      {/* Store report — the manager's main monthly job: capture each fixture
+          (+ answer the report questions), then submit. */}
       <Card className="overflow-hidden">
-        <Link to="/store/guide" className="block p-5 transition-colors hover:bg-surface/50">
+        <Link to="/store/report" className="block p-5 transition-colors hover:bg-surface/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <span

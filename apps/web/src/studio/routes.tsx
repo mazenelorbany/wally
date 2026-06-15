@@ -28,7 +28,10 @@ import { MoneyMapView } from './views/MoneyMapView';
 import { DashboardView } from './views/DashboardView';
 import { LeaderboardView } from './views/LeaderboardView';
 import { InsightsView } from './views/InsightsView';
-import { CampaignsView } from './views/CampaignsView';
+import { ReportsView } from './views/ReportsView';
+import { StoreReportView } from './views/StoreReportView';
+import { TasksView } from './views/TasksView';
+import { TaskBuildView } from './views/TaskBuildView';
 import { StoreDirectoryView } from './views/StoreDirectoryView';
 import { UsersView } from './views/UsersView';
 import { RubricsView } from './views/RubricsView';
@@ -72,19 +75,38 @@ export const studioRoutes: RouteObject = {
     { path: 'dashboard', element: <DashboardView /> },
     { path: 'leaderboard', element: <LeaderboardView /> },
     { path: 'insights', element: <InsightsView /> },
+    // A task's submissions (reviewer-visible). Sending/building is on the Tasks
+    // hub below (ADMIN). Old /studio/reports links still resolve here.
+    { path: 'tasks/:campaignId', element: <ReportsView /> },
+    // The task's content authoring page (ADMIN). Static "build" segment ranks
+    // above the :storeId route below, so it never reads as a store id.
+    {
+      path: 'tasks/:campaignId/build',
+      element: (
+        <RequireRole roles={['ADMIN']}>
+          <TaskBuildView />
+        </RequireRole>
+      ),
+    },
+    { path: 'tasks/:campaignId/:storeId', element: <StoreReportView /> },
+    // Reviewer rail entry: the submissions browser without a task in the URL
+    // (falls back to the active task). Store rows link into tasks/… above.
+    { path: 'reports', element: <ReportsView /> },
     { path: 'settings', element: <SettingsPage /> },
     // Admin-authoring surfaces: the subtree gate also lets REVIEWERs in, so each
     // of these (all mutations are ADMIN-only on the API) gets its own ADMIN gate
     // to keep reviewers off them by URL. RequireRole redirects to their home —
     // no scary 403. Users in particular 403s on load (its list is ADMIN-only).
     {
-      path: 'campaigns',
+      path: 'tasks',
       element: (
         <RequireRole roles={['ADMIN']}>
-          <CampaignsView />
+          <TasksView />
         </RequireRole>
       ),
     },
+    // Back-compat: the old Campaigns URL now lives at Tasks.
+    { path: 'campaigns', element: <Navigate to="/studio/tasks" replace /> },
     {
       path: 'store-directory',
       element: (

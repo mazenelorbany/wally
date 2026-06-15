@@ -1,0 +1,15 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "preDeployCommand": "pnpm --filter @wally/api exec prisma db push --accept-data-loss",
+    "startCommand": "sh -c 'mkdir -p \"$WALLY_STORAGE_DIR\" && cp -rn /app/apps/api/prisma/seed-storage/. \"$WALLY_STORAGE_DIR\"/ 2>/dev/null || true; node apps/api/dist/main.js'",
+    "healthcheckPath": "/",
+    "healthcheckTimeout": 120,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5
+  }
+}

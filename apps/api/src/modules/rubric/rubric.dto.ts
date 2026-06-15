@@ -39,11 +39,9 @@ const DEFAULT_ROLLUP = {
 
 export const PublishRubricSchema = z
   .object({
-    fixtureKey: z
-      .string()
-      .min(1)
-      .max(60)
-      .regex(/^[A-Za-z0-9._-]+$/, 'fixtureKey may use letters, digits, dot, dash, underscore'),
+    // The library fixture this rubric grades — the editor picks it from the
+    // campaign's fixtures (free-text keys were never connected to anything).
+    fixtureId: z.string().min(1),
     // At least one criterion — a rubric with nothing to grade is meaningless and
     // the store-rollup would have nothing to escalate on.
     criteria: z

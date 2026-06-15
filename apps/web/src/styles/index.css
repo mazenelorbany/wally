@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* =============================================================================
- * Wally — TCC brand base layer.
+ * Wally — base layer (Linear × Stripe language, TCC red accent).
  *
  * The component design system lives in @wally/ui; its tokens are mirrored here
  * as CSS custom properties so the web shell is fully styled on its own (the
@@ -11,10 +11,10 @@
  * ships its own styles.css the values are identical, so importing it on top is
  * a no-op rather than a conflict.
  *
- * Palette — warm monochrome + ONE signal red:
- *   paper #FBFBF9  surface #F3F2EE  ink #0E0E0D  graphite #3C3B36
- *   steel #7E7D77  mist #BEBDB6     signal red #B23A2E
- *   pass green #3E7C5A   warn amber #C9892F
+ * Palette — cool monochrome + ONE brand red:
+ *   paper #FCFCFD  surface #F4F5F8  ink #14171F  graphite #3E4654
+ *   steel #686F83  mist #D9DCE3     brand red #9A0000  stop red #C92C26
+ *   pass green #148052   review slate #5B6B83
  *
  * COLOUR-BLIND SAFE: every verdict pairs hue with an icon + text label. The GRB
  * CEO is colour blind and sees red — red is never the only signal.
@@ -22,36 +22,36 @@
 
 @layer base {
   :root {
-    --paper: 251 251 249;        /* #FBFBF9 */
-    --surface: 243 242 238;      /* #F3F2EE */
-    --ink: 14 14 13;             /* #0E0E0D */
-    --graphite: 60 59 54;        /* #3C3B36 */
-    --steel: 126 125 119;        /* #7E7D77 */
-    --mist: 190 189 182;         /* #BEBDB6 */
+    --paper: 252 252 253;        /* #FCFCFD */
+    --surface: 244 245 248;      /* #F4F5F8 */
+    --ink: 20 23 31;             /* #14171F */
+    --graphite: 62 70 84;        /* #3E4654 */
+    --steel: 104 111 131;        /* #686F83 */
+    --mist: 217 220 227;         /* #D9DCE3 */
 
-    --signal: 166 52 42;         /* #A6342A — deepened, STOP only */
-    --pass: 62 124 90;           /* #3E7C5A */
-    --warn: 91 107 122;          /* #5B6B7A — needs-review slate (colour-blind safe) */
+    --signal: 201 44 38;         /* #C92C26 — STOP only */
+    --pass: 20 128 82;           /* #148052 */
+    --warn: 91 107 131;          /* #5B6B83 — needs-review slate (colour-blind safe) */
 
     /* Brand RED accent: Cuisine::pro red (token name kept `gold`). */
     --gold: 154 0 0;             /* #9A0000 */
     --gold-bright: 194 26 26;    /* #C21A1A */
     --gold-deep: 122 0 0;        /* #7A0000 */
-    --chrome: 22 20 14;          /* #16140E */
-    --chrome-raised: 34 31 22;   /* #221F16 */
-    --chrome-line: 50 46 32;     /* #322E20 */
-    --chrome-ink: 244 241 232;   /* #F4F1E8 */
-    --chrome-muted: 158 153 139; /* #9E998B */
+    --chrome: 16 18 22;          /* #101216 */
+    --chrome-raised: 26 29 36;   /* #1A1D24 */
+    --chrome-line: 39 44 55;     /* #272C37 */
+    --chrome-ink: 237 239 243;   /* #EDEFF3 */
+    --chrome-muted: 139 147 166; /* #8B93A6 */
 
-    --hairline: 14 14 13;        /* used at low alpha for borders */
-    --radius: 0.75rem;
+    --hairline: 20 23 31;        /* used at low alpha for borders */
+    --radius: 0.625rem;
 
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
     --ease-snap: cubic-bezier(0.34, 1.2, 0.64, 1);
   }
 
   * {
-    border-color: rgb(var(--ink) / 0.1);
+    border-color: rgb(var(--ink) / 0.08);
   }
 
   html {
@@ -63,20 +63,21 @@
     margin: 0;
     background-color: rgb(var(--paper));
     color: rgb(var(--ink));
-    font-family: 'Questrial', 'Century Gothic', 'Futura', system-ui, -apple-system,
-      'Segoe UI', sans-serif;
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-feature-settings: 'cv11', 'ss01', 'calt';
+    letter-spacing: -0.01em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
 
   h1, h2, h3, h4 {
-    font-family: 'Century Gothic', 'Questrial', 'Futura', system-ui, sans-serif;
-    letter-spacing: -0.01em;
+    font-family: 'Inter', system-ui, sans-serif;
+    letter-spacing: -0.02em;
     font-weight: 600;
   }
 
-  /* Form fields — quiet branded focus ring in GOLD (red is reserved for stop). */
+  /* Form fields — quiet branded focus ring in brand red (stop red is louder). */
   input,
   select,
   textarea,
@@ -87,32 +88,32 @@
   select:focus-visible,
   textarea:focus-visible {
     outline: none;
-    border-color: rgb(var(--gold) / 0.7);
-    box-shadow: 0 0 0 3px rgb(var(--gold) / 0.18);
+    border-color: rgb(var(--gold) / 0.55);
+    box-shadow: 0 0 0 3px rgb(var(--gold) / 0.12);
   }
 
-  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
     background: rgb(var(--mist));
     border-radius: 999px;
     border: 3px solid rgb(var(--paper));
   }
-  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--steel)); }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--steel) / 0.7); }
 }
 
 @layer components {
   /* Eyebrow / system label — used above section titles. */
   .eyebrow {
     font-size: 0.6875rem;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: rgb(var(--steel));
     font-weight: 500;
   }
 
   /* Hairline divider, lighter than the default border. */
-  .hairline { border-color: rgb(var(--ink) / 0.07); }
+  .hairline { border-color: rgb(var(--ink) / 0.06); }
 
   /* Press affordance — every clickable surface feels like it's listening. */
   .tap {
@@ -132,19 +133,20 @@
     animation: wally-menu 140ms var(--ease-out) both;
   }
 
-  /* Field — composable input shell. */
+  /* Field — composable input shell (Stripe-style: white, hairline, soft ring). */
   .field {
     width: 100%;
-    border: 1px solid rgb(var(--ink) / 0.14);
-    background: rgb(var(--paper));
-    border-radius: calc(var(--radius) - 0.25rem);
-    padding: 0.625rem 0.8rem;
-    font-size: 0.95rem;
+    border: 1px solid rgb(var(--mist));
+    background: #fff;
+    border-radius: calc(var(--radius) - 0.125rem);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
     color: rgb(var(--ink));
+    box-shadow: 0 1px 2px rgb(var(--ink) / 0.04);
     transition: border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
   }
-  .field::placeholder { color: rgb(var(--steel) / 0.8); }
-  .field:hover:not(:focus-visible) { border-color: rgb(var(--ink) / 0.24); }
+  .field::placeholder { color: rgb(var(--steel) / 0.75); }
+  .field:hover:not(:focus-visible) { border-color: rgb(var(--steel) / 0.55); }
 
   /* Stagger list — gentle cascade on mount. */
   .stagger > * { animation: wally-stagger 280ms var(--ease-out) both; }

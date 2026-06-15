@@ -1,58 +1,56 @@
 // =============================================================================
 // Tailwind config — @wally/web.
 //
-// The canonical TCC brand scale lives in @wally/ui's tailwind preset. We pull
-// it in via `presets` so colours/fonts/radii stay in one place across surfaces.
-// The preset is loaded defensively: in a fresh checkout where @wally/ui hasn't
-// been built yet, we fall back to an inline copy of the same tokens so the web
-// app still compiles and renders on-brand standalone. Once the package is
-// present the preset wins (single source of truth).
+// The canonical Wally design scale lives in @wally/ui's tailwind preset. We
+// pull it in via `presets` so colours/fonts/radii stay in one place across
+// surfaces. The preset is loaded defensively: in a fresh checkout where
+// @wally/ui hasn't been built yet, we fall back to an inline copy of the same
+// tokens so the web app still compiles and renders on-brand standalone. Once
+// the package is present the preset wins (single source of truth).
 // =============================================================================
 
 /** @type {import('tailwindcss').Config['theme']} */
-const tccTheme = {
+const wallyTheme = {
   extend: {
     colors: {
-      // Warm monochrome
-      paper: '#FBFBF9',
-      surface: '#F3F2EE',
-      ink: '#0E0E0D',
-      graphite: '#3C3B36',
-      steel: '#7E7D77',
-      mist: '#BEBDB6',
-      // One signal red + verdict accents
-      signal: '#B23A2E',
-      pass: '#3E7C5A',
-      warn: '#C9892F',
+      // Cool monochrome
+      paper: '#FCFCFD',
+      surface: '#F4F5F8',
+      ink: '#14171F',
+      graphite: '#3E4654',
+      steel: '#686F83',
+      mist: '#D9DCE3',
+      // One stop red + verdict accents
+      signal: '#C92C26',
+      pass: '#148052',
+      warn: '#5B6B83',
       // Semantic aliases (so utility names read intent, not hue)
       verdict: {
-        perfect: '#3E7C5A',
-        good: '#5E7E6B',
-        notgood: '#B23A2E',
-        review: '#C9892F',
-        missing: '#7E7D77',
+        perfect: '#148052',
+        good: '#3E4654',
+        notgood: '#C92C26',
+        review: '#5B6B83',
+        missing: '#686F83',
       },
     },
     fontFamily: {
-      // Geometric stack — Century Gothic falls back to Questrial / Futura.
+      // Inter everywhere — Linear/Stripe lineage.
       sans: [
-        'Questrial',
-        'Century Gothic',
-        'Futura',
+        'Inter',
         'system-ui',
         '-apple-system',
         'Segoe UI',
         'sans-serif',
       ],
-      display: ['Century Gothic', 'Questrial', 'Futura', 'system-ui', 'sans-serif'],
+      display: ['Inter', 'system-ui', 'sans-serif'],
     },
     borderRadius: {
       xl: '0.875rem',
       '2xl': '1.25rem',
     },
     boxShadow: {
-      card: '0 1px 2px rgba(14,14,13,0.04), 0 8px 24px -16px rgba(14,14,13,0.18)',
-      lift: '0 2px 4px rgba(14,14,13,0.06), 0 18px 40px -22px rgba(14,14,13,0.28)',
+      card: '0 0 0 1px rgba(20,23,31,0.04), 0 1px 1px rgba(20,23,31,0.03), 0 1px 3px rgba(20,23,31,0.05)',
+      lift: '0 0 0 1px rgba(20,23,31,0.05), 0 8px 16px -6px rgba(20,23,31,0.10), 0 24px 48px -16px rgba(20,23,31,0.18)',
     },
     transitionTimingFunction: {
       out: 'cubic-bezier(0.23, 1, 0.32, 1)',
@@ -93,5 +91,5 @@ module.exports = {
     './src/**/*.{ts,tsx}',
     '../../packages/ui/src/**/*.{ts,tsx}',
   ],
-  theme: presets.length > 0 ? {} : tccTheme,
+  theme: presets.length > 0 ? {} : wallyTheme,
 };

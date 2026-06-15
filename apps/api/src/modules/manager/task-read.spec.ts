@@ -93,7 +93,13 @@ describe('per-user task read state', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    svc = new ManagerService(prisma as never, {} as never, {} as never);
+    svc = new ManagerService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
   });
 
   it('manager A marking seen does NOT clear manager B unread badge', async () => {

@@ -10,7 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { Badge, Button, Spinner, cn } from '@wally/ui';
-import type { Criterion, RollupRule, Rubric } from '@wally/types';
+import type { CampaignFixtureSummary, Criterion, RollupRule, Rubric } from '@wally/types';
 
 import { api, errorMessage } from '../../lib/api';
 import { useToast } from '../../lib/toast';
@@ -27,8 +27,9 @@ const DEFAULT_ROLLUP: RollupRule = {
 };
 
 type Draft = {
-  fixtureKey: string;
-  lockKey: boolean; // true when editing an existing fixture's rubric
+  /** The library fixture this rubric grades — picked from the campaign's fixtures. */
+  fixtureId: string;
+  lockFixture: boolean; // true when editing an existing fixture's rubric
   criteria: Criterion[];
   rollupRule: RollupRule;
   // The reference/standard image the scorer compares against. `undefined` means
@@ -54,31 +55,46 @@ export function RubricsView() {
     enabled: Boolean(campaign?.id),
   });
 
-  // All versions grouped per fixtureKey (newest first), plus the latest row for
-  // the collapsed summary line.
+  // The campaign's fixtures — the picker options (a rubric grades a REAL
+  // fixture; the old free-text keys connected to nothing).
+  const fixturesQ = useQuery({
+    queryKey: ['studio', 'task-fixtures', campaign?.id],
+    queryFn: () => api.guideFixtures.list(campaign!.id),
+    enabled: Boolean(campaign?.id),
+  });
+  const fixtures = React.useMemo(() => fixturesQ.data ?? [], [fixturesQ.data]);
+  const fixtureName = React.useCallback(
+    (r: Rubric) => r.fixtureName ?? r.fixtureKey,
+    [],
+  );
+
+  // All versions grouped per fixture (newest first), plus the latest row for
+  // the collapsed summary line. Legacy free-text rubrics group by their key.
   const groups = React.useMemo(() => {
     const byKey = new Map<string, Rubric[]>();
     for (const r of rubricsQ.data ?? []) {
-      const list = byKey.get(r.fixtureKey) ?? [];
+      const k = r.fixtureId ?? r.fixtureKey;
+      const list = byKey.get(k) ?? [];
       list.push(r);
-      byKey.set(r.fixtureKey, list);
+      byKey.set(k, list);
     }
-    return [...byKey.entries()]
-      .map(([fixtureKey, versions]) => ({
-        fixtureKey,
+    return [...byKey.values()]
+      .map((versions) => ({
         versions: [...versions].sort((a, b) => b.version - a.version),
       }))
-      .sort((a, b) => a.fixtureKey.localeCompare(b.fixtureKey));
-  }, [rubricsQ.data]);
+      .sort((a, b) =>
+        fixtureName(a.versions[0]!).localeCompare(fixtureName(b.versions[0]!)),
+      );
+  }, [rubricsQ.data, fixtureName]);
 
   const [draft, setDraft] = React.useState<Draft | null>(null);
 
   const activate = useMutation({
-    mutationFn: (vars: { fixtureKey: string; version: number }) =>
-      api.rubrics.activate(campaign!.id, vars.fixtureKey, vars.version),
+    mutationFn: (vars: { fixtureRef: string; version: number }) =>
+      api.rubrics.activate(campaign!.id, vars.fixtureRef, vars.version),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['studio', 'rubrics', campaign?.id] });
-      toast.success(`Activated ${r.fixtureKey} v${r.version}`);
+      toast.success(`Activated ${r.fixtureName ?? r.fixtureKey} v${r.version}`);
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
@@ -86,7 +102,7 @@ export function RubricsView() {
   const publish = useMutation({
     mutationFn: (d: Draft) =>
       api.rubrics.publish(campaign!.id, {
-        fixtureKey: d.fixtureKey.trim(),
+        fixtureId: d.fixtureId,
         criteria: d.criteria,
         rollupRule: d.rollupRule,
         // Only send referenceKey when the author touched it; otherwise the server
@@ -95,7 +111,7 @@ export function RubricsView() {
       }),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['studio', 'rubrics', campaign?.id] });
-      toast.success(`Published ${r.fixtureKey} v${r.version}`);
+      toast.success(`Published ${r.fixtureName ?? r.fixtureKey} v${r.version}`);
       setDraft(null);
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -103,18 +119,21 @@ export function RubricsView() {
 
   const startNew = () =>
     setDraft({
-      fixtureKey: '',
-      lockKey: false,
+      fixtureId: '',
+      lockFixture: false,
       criteria: [{ id: 'c1', kind: 'presence', critical: false, text: '' }],
       rollupRule: { ...DEFAULT_ROLLUP },
       referenceKey: undefined,
       referenceUrl: null,
     });
 
+  // Editing a fixture-linked rubric keeps the fixture fixed; a LEGACY free-text
+  // rubric has no fixture yet, so the editor asks the author to pick one (the
+  // new version is then properly linked).
   const startEdit = (r: Rubric) =>
     setDraft({
-      fixtureKey: r.fixtureKey,
-      lockKey: true,
+      fixtureId: r.fixtureId ?? '',
+      lockFixture: Boolean(r.fixtureId),
       criteria: r.criteria.map((c) => ({ ...c })),
       rollupRule: { ...r.rollupRule },
       // Carry the current version's reference into the draft so an edit keeps it
@@ -147,6 +166,8 @@ export function RubricsView() {
       {draft && campaign ? (
         <RubricEditor
           campaignId={campaign.id}
+          fixtures={fixtures}
+          rubrics={rubricsQ.data ?? []}
           draft={draft}
           onChange={setDraft}
           onCancel={() => setDraft(null)}
@@ -177,11 +198,15 @@ export function RubricsView() {
         <ul className="flex flex-col gap-3">
           {groups.map((g) => (
             <RubricCard
-              key={g.fixtureKey}
+              key={g.versions[0]!.fixtureId ?? g.versions[0]!.fixtureKey}
               versions={g.versions}
               onEdit={startEdit}
               onActivate={(version) =>
-                activate.mutate({ fixtureKey: g.fixtureKey, version })
+                activate.mutate({
+                  fixtureRef:
+                    g.versions[0]!.fixtureId ?? g.versions[0]!.fixtureKey,
+                  version,
+                })
               }
               activating={activate.isPending}
             />
@@ -212,7 +237,8 @@ function RubricCard({
   // versions is sorted newest-first; the highest version is index 0.
   const live = versions.find((v) => v.active) ?? versions[0];
   if (!live) return null; // never (groups only hold non-empty version lists)
-  const fixtureKey = live.fixtureKey;
+  const label = live.fixtureName ?? live.fixtureKey;
+  const legacy = !live.fixtureId;
   const hasHistory = versions.length > 1;
 
   return (
@@ -220,7 +246,12 @@ function RubricCard({
       <div className="flex items-center gap-3 px-5 py-3.5">
         <span className="min-w-0 flex-1">
           <span className="block truncate font-display text-[15px] font-semibold text-ink">
-            {fixtureKey}
+            {label}
+            {legacy ? (
+              <span className="ml-2 align-middle text-[10px] font-normal uppercase tracking-brand text-signal">
+                not linked to a fixture
+              </span>
+            ) : null}
           </span>
           <span className="text-xs text-steel">
             {live.criteria.length} criterion
@@ -288,6 +319,8 @@ function RubricCard({
 
 function RubricEditor({
   campaignId,
+  fixtures,
+  rubrics,
   draft,
   onChange,
   onCancel,
@@ -295,6 +328,8 @@ function RubricEditor({
   publishing,
 }: {
   campaignId: string;
+  fixtures: CampaignFixtureSummary[];
+  rubrics: Rubric[];
   draft: Draft;
   onChange: (d: Draft) => void;
   onCancel: () => void;
@@ -352,26 +387,49 @@ function RubricEditor({
     onChange({ ...draft, criteria: draft.criteria.filter((_, j) => j !== i) });
 
   const valid =
-    draft.fixtureKey.trim().length > 0 &&
+    draft.fixtureId.length > 0 &&
     draft.criteria.length > 0 &&
     draft.criteria.every((c) => c.id.trim() && c.text.trim());
+
+  // Fixtures that already carry a rubric (any version) — flagged in the picker
+  // so the author sees what's covered vs. bare.
+  const covered = new Set(
+    rubrics.map((r) => r.fixtureId).filter((id): id is string => Boolean(id)),
+  );
+  const selectedName =
+    fixtures.find((f) => f.fixtureId === draft.fixtureId)?.name ?? null;
 
   return (
     <div className="mb-6 rounded-lg border border-mist/60 bg-surface/40 p-4">
       <div className="mb-3 flex items-center justify-between">
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-graphite">
-            Fixture key
+            Fixture
           </span>
-          <input
-            value={draft.fixtureKey}
-            disabled={draft.lockKey}
-            onChange={(e) =>
-              onChange({ ...draft, fixtureKey: e.target.value })
-            }
-            placeholder="storefront"
-            className={cn(fieldCls, 'w-48 disabled:opacity-60')}
-          />
+          {draft.lockFixture ? (
+            <span className={cn(fieldCls, 'inline-block w-64 bg-surface/60 text-steel')}>
+              {selectedName ?? 'Selected fixture'}
+            </span>
+          ) : (
+            <select
+              value={draft.fixtureId}
+              onChange={(e) => onChange({ ...draft, fixtureId: e.target.value })}
+              className={cn(fieldCls, 'w-64')}
+              aria-label="Fixture"
+            >
+              <option value="" disabled>
+                {fixtures.length === 0
+                  ? 'No fixtures on this campaign yet'
+                  : 'Choose a fixture…'}
+              </option>
+              {fixtures.map((f) => (
+                <option key={f.fixtureId} value={f.fixtureId}>
+                  {f.name}
+                  {covered.has(f.fixtureId) ? ' · has rubric' : ''}
+                </option>
+              ))}
+            </select>
+          )}
         </label>
         <button
           type="button"

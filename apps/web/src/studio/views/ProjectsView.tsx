@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import {
+  Archive,
   ArchiveRestore,
   ArrowRight,
   Building2,
@@ -219,14 +220,25 @@ function ProjectCard({
               <ArchiveRestore className="h-4 w-4" />
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={onEdit}
-              aria-label={`Edit ${project.name}`}
-              className="rounded-md p-1.5 text-steel transition-colors hover:bg-surface hover:text-ink"
-            >
-              <Pencil className="h-4 w-4" />
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={onEdit}
+                aria-label={`Edit ${project.name}`}
+                className="rounded-md p-1.5 text-steel transition-colors hover:bg-surface hover:text-ink"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onArchive}
+                disabled={busy}
+                aria-label={`Archive ${project.name}`}
+                className="rounded-md p-1.5 text-steel transition-colors hover:bg-surface hover:text-ink disabled:opacity-50"
+              >
+                <Archive className="h-4 w-4" />
+              </button>
+            </>
           )}
           <button
             type="button"

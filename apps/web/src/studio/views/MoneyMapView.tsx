@@ -233,13 +233,13 @@ function MoneyTile({
     >
       <span
         className="px-1 text-[10px] font-semibold leading-tight"
-        style={{ color: dark ? '#FBFBF9' : '#0E0E0D' }}
+        style={{ color: dark ? '#FCFCFD' : '#14171F' }}
       >
         {fx.label}
       </span>
       <span
         className="px-1 text-[10px] font-semibold tabular-nums"
-        style={{ color: dark ? '#FBFBF9' : '#3C3B36' }}
+        style={{ color: dark ? '#FCFCFD' : '#3E4654' }}
       >
         {money(fx.revenue)} · {fx.sharePct}%
       </span>

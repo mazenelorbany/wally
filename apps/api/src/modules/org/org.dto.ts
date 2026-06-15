@@ -13,6 +13,10 @@ export const UpdateOrgSchema = z
       .max(60)
       .regex(/^[a-z0-9-]+$/, 'slug must be lowercase letters, digits, or hyphens')
       .optional(),
+    // Which promo wave is selling now: AUTO follows the TCC calendar (odd
+    // months = Sale 1, even = Sale 2); SALE_1/SALE_2 pin a wave; ALL = whole
+    // catalog on sale.
+    saleMode: z.enum(['AUTO', 'SALE_1', 'SALE_2', 'ALL']).optional(),
   })
   .strict();
 

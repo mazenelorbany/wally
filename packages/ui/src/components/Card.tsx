@@ -2,7 +2,7 @@ import * as React from "react";
 
 import { cn } from "../lib/cn";
 
-/** Raised surface — hairline border + low, calm elevation. */
+/** Raised surface — white panel, hairline border, layered low elevation. */
 export function Card({
   className,
   ...rest
@@ -10,7 +10,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "rounded-lg border border-mist/70 bg-paper text-ink shadow-card",
+        "rounded-lg border border-mist/60 bg-white text-ink shadow-card",
         className,
       )}
       {...rest}
@@ -34,7 +34,7 @@ export function CardTitle({
   return (
     <h3
       className={cn(
-        "font-display text-base font-semibold leading-tight tracking-tight text-ink",
+        "font-display text-[15px] font-semibold leading-tight tracking-[-0.01em] text-ink",
         className,
       )}
       {...rest}

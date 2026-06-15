@@ -21,7 +21,7 @@ export const Table = React.forwardRef<
     <table
       ref={ref}
       className={cn(
-        "w-full caption-bottom border-collapse font-sans text-sm text-ink",
+        "w-full caption-bottom border-collapse font-sans text-[13px] text-ink",
         className,
       )}
       {...rest}
@@ -95,7 +95,7 @@ export const TableHead = React.forwardRef<
     ref={ref}
     scope="col"
     className={cn(
-      "h-10 px-3 text-left align-middle font-sans text-[11px] font-medium uppercase tracking-[0.08em] text-steel",
+      "h-9 px-3 text-left align-middle font-sans text-xs font-medium text-steel",
       "[&:has([role=checkbox])]:pr-0",
       className,
     )}

@@ -10,12 +10,19 @@ import { useToast } from '../../lib/toast';
 import { EmptyState, ErrorState } from '../../components/states';
 import { useSetStudioTopBar } from '../components/StudioContext';
 
-const ROLES = ['ADMIN', 'REVIEWER', 'STORE_MANAGER', 'VIEWER'] as const;
+const ROLES = [
+  'ADMIN',
+  'REVIEWER',
+  'STORE_MANAGER',
+  'SETUP_CREW',
+  'VIEWER',
+] as const;
 type RoleStr = (typeof ROLES)[number];
 const ROLE_LABEL: Record<RoleStr, string> = {
   ADMIN: 'Admin',
   REVIEWER: 'Reviewer',
   STORE_MANAGER: 'Store manager',
+  SETUP_CREW: 'Setup crew',
   VIEWER: 'Viewer',
 };
 const fieldCls =
@@ -156,8 +163,8 @@ function UserRow({
         </Badge>
       ) : null}
 
-      {/* Manager store assignment */}
-      {u.role === 'STORE_MANAGER' ? (
+      {/* Store assignment (managers + setup crew are pinned to one store) */}
+      {u.role === 'STORE_MANAGER' || u.role === 'SETUP_CREW' ? (
         <select
           aria-label={`Store for ${u.email}`}
           value={u.storeId ?? ''}
@@ -236,7 +243,9 @@ function InviteForm({
         email: email.trim(),
         ...(name.trim() ? { name: name.trim() } : {}),
         role,
-        ...(role === 'STORE_MANAGER' && storeId ? { storeId } : {}),
+        ...((role === 'STORE_MANAGER' || role === 'SETUP_CREW') && storeId
+          ? { storeId }
+          : {}),
       }),
     onSuccess: (u) => {
       void qc.invalidateQueries({ queryKey: ['studio', 'admin-users'] });
@@ -297,7 +306,7 @@ function InviteForm({
             ))}
           </select>
         </label>
-        {role === 'STORE_MANAGER' ? (
+        {role === 'STORE_MANAGER' || role === 'SETUP_CREW' ? (
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-graphite">
               Store

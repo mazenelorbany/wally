@@ -53,7 +53,6 @@ import {
   FONT_DISPLAY,
   BIND_OPTIONS,
   displayText,
-  savePct,
 } from '../flyers/model';
 
 // --- Artboard presets --------------------------------------------------------
@@ -336,7 +335,8 @@ export function FlyersView() {
         return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        e.shiftKey ? redo() : undo();
+        if (e.shiftKey) redo();
+        else undo();
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
         e.preventDefault();
         removeSelected();
@@ -398,7 +398,12 @@ export function FlyersView() {
         onAddImage={() => fileRef.current?.click()}
         onUndo={undo}
         onRedo={redo}
+        // The undo stacks are refs by design (pushing a snapshot must not
+        // re-render); reading them here is knowingly non-reactive — the
+        // toolbar refreshes on the next state-driven render.
+        // eslint-disable-next-line react-hooks/refs
         canUndo={past.current.length > 0}
+        // eslint-disable-next-line react-hooks/refs
         canRedo={future.current.length > 0}
         scale={scale}
         onZoom={(d) => setScale((s) => Math.max(0.05, Math.min(2, s + d)))}

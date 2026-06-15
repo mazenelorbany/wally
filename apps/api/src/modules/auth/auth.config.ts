@@ -47,6 +47,13 @@ const AuthEnvSchema = z.object({
   // link builder, not stored here.
   API_BASE_URL: z.string().url().default('http://localhost:3001'),
 
+  // ── Demo access ──────────────────────────────────────────────────────────
+  // Opt-in escape hatch for hosted demos: when true, the one-click dev-login is
+  // allowed even under NODE_ENV=production (and the SPA renders the role
+  // buttons via VITE_DEMO). OFF by default — a real production deploy keeps
+  // dev-login disabled and uses magic-link / Google SSO.
+  DEMO_LOGIN: bool(false),
+
   // ── Session cookie ──────────────────────────────────────────────────────
   SESSION_COOKIE_NAME: z.string().min(1).default('wally_session'),
   // Secure flag is env-driven: false over plain http in dev, true in prod.
@@ -93,6 +100,11 @@ function load(): AuthEnv {
 
 /** Frozen, validated auth env. Imported wherever auth needs a config value. */
 export const AuthEnv: AuthEnv = load();
+
+/** Whether the one-click dev-login is permitted. Always on outside production;
+ *  in production only when DEMO_LOGIN is explicitly set (hosted demo). */
+export const devLoginAllowed = (): boolean =>
+  AuthEnv.NODE_ENV !== 'production' || AuthEnv.DEMO_LOGIN;
 
 /** True only when every Google OAuth credential needed to boot the strategy
  *  is present. The strategy + routes are registered conditionally on this so

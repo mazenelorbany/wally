@@ -15,14 +15,18 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type {
+  CampaignQuestionWithAnswer,
   FixtureCompliance,
   FixtureComplianceDetail,
   ManagerFixture,
   ManagerHome,
   ManagerPreferences,
+  ManagerReportListItem,
   ProductDto,
   SalesLog,
   SessionUser,
+  StoreReportDto,
+  StoreReportDocument,
   TaskDto,
 } from '@wally/types';
 
@@ -30,6 +34,10 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { NoViewerGuard } from '../auth/no-viewer.guard';
 import { Roles } from '../auth/roles.decorator';
 import { SessionGuard } from '../auth/session.guard';
+import {
+  AnswerQuestionSchema,
+  type AnswerQuestionInput,
+} from '../campaign/campaign-question.dto';
 import { ZodValidationPipe } from '../org/zod-validation.pipe';
 
 import {
@@ -37,11 +45,13 @@ import {
   OverrideCaptureSchema,
   SalesQuerySchema,
   StoreScopeSchema,
+  TickChecklistSchema,
   UpdatePreferencesSchema,
   type LogSaleInput,
   type OverrideCaptureInput,
   type SalesQueryInput,
   type StoreScopeInput,
+  type TickChecklistInput,
   type UpdatePreferencesInput,
 } from './manager.dto';
 import { ManagerService } from './manager.service';
@@ -76,6 +86,14 @@ export class ManagerController {
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<ManagerHome> {
     return this.manager.home(user, q.storeId);
+  }
+
+  /** The manager's venue stores (their own + sibling concessions) — the switcher. */
+  @Get('stores')
+  venueStores(
+    @CurrentUser() user: SessionUser,
+  ): Promise<{ id: string; name: string }[]> {
+    return this.manager.venueStores(user);
   }
 
   @Get('tasks')
@@ -184,7 +202,7 @@ export class ManagerController {
     @CurrentUser() user: SessionUser,
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<FixtureCompliance[]> {
-    return this.manager.compliance(user, q.storeId);
+    return this.manager.compliance(user, q.storeId, q.campaignId);
   }
 
   /** One fixture's compliance sheet: reference, notes, my photo, AI verdict. */
@@ -194,7 +212,7 @@ export class ManagerController {
     @Param('fixtureId') fixtureId: string,
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<FixtureComplianceDetail> {
-    return this.manager.fixtureCompliance(user, fixtureId, q.storeId);
+    return this.manager.fixtureCompliance(user, fixtureId, q.storeId, q.campaignId);
   }
 
   /**
@@ -220,6 +238,7 @@ export class ManagerController {
         size: file?.size ?? 0,
       },
       q.storeId,
+      q.campaignId,
     );
   }
 
@@ -235,7 +254,7 @@ export class ManagerController {
     @Param('photoId') photoId: string,
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<FixtureComplianceDetail> {
-    return this.manager.deleteFixturePhoto(user, fixtureId, photoId, q.storeId);
+    return this.manager.deleteFixturePhoto(user, fixtureId, photoId, q.storeId, q.campaignId);
   }
 
   /**
@@ -249,7 +268,7 @@ export class ManagerController {
     @Param('fixtureId') fixtureId: string,
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
   ): Promise<FixtureComplianceDetail> {
-    return this.manager.requestCapturePhoto(user, fixtureId, q.storeId);
+    return this.manager.requestCapturePhoto(user, fixtureId, q.storeId, q.campaignId);
   }
 
   /**
@@ -264,6 +283,88 @@ export class ManagerController {
     @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
     @Body(new ZodValidationPipe(OverrideCaptureSchema)) body: OverrideCaptureInput,
   ): Promise<FixtureComplianceDetail> {
-    return this.manager.overrideCapture(user, fixtureId, body, q.storeId);
+    return this.manager.overrideCapture(user, fixtureId, body, q.storeId, q.campaignId);
+  }
+
+  // ----- report extra questions (text / yes-no / note) ----------------------
+
+  /** The campaign's extra report questions paired with this store's answers. */
+  @Get('questions')
+  listQuestions(
+    @CurrentUser() user: SessionUser,
+    @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
+  ): Promise<CampaignQuestionWithAnswer[]> {
+    return this.manager.listQuestions(user, q.storeId, q.campaignId);
+  }
+
+  /** Upsert this store's answer to one report question. */
+  @Put('questions/:questionId/answer')
+  @UseGuards(NoViewerGuard)
+  answerQuestion(
+    @CurrentUser() user: SessionUser,
+    @Param('questionId') questionId: string,
+    @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
+    @Body(new ZodValidationPipe(AnswerQuestionSchema)) body: AnswerQuestionInput,
+  ): Promise<CampaignQuestionWithAnswer[]> {
+    return this.manager.answerQuestion(user, questionId, body, q.storeId, q.campaignId);
+  }
+
+  // ----- the submittable report ---------------------------------------------
+
+  /** This store's report envelope (status, total score, flags, progress). */
+  @Get('report')
+  getReport(
+    @CurrentUser() user: SessionUser,
+    @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
+  ): Promise<StoreReportDto> {
+    return this.manager.getReport(user, q.storeId, q.campaignId);
+  }
+
+  /** Submit this store's report (blocks on unanswered required questions). */
+  @Post('report/submit')
+  @UseGuards(NoViewerGuard)
+  submitReport(
+    @CurrentUser() user: SessionUser,
+    @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
+  ): Promise<StoreReportDto> {
+    return this.manager.submitReport(user, q.storeId, q.campaignId);
+  }
+
+  /** The full report document for this store (read-only submitted view). */
+  @Get('report/document')
+  getReportDocument(
+    @CurrentUser() user: SessionUser,
+    @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
+  ): Promise<StoreReportDocument> {
+    return this.manager.getReportDocument(user, q.storeId, q.campaignId);
+  }
+
+  /** This store's reports across campaigns (current + past) for the Tasks list. */
+  @Get('reports')
+  listReports(
+    @CurrentUser() user: SessionUser,
+    @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
+  ): Promise<ManagerReportListItem[]> {
+    return this.manager.listReports(user, q.storeId);
+  }
+
+  /** Tick/untick one checklist item on a fixture (part of filling the report). */
+  @Put('fixtures/:fixtureId/checklist/:itemId')
+  @UseGuards(NoViewerGuard)
+  tickChecklist(
+    @CurrentUser() user: SessionUser,
+    @Param('fixtureId') fixtureId: string,
+    @Param('itemId') itemId: string,
+    @Query(new ZodValidationPipe(StoreScopeSchema)) q: StoreScopeInput,
+    @Body(new ZodValidationPipe(TickChecklistSchema)) body: TickChecklistInput,
+  ): Promise<FixtureComplianceDetail> {
+    return this.manager.tickChecklist(
+      user,
+      fixtureId,
+      itemId,
+      body.checked,
+      q.storeId,
+      q.campaignId,
+    );
   }
 }

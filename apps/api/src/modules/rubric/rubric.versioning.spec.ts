@@ -29,6 +29,7 @@ function row(over: Partial<Record<string, unknown>> = {}) {
     id: `r_${over.version ?? 1}`,
     orgId: 'org_1',
     campaignId: CAMPAIGN,
+    fixtureId: 'fix_1',
     fixtureKey: FIXTURE,
     version: 1,
     criteria: [],
@@ -124,6 +125,9 @@ function makePublishPrisma(previous: ReturnType<typeof row> | null) {
     campaign: {
       findFirst: vi.fn(async () => ({ id: CAMPAIGN, key: 'MSP2-2026' })),
     },
+    fixture: {
+      findFirst: vi.fn(async () => ({ id: 'fix_1', name: 'Storefront', kind: 'bay' })),
+    },
     $transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
   };
   return { prisma, tx, created, deactivations };
@@ -136,7 +140,7 @@ const storageStub = {
 
 describe('RubricService.publish (referenceKey carry-forward + active flip)', () => {
   const baseInput = {
-    fixtureKey: FIXTURE,
+    fixtureId: 'fix_1',
     criteria: [{ id: 'c1', kind: 'presence' as const, critical: true, text: 'built' }],
     rollupRule: {
       not_good_if_any_critical_fails: true,
@@ -193,7 +197,7 @@ describe('RubricService.publish (referenceKey carry-forward + active flip)', () 
 
     // Siblings of this pair were cleared before the new active row was created.
     expect(deactivations[0]).toMatchObject({
-      where: { campaignId: CAMPAIGN, fixtureKey: FIXTURE, active: true },
+      where: { campaignId: CAMPAIGN, fixtureId: 'fix_1', active: true },
       data: { active: false },
     });
     expect(created[0]).toMatchObject({ active: true });

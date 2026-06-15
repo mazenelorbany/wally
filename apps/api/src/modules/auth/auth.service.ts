@@ -9,7 +9,7 @@ import type { SessionUser } from '@wally/types';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
-import { AuthEnv, magicLinkConsumeUrl } from './auth.config';
+import { AuthEnv, devLoginAllowed, magicLinkConsumeUrl } from './auth.config';
 import {
   generateMagicToken,
   generateSessionId,
@@ -261,7 +261,7 @@ export class AuthService {
    * registered only in dev, so this is belt-and-braces.
    */
   async devLogin(role: Role): Promise<IssuedSession> {
-    if (AuthEnv.NODE_ENV === 'production') {
+    if (!devLoginAllowed()) {
       throw new UnauthorizedException('Dev login is disabled in production');
     }
 
@@ -271,10 +271,10 @@ export class AuthService {
       (await this.prisma.org.findFirst({ orderBy: { createdAt: 'asc' } })) ??
       (await this.prisma.org.create({ data: { name: 'Dev Org', slug: 'dev' } }));
 
-    // A dev STORE_MANAGER needs a store to land on — bind to the first seeded
-    // store so /capture resolves a checklist instead of asking for an ID.
+    // Store-scoped roles need a store to land on — bind to the first seeded
+    // store so /capture and /crew resolve content instead of asking for an ID.
     const storeId =
-      role === Role.STORE_MANAGER
+      role === Role.STORE_MANAGER || role === Role.SETUP_CREW
         ? (await this.prisma.store.findFirst({
             where: { orgId: org.id },
             orderBy: { name: 'asc' },

@@ -19,7 +19,7 @@ import type { Criterion, CriterionResult, ScoreResult, VerdictValue } from "@wal
 import { applyConfidenceFloor, fixtureRollup } from "../../apps/api/src/modules/scoring/rollup";
 import { RubricStore } from "./rubric-loader";
 import { Counts, fmtPct, precision, recall, type GoldLabel } from "./metrics";
-import { AnthropicVisionProvider, type VisionProvider } from "./vision-provider";
+import { AnthropicVisionProvider, GeminiVisionProvider, type VisionProvider } from "./vision-provider";
 
 // ───────────────────────────────────────────── config / locations
 // The POC is the source of truth for rubrics + sample photos (decision T1).
@@ -186,12 +186,17 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  // Real scoring path — needs a key.
-  const provider: VisionProvider = new AnthropicVisionProvider(
-    process.env.WALLY_VISION_MODEL ?? "claude-sonnet-4-6",
-    process.env.ANTHROPIC_API_KEY ?? "",
-  );
-  console.log(`\nScoring with ${provider.modelId} ...`);
+  // Real scoring path — needs a key. Pick the provider the app is configured
+  // for (WALLY_VISION_PROVIDER) so the eval grades with the deployed backend.
+  const choice = (process.env.WALLY_VISION_PROVIDER ?? "anthropic").toLowerCase();
+  const provider: VisionProvider =
+    choice === "gemini"
+      ? new GeminiVisionProvider()
+      : new AnthropicVisionProvider(
+          process.env.WALLY_VISION_MODEL ?? "claude-sonnet-4-6",
+          process.env.ANTHROPIC_API_KEY ?? "",
+        );
+  console.log(`\nScoring with ${choice} / ${provider.modelId} ...`);
 
   const goldByImage = new Map(goldRows.map((g) => [resolveImage(g.image_path), g]));
   const counts: Record<Criterion["kind"], Counts> = {

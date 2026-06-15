@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   BadRequestException,
   Injectable,
@@ -11,13 +13,18 @@ import type {
   Product,
 } from '@prisma/client';
 import type {
+  CampaignFixtureSummary,
+  Department,
   FixtureKind,
+  GuideChecklistItem,
   GuideFixtureDetail,
   GuideFixtureExampleImage,
+  GuideInstructionStep,
   MerchandiseRow,
 } from '@wally/types';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { PlanogramSyncService } from '../fixture/planogram-sync.service';
 import { StorageService } from '../storage/storage.service';
 import {
   assertReadableImage,
@@ -25,6 +32,8 @@ import {
   type UploadedImageFile,
 } from '../storage/image-upload.util';
 import { toProductDto } from '../product/product.service';
+
+import { seedChecklistFromTemplates } from './checklist-seed';
 
 // =============================================================================
 // GuideFixtureService — a fixture's instruction sheet within a guide.
@@ -53,6 +62,10 @@ const GUIDE_FIXTURE_INCLUDE = Prisma.validator<Prisma.GuideFixtureInclude>()({
     include: { product: true },
     orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
   },
+  checklistItems: {
+    where: { archivedAt: null },
+    orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+  },
 });
 
 type GuideFixtureWithRelations = Prisma.GuideFixtureGetPayload<{
@@ -64,6 +77,7 @@ export class GuideFixtureService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly planogramSync: PlanogramSyncService,
   ) {}
 
   // ----- detail ------------------------------------------------------------
@@ -74,6 +88,194 @@ export class GuideFixtureService {
    * the Fixture (name/kind), example images (→ signed URLs), and merchandise
    * grouped into rows in stable order.
    */
+  /**
+   * The task's photo-request fixtures for the "Build" view: every distinct
+   * fixture placed on at least one store's floor plan for this campaign, with a
+   * summary of how filled-in its guide content is (reference / instructions /
+   * checklist / products). Sheets that haven't been opened yet report zero
+   * counts and a null guideFixtureId — the editor renders-on-open.
+   */
+  async listForCampaign(
+    orgId: string,
+    campaignId: string,
+  ): Promise<CampaignFixtureSummary[]> {
+    const campaign = await this.prisma.campaign.findFirst({
+      where: { id: campaignId, orgId },
+      select: { id: true },
+    });
+    if (!campaign) throw new NotFoundException('campaign not found');
+
+    // The photo requests = distinct applicable fixtures across the campaign's
+    // store floor plans. Count the stores that place each one.
+    const placements = await this.prisma.placement.findMany({
+      where: { campaignId, orgId, applicable: true },
+      select: {
+        fixtureId: true,
+        storeId: true,
+        fixture: {
+          select: {
+            name: true,
+            kind: true,
+            department: true,
+            referenceKey: true,
+          },
+        },
+      },
+    });
+
+    type Agg = {
+      fixtureId: string;
+      name: string;
+      kind: string;
+      department: string | null;
+      hasLibraryRef: boolean;
+      stores: Set<string>;
+    };
+    const byFixture = new Map<string, Agg>();
+    for (const p of placements) {
+      let a = byFixture.get(p.fixtureId);
+      if (!a) {
+        a = {
+          fixtureId: p.fixtureId,
+          name: p.fixture.name,
+          kind: p.fixture.kind,
+          department: p.fixture.department,
+          hasLibraryRef: Boolean(p.fixture.referenceKey),
+          stores: new Set<string>(),
+        };
+        byFixture.set(p.fixtureId, a);
+      }
+      a.stores.add(p.storeId);
+    }
+
+    const fixtureIds = [...byFixture.keys()];
+    if (fixtureIds.length === 0) return [];
+
+    // The content sheets that already exist for these fixtures, with counts.
+    const sheets = await this.prisma.guideFixture.findMany({
+      where: { campaignId, fixtureId: { in: fixtureIds } },
+      select: {
+        id: true,
+        fixtureId: true,
+        instructions: true,
+        _count: {
+          select: { checklistItems: true, exampleImages: true, merchandise: true },
+        },
+      },
+    });
+    const sheetBy = new Map(sheets.map((s) => [s.fixtureId, s]));
+
+    return [...byFixture.values()]
+      .map((a) => {
+        const sheet = sheetBy.get(a.fixtureId);
+        const exampleImages = sheet?._count.exampleImages ?? 0;
+        return {
+          fixtureId: a.fixtureId,
+          guideFixtureId: sheet?.id ?? null,
+          name: a.name,
+          kind: a.kind as FixtureKind,
+          department: (a.department as Department | null) ?? null,
+          storeCount: a.stores.size,
+          hasReference: exampleImages > 0 || a.hasLibraryRef,
+          instructionCount: asInstructions(sheet?.instructions).length,
+          checklistCount: sheet?._count.checklistItems ?? 0,
+          productCount: sheet?._count.merchandise ?? 0,
+        };
+      })
+      .sort((x, y) => x.name.localeCompare(y.name));
+  }
+
+  /**
+   * Add a library fixture to the campaign as a photo request: place it on every
+   * active store the campaign can reach (its project's stores; a project-less
+   * task reaches the whole org), appended after each store's existing
+   * placements. Stores that already place it are skipped, so re-adding is safe.
+   * Org-scoped.
+   */
+  async addFixtureToCampaign(
+    orgId: string,
+    campaignId: string,
+    fixtureId: string,
+  ): Promise<void> {
+    const [campaign, fixture] = await Promise.all([
+      this.prisma.campaign.findFirst({
+        where: { id: campaignId, orgId },
+        select: { id: true, projectId: true },
+      }),
+      this.prisma.fixture.findFirst({
+        where: { id: fixtureId, orgId },
+        select: { id: true, name: true },
+      }),
+    ]);
+    if (!campaign) throw new NotFoundException('campaign not found');
+    if (!fixture) throw new NotFoundException('fixture not found');
+
+    const stores = await this.prisma.store.findMany({
+      where: {
+        orgId,
+        closedAt: null,
+        ...(campaign.projectId ? { projectId: campaign.projectId } : {}),
+      },
+      select: { id: true },
+    });
+    if (stores.length === 0) {
+      throw new BadRequestException('no active stores to request this photo from');
+    }
+
+    // Append after each store's existing placements (one groupBy, not N max-queries).
+    const maxOrders = await this.prisma.placement.groupBy({
+      by: ['storeId'],
+      where: { campaignId, orgId },
+      _max: { order: true },
+    });
+    const nextOrderBy = new Map(
+      maxOrders.map((m) => [m.storeId, (m._max.order ?? -1) + 1]),
+    );
+
+    await this.prisma.placement.createMany({
+      data: stores.map((s) => ({
+        orgId,
+        storeId: s.id,
+        campaignId,
+        fixtureId,
+        label: fixture.name,
+        applicable: true,
+        order: nextOrderBy.get(s.id) ?? 0,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  /**
+   * Remove a photo request: delete the fixture's placements across all of the
+   * campaign's stores. Refused once any store has photographed it — removing the
+   * step would orphan submitted work mid-flight.
+   */
+  async removeFixtureFromCampaign(
+    orgId: string,
+    campaignId: string,
+    fixtureId: string,
+  ): Promise<void> {
+    const campaign = await this.prisma.campaign.findFirst({
+      where: { id: campaignId, orgId },
+      select: { id: true },
+    });
+    if (!campaign) throw new NotFoundException('campaign not found');
+
+    const captured = await this.prisma.fixtureCapture.count({
+      where: { campaignId, fixtureId, storageKey: { not: null } },
+    });
+    if (captured > 0) {
+      throw new BadRequestException(
+        'stores have already submitted photos for this fixture — reopen their reports instead of removing the step',
+      );
+    }
+
+    await this.prisma.placement.deleteMany({
+      where: { orgId, campaignId, fixtureId },
+    });
+  }
+
   async detail(
     orgId: string,
     campaignId: string,
@@ -102,10 +304,16 @@ export class GuideFixtureService {
       fixtureName: fixture.name,
       kind: fixture.kind as FixtureKind,
       notes: guideFixture.notes,
+      instructions: asInstructions(guideFixture.instructions),
       exampleImages: guideFixture.exampleImages.map((img) =>
         this.toExampleImage(img),
       ),
       merchandise: groupMerchandise(guideFixture.merchandise),
+      checklist: guideFixture.checklistItems.map((c) => ({
+        id: c.id,
+        label: c.label,
+        required: c.required,
+      })),
     };
   }
 
@@ -181,14 +389,64 @@ export class GuideFixtureService {
       where: { campaignId_fixtureId: { campaignId, fixtureId } },
       include: GUIDE_FIXTURE_INCLUDE,
     });
-    if (existing) return existing;
+    if (existing) {
+      // Sheets created before the library's default checklist was authored
+      // (or via paths that skip inheritance) pick the standard up here.
+      const seeded = await seedChecklistFromTemplates(
+        this.prisma,
+        orgId,
+        campaignId,
+        fixtureId,
+      );
+      if (seeded === 0) return existing;
+      return this.prisma.guideFixture.findUniqueOrThrow({
+        where: { id: existing.id },
+        include: GUIDE_FIXTURE_INCLUDE,
+      });
+    }
 
-    // First open of this sheet: create an empty one. upsert (not create) so a
-    // concurrent first-open can't 409 on the unique (campaignId,fixtureId).
-    return this.prisma.guideFixture.upsert({
+    // First open of this sheet: inherit the fixture's library DEFAULTS (notes +
+    // ordered instructions + checklist), so a fixture's standard is authored once
+    // and flows into every task. upsert (not create) so a concurrent first-open
+    // can't 409 on the unique (campaignId,fixtureId).
+    const fixture = await this.prisma.fixture.findUnique({
+      where: { id: fixtureId },
+      select: {
+        defaultNotes: true,
+        defaultInstructions: true,
+      },
+    });
+
+    const created = await this.prisma.guideFixture.upsert({
       where: { campaignId_fixtureId: { campaignId, fixtureId } },
-      create: { orgId, campaignId, fixtureId },
+      create: {
+        orgId,
+        campaignId,
+        fixtureId,
+        notes: fixture?.defaultNotes ?? '',
+        ...(fixture?.defaultInstructions != null
+          ? {
+              instructions:
+                fixture.defaultInstructions as Prisma.InputJsonValue,
+            }
+          : {}),
+      },
       update: {},
+      include: GUIDE_FIXTURE_INCLUDE,
+    });
+
+    // Inherit the library checklist (no-op if a concurrent first-open already
+    // seeded it — the helper never duplicates).
+    await seedChecklistFromTemplates(this.prisma, orgId, campaignId, fixtureId);
+
+    // A fresh sheet inherits the fixture's default planogram too, so the
+    // library default set and every sheet stay mirrors from the first open.
+    if (created.merchandise.length === 0) {
+      await this.planogramSync.pushDefaultsToGuides(orgId, fixtureId);
+    }
+
+    return this.prisma.guideFixture.findUniqueOrThrow({
+      where: { id: created.id },
       include: GUIDE_FIXTURE_INCLUDE,
     });
   }
@@ -202,6 +460,129 @@ export class GuideFixtureService {
       where: { id },
       data: { notes },
     });
+  }
+
+  // ----- instructions (ordered structured steps) ---------------------------
+
+  /** Replace the ordered instructions list (each step gets a stable id). */
+  async saveInstructions(
+    orgId: string,
+    id: string,
+    steps: { text: string }[],
+  ): Promise<GuideInstructionStep[]> {
+    await this.getOwned(orgId, id);
+    const instructions: GuideInstructionStep[] = steps
+      .map((s) => s.text.trim())
+      .filter((t) => t.length > 0)
+      .map((text) => ({ id: randomUUID(), text }));
+    await this.prisma.guideFixture.update({
+      where: { id },
+      data: { instructions: instructions as unknown as Prisma.InputJsonValue },
+    });
+    return instructions;
+  }
+
+  // ----- checklist items (manager ticks them while filling the report) ------
+
+  private async checklist(guideFixtureId: string): Promise<GuideChecklistItem[]> {
+    const items = await this.prisma.guideFixtureChecklistItem.findMany({
+      where: { guideFixtureId, archivedAt: null },
+      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+    });
+    return items.map((c) => ({ id: c.id, label: c.label, required: c.required }));
+  }
+
+  async addChecklistItem(
+    orgId: string,
+    guideFixtureId: string,
+    label: string,
+    required: boolean,
+  ): Promise<GuideChecklistItem[]> {
+    await this.getOwned(orgId, guideFixtureId);
+    const max = await this.prisma.guideFixtureChecklistItem.aggregate({
+      where: { guideFixtureId, archivedAt: null },
+      _max: { order: true },
+    });
+    await this.prisma.guideFixtureChecklistItem.create({
+      data: {
+        orgId,
+        guideFixtureId,
+        label,
+        required,
+        order: (max._max.order ?? -1) + 1,
+      },
+    });
+    return this.checklist(guideFixtureId);
+  }
+
+  async updateChecklistItem(
+    orgId: string,
+    guideFixtureId: string,
+    itemId: string,
+    patch: { label?: string; required?: boolean },
+  ): Promise<GuideChecklistItem[]> {
+    await this.getOwned(orgId, guideFixtureId);
+    const item = await this.prisma.guideFixtureChecklistItem.findFirst({
+      where: { id: itemId, guideFixtureId, orgId },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundException('checklist item not found');
+    await this.prisma.guideFixtureChecklistItem.update({
+      where: { id: itemId },
+      data: {
+        ...(patch.label !== undefined ? { label: patch.label } : {}),
+        ...(patch.required !== undefined ? { required: patch.required } : {}),
+      },
+    });
+    return this.checklist(guideFixtureId);
+  }
+
+  async removeChecklistItem(
+    orgId: string,
+    guideFixtureId: string,
+    itemId: string,
+  ): Promise<GuideChecklistItem[]> {
+    await this.getOwned(orgId, guideFixtureId);
+    const item = await this.prisma.guideFixtureChecklistItem.findFirst({
+      where: { id: itemId, guideFixtureId, orgId },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundException('checklist item not found');
+    const ticks = await this.prisma.storeChecklistTick.count({
+      where: { itemId },
+    });
+    if (ticks > 0) {
+      await this.prisma.guideFixtureChecklistItem.update({
+        where: { id: itemId },
+        data: { archivedAt: new Date() },
+      });
+    } else {
+      await this.prisma.guideFixtureChecklistItem.delete({ where: { id: itemId } });
+    }
+    return this.checklist(guideFixtureId);
+  }
+
+  async reorderChecklist(
+    orgId: string,
+    guideFixtureId: string,
+    ids: string[],
+  ): Promise<GuideChecklistItem[]> {
+    await this.getOwned(orgId, guideFixtureId);
+    const live = await this.prisma.guideFixtureChecklistItem.findMany({
+      where: { guideFixtureId, orgId, archivedAt: null },
+      select: { id: true },
+    });
+    const liveIds = new Set(live.map((i) => i.id));
+    const ordered = ids.filter((id) => liveIds.has(id));
+    await this.prisma.$transaction(
+      ordered.map((id, i) =>
+        this.prisma.guideFixtureChecklistItem.update({
+          where: { id },
+          data: { order: i },
+        }),
+      ),
+    );
+    return this.checklist(guideFixtureId);
   }
 
   // ----- merchandise (optional) --------------------------------------------
@@ -231,7 +612,7 @@ export class GuideFixtureService {
     });
     const order = (last?.order ?? -1) + 1;
 
-    return this.prisma.merchandise.create({
+    const created = await this.prisma.merchandise.create({
       data: {
         orgId,
         guideFixtureId,
@@ -240,6 +621,10 @@ export class GuideFixtureService {
         order,
       },
     });
+    // A sheet edit is a planogram edit: write it back to the fixture's default
+    // set and mirror to every other sheet using this fixture.
+    await this.planogramSync.pullGuideIntoDefaults(orgId, guideFixtureId);
+    return created;
   }
 
   /** Remove a product from the sheet (org-scoped via the parent guide-fixture). */
@@ -253,6 +638,7 @@ export class GuideFixtureService {
       where: { id: merchandiseId, guideFixtureId, orgId },
     });
     if (count === 0) throw new NotFoundException('merchandise not found');
+    await this.planogramSync.pullGuideIntoDefaults(orgId, guideFixtureId);
     return { ok: true };
   }
 
@@ -292,6 +678,7 @@ export class GuideFixtureService {
         ),
       ),
     );
+    await this.planogramSync.pullGuideIntoDefaults(orgId, guideFixtureId);
     return this.detailByGuideFixtureId(orgId, guideFixtureId);
   }
 
@@ -316,8 +703,14 @@ export class GuideFixtureService {
       fixtureName: fixture.name,
       kind: fixture.kind as FixtureKind,
       notes: gf.notes,
+      instructions: asInstructions(gf.instructions),
       exampleImages: gf.exampleImages.map((img) => this.toExampleImage(img)),
       merchandise: groupMerchandise(gf.merchandise),
+      checklist: gf.checklistItems.map((c) => ({
+        id: c.id,
+        label: c.label,
+        required: c.required,
+      })),
     };
   }
 
@@ -480,6 +873,22 @@ export class GuideFixtureService {
  * `order`). Unlabelled rows collapse under a single "Unsorted" heading, kept
  * last so the named rows read first.
  */
+/** Coerce the persisted JSON instructions into a clean GuideInstructionStep[]. */
+function asInstructions(value: unknown): GuideInstructionStep[] {
+  if (!Array.isArray(value)) return [];
+  const out: GuideInstructionStep[] = [];
+  for (const it of value) {
+    if (!it || typeof it !== 'object') continue;
+    const row = it as Record<string, unknown>;
+    if (typeof row.text !== 'string' || !row.text.trim()) continue;
+    out.push({
+      id: typeof row.id === 'string' ? row.id : randomUUID(),
+      text: row.text,
+    });
+  }
+  return out;
+}
+
 function groupMerchandise(
   items: (Merchandise & { product: Product })[],
 ): MerchandiseRow[] {

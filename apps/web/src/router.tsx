@@ -7,6 +7,7 @@ import { homeForRole, useSession } from './lib/auth';
 import { LoginPage } from './login/LoginPage';
 import { studioRoutes } from './studio/routes';
 import { managerRoutes } from './store/routes';
+import { crewRoutes } from './crew/routes';
 import { SettingsPage } from './components/SettingsPage';
 import { Spinner } from '@wally/ui';
 
@@ -49,6 +50,9 @@ export const router = createBrowserRouter([
   // STORE MANAGER workspace (own store: home, tasks, floor map, sales,
   // settings). Mobile-first shell; see ./store/routes.
   managerRoutes,
+
+  // SETUP CREW — floor-plan-only workspace; see ./crew/routes.
+  crewRoutes,
 
   { path: '/', element: <RoleHome /> },
   { path: '*', element: <Navigate to="/" replace /> },

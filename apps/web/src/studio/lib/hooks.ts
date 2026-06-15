@@ -25,10 +25,13 @@ import type {
   FixtureUsage,
   FloorPlan,
   GuideFixtureDetail,
+  OrgDto,
   PlacedFixture,
   ProductDto,
+  SaleMode,
 } from '@wally/types';
 
+import { api } from '../../lib/api';
 import { sqk } from './queryKeys';
 import { studio, type PlacementMove, type ProductFilters } from './sdk';
 
@@ -313,6 +316,27 @@ export function useDeleteProduct(): UseMutationResult<void, unknown, string> {
     mutationFn: (id) => studio.products.remove(id),
     onSuccess: () =>
       void qc.invalidateQueries({ queryKey: sqk.productsAll }),
+  });
+}
+
+/**
+ * The current org — the active sale mode (Sale 1 / Sale 2 / all-on-sale) lives
+ * here. Shares the ['org'] key with the Settings page so both stay in sync.
+ */
+export function useOrg(): UseQueryResult<OrgDto> {
+  return useQuery({ queryKey: ['org'], queryFn: () => api.org.get() });
+}
+
+/** Switch the org's active sale mode (ADMIN). */
+export function useUpdateSaleMode(): UseMutationResult<
+  OrgDto,
+  unknown,
+  SaleMode
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (saleMode) => api.org.update({ saleMode }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['org'] }),
   });
 }
 

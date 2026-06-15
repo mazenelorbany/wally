@@ -1,8 +1,9 @@
 import * as React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
-  ClipboardPlus,
+  Map as MapIcon,
   Pencil,
   Plus,
   RotateCcw,
@@ -20,21 +21,19 @@ import {
   DialogTitle,
   Spinner,
 } from '@wally/ui';
-import type { ProjectDto, StoreDto, StoreSegments, TaskKind } from '@wally/types';
+import type { ProjectDto, StoreDto, StoreSegments } from '@wally/types';
 
 import { api, errorMessage } from '../../lib/api';
 import { useToast } from '../../lib/toast';
 import { EmptyState, ErrorState } from '../../components/states';
 import { useSetStudioTopBar } from '../components/StudioContext';
 import { useProject } from '../ProjectContext';
+import { brandLabel, isDefaultBrand, splitVenueName } from '../lib/venue';
 
 const fieldCls =
   'w-full rounded-md border border-mist/70 bg-paper px-3 py-2 text-sm text-ink transition-colors focus:border-graphite focus:outline-none';
 
 type Editing = StoreDto | 'new' | null;
-
-/** Assigning a task: to one store, or picking a subset from the roster. */
-type Assigning = { store: StoreDto } | { pick: StoreDto[] } | null;
 
 /** Admin: the store roster + segmentation metadata (region, manager, type). */
 export function StoreDirectoryView() {
@@ -57,7 +56,6 @@ export function StoreDirectoryView() {
     queryFn: () => api.stores.segments(),
   });
   const [editing, setEditing] = React.useState<Editing>(null);
-  const [assigning, setAssigning] = React.useState<Assigning>(null);
   const stores = storesQ.data ?? [];
   const projects = projectsQ.data ?? [];
   const segments = segmentsQ.data;
@@ -65,11 +63,12 @@ export function StoreDirectoryView() {
     () => new Map(projects.map((p) => [p.id, p.name])),
     [projects],
   );
-
-  // Active stores drive "Assign to all" — never assign a task to a closed store.
-  const activeStores = React.useMemo(
-    () => stores.filter((s) => !s.closedAt),
-    [stores],
+  // The directory lists EVERY project's stores, so each row's floor-plan link
+  // must use that store's own project campaign — linking a Myer store into the
+  // Ambiente campaign opens an empty plan in the wrong context.
+  const campaignByProject = React.useMemo(
+    () => new Map(projects.map((p) => [p.id, p.campaignId ?? undefined])),
+    [projects],
   );
 
   const lifecycle = useMutation({
@@ -98,14 +97,6 @@ export function StoreDirectoryView() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {activeStores.length > 0 ? (
-            <Button
-              variant="outline"
-              onClick={() => setAssigning({ pick: activeStores })}
-            >
-              <ClipboardPlus className="h-4 w-4" /> Assign to stores
-            </Button>
-          ) : null}
           <Button onClick={() => setEditing('new')}>
             <Plus className="h-4 w-4" /> Add store
           </Button>
@@ -130,102 +121,16 @@ export function StoreDirectoryView() {
         />
       ) : (
         <ul className="divide-y divide-mist/50 overflow-hidden rounded-lg border border-mist/60 bg-paper">
-          {stores.map((s) => {
-            const closed = Boolean(s.closedAt);
-            const busy = lifecycle.isPending && lifecycle.variables?.id === s.id;
-            return (
-              <li
-                key={s.id}
-                className={`flex items-center gap-3 px-5 py-3.5${closed ? ' opacity-60' : ''}`}
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="block truncate font-display text-[15px] font-semibold text-ink">
-                      {s.name}{' '}
-                      <span className="font-normal text-steel">· {s.brand}</span>
-                    </span>
-                    {closed ? (
-                      // Colour-blind-safe: icon + explicit "Closed" label, not colour alone.
-                      <Badge variant="warn">
-                        <Archive className="h-3 w-3" aria-hidden /> Closed
-                      </Badge>
-                    ) : null}
-                  </span>
-                  <span className="mt-1 flex flex-wrap gap-1.5">
-                    {s.projectId ? (
-                      <Badge variant="outline">
-                        {projectName.get(s.projectId) ?? 'Project'}
-                      </Badge>
-                    ) : (
-                      <Badge variant="muted" className="text-warn">
-                        No project
-                      </Badge>
-                    )}
-                    {s.region ? <Badge variant="muted">{s.region}</Badge> : null}
-                    {s.storeType ? (
-                      <Badge variant="muted">{s.storeType}</Badge>
-                    ) : null}
-                    {s.areaManager ? (
-                      <Badge variant="muted">AM: {s.areaManager}</Badge>
-                    ) : null}
-                    {!s.region && !s.storeType && !s.areaManager ? (
-                      <span className="text-xs text-steel">
-                        No segmentation set
-                      </span>
-                    ) : null}
-                  </span>
-                </span>
-                {!closed ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setAssigning({ store: s })}
-                    aria-label={`Assign a task to ${s.name}`}
-                  >
-                    <ClipboardPlus className="h-4 w-4" /> Assign
-                  </Button>
-                ) : null}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setEditing(s)}
-                  aria-label={`Edit ${s.name}`}
-                >
-                  <Pencil className="h-4 w-4" /> Edit
-                </Button>
-                {closed ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => lifecycle.mutate({ id: s.id, close: false })}
-                    aria-label={`Reactivate ${s.name}`}
-                  >
-                    <RotateCcw className="h-4 w-4" /> Reactivate
-                  </Button>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-fail"
-                    disabled={busy}
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          `Deactivate “${s.name}”? It will be hidden from the store switcher, rosters and reports. You can reactivate it later.`,
-                        )
-                      ) {
-                        lifecycle.mutate({ id: s.id, close: true });
-                      }
-                    }}
-                    aria-label={`Deactivate ${s.name}`}
-                  >
-                    <Archive className="h-4 w-4" /> Deactivate
-                  </Button>
-                )}
-              </li>
-            );
-          })}
+          {groupByVenue(stores).map((g) => (
+            <VenueRow
+              key={g.venue}
+              group={g}
+              campaignByProject={campaignByProject}
+              projectName={projectName}
+              onEdit={setEditing}
+              lifecycle={lifecycle}
+            />
+          ))}
         </ul>
       )}
 
@@ -236,11 +141,167 @@ export function StoreDirectoryView() {
         defaultProjectId={activeProject?.id}
         onClose={() => setEditing(null)}
       />
-      <AssignTaskDialog
-        assigning={assigning}
-        onClose={() => setAssigning(null)}
-      />
     </div>
+  );
+}
+
+/** A parent venue (e.g. "Adelaide City Myer") with its concession stores grouped. */
+interface VenueGroup {
+  venue: string;
+  entries: { brand: string; store: StoreDto }[];
+}
+
+/** Group the flat store list by parent venue, preserving first-seen order. */
+function groupByVenue(stores: StoreDto[]): VenueGroup[] {
+  const map = new Map<string, VenueGroup>();
+  for (const s of stores) {
+    const { venue } = splitVenueName(s.name);
+    const g = map.get(venue) ?? { venue, entries: [] };
+    g.entries.push({ brand: s.brand, store: s });
+    map.set(venue, g);
+  }
+  return [...map.values()];
+}
+
+type LifecycleMutation = {
+  isPending: boolean;
+  variables?: { id: string; close: boolean };
+  mutate: (v: { id: string; close: boolean }) => void;
+};
+
+/** One venue row: its name + a brand toggle (when it has more than one concession),
+ *  and the selected store's segmentation + actions. */
+function VenueRow({
+  group,
+  campaignByProject,
+  projectName,
+  onEdit,
+  lifecycle,
+}: {
+  group: VenueGroup;
+  campaignByProject: Map<string, string | undefined>;
+  projectName: Map<string, string>;
+  onEdit: (store: StoreDto) => void;
+  lifecycle: LifecycleMutation;
+}) {
+  const { entries } = group;
+  const navigate = useNavigate();
+  // Floor plan + row actions default to the Custom Chef concession (else first
+  // open, else first). Brand switching now happens on the floor plan, not here.
+  const active = (
+    entries.find((e) => isDefaultBrand(e.brand) && !e.store.closedAt) ??
+    entries.find((e) => !e.store.closedAt) ??
+    entries[0]!
+  ).store;
+  const closed = Boolean(active.closedAt);
+  const busy = lifecycle.isPending && lifecycle.variables?.id === active.id;
+  // This store's OWN project campaign — never the active project's (a directory
+  // row may belong to a different project than the one the studio is working in).
+  const campaignId = active.projectId ? campaignByProject.get(active.projectId) : undefined;
+
+  return (
+    <li className={`px-5 py-3.5${closed ? ' opacity-60' : ''}`}>
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="truncate font-display text-[15px] font-semibold text-ink">
+              {group.venue}
+            </span>
+            {closed ? (
+              <Badge variant="warn">
+                <Archive className="h-3 w-3" aria-hidden /> Closed
+              </Badge>
+            ) : null}
+          </div>
+          {/* Concession brands — informational only. Switch concessions on the
+              floor plan (defaults to Custom Chef), not in the directory. */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {entries.map((e) => (
+              <Badge key={e.store.id} variant={e.store.id === active.id ? 'outline' : 'muted'}>
+                {brandLabel(e.brand)}
+                {e.store.closedAt ? (
+                  <Archive className="h-3 w-3" aria-label="closed" />
+                ) : null}
+              </Badge>
+            ))}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {active.projectId ? (
+              <Badge variant="outline">
+                {projectName.get(active.projectId) ?? 'Project'}
+              </Badge>
+            ) : (
+              <Badge variant="muted" className="text-warn">
+                No project
+              </Badge>
+            )}
+            {active.region ? <Badge variant="muted">{active.region}</Badge> : null}
+            {active.storeType ? (
+              <Badge variant="muted">{active.storeType}</Badge>
+            ) : null}
+            {active.areaManager ? (
+              <Badge variant="muted">AM: {active.areaManager}</Badge>
+            ) : null}
+            {!active.region && !active.storeType && !active.areaManager ? (
+              <span className="text-xs text-steel">No segmentation set</span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1">
+          {!closed && campaignId ? (
+            // One control, not a button nested in a link — nested interactive
+            // elements double the tab stops and confuse screen readers.
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`Open ${active.name}'s floor plan`}
+              onClick={() => navigate(`/studio/${campaignId}/store/${active.id}`)}
+            >
+              <MapIcon className="h-4 w-4" /> Floor plan
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onEdit(active)}
+            aria-label={`Edit ${active.name}`}
+          >
+            <Pencil className="h-4 w-4" /> Edit
+          </Button>
+          {closed ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => lifecycle.mutate({ id: active.id, close: false })}
+              aria-label={`Reactivate ${active.name}`}
+            >
+              <RotateCcw className="h-4 w-4" /> Reactivate
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-fail"
+              disabled={busy}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Deactivate “${active.name}”? It will be hidden from the store switcher, rosters and reports. You can reactivate it later.`,
+                  )
+                ) {
+                  lifecycle.mutate({ id: active.id, close: true });
+                }
+              }}
+              aria-label={`Deactivate ${active.name}`}
+            >
+              <Archive className="h-4 w-4" /> Deactivate
+            </Button>
+          )}
+        </div>
+      </div>
+    </li>
   );
 }
 
@@ -408,260 +469,6 @@ function StoreFormDialog({
               disabled={!name.trim() || !brand.trim() || save.isPending}
             >
               {save.isPending ? 'Saving…' : store ? 'Save changes' : 'Add store'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-const TASK_KINDS: { value: TaskKind; label: string }[] = [
-  { value: 'GENERAL', label: 'General ask' },
-  { value: 'UPLOAD_PHOTO', label: 'Upload a fixture photo' },
-  { value: 'LOG_SALES', label: 'Log sales' },
-];
-
-/** Assign one task to a single store, or in bulk to the whole listed roster. */
-function AssignTaskDialog({
-  assigning,
-  onClose,
-}: {
-  assigning: Assigning;
-  onClose: () => void;
-}) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const open = assigning !== null;
-  const single = assigning && 'store' in assigning ? assigning.store : null;
-  // Bulk mode opens with the whole active roster as candidates; admin narrows it.
-  const candidates = assigning && 'pick' in assigning ? assigning.pick : [];
-
-  const [kind, setKind] = React.useState<TaskKind>('GENERAL');
-  const [title, setTitle] = React.useState('');
-  const [body, setBody] = React.useState('');
-  const [fixtureKey, setFixtureKey] = React.useState('');
-  const [dueAt, setDueAt] = React.useState('');
-  // Bulk only: the selected store ids and the store filter query.
-  const [selected, setSelected] = React.useState<Set<string>>(new Set());
-  const [storeFilter, setStoreFilter] = React.useState('');
-
-  // Reset the form each time the dialog opens; bulk starts with all selected.
-  React.useEffect(() => {
-    if (!open) return;
-    setKind('GENERAL');
-    setTitle('');
-    setBody('');
-    setFixtureKey('');
-    setDueAt('');
-    setStoreFilter('');
-    setSelected(new Set(candidates.map((s) => s.id)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  const count = single ? 1 : selected.size;
-  const label = single
-    ? single.name
-    : `${count} ${count === 1 ? 'store' : 'stores'}`;
-
-  // Filter the candidate list by name / brand / segmentation for quick narrowing.
-  const filtered = React.useMemo(() => {
-    const q = storeFilter.trim().toLowerCase();
-    if (!q) return candidates;
-    return candidates.filter((s) =>
-      `${s.name} ${s.brand} ${s.region ?? ''} ${s.areaManager ?? ''} ${s.storeType ?? ''}`
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [candidates, storeFilter]);
-
-  const toggle = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const assign = useMutation({
-    mutationFn: () => {
-      const base = {
-        kind,
-        title: title.trim(),
-        ...(body.trim() ? { body: body.trim() } : {}),
-        // <input type="date"> gives YYYY-MM-DD; the API wants a full ISO datetime.
-        ...(dueAt ? { dueAt: new Date(`${dueAt}T00:00:00`).toISOString() } : {}),
-        ...(kind === 'UPLOAD_PHOTO' && fixtureKey.trim()
-          ? { fixtureKey: fixtureKey.trim() }
-          : {}),
-      };
-      if (single) {
-        return api.adminTasks.create(single.id, base).then(() => 1);
-      }
-      return api.adminTasks
-        .bulkCreate({ storeIds: [...selected], ...base })
-        .then((r) => r.created);
-    },
-    onSuccess: (n) => {
-      void qc.invalidateQueries({ queryKey: ['manager', 'tasks'] });
-      void qc.invalidateQueries({ queryKey: ['manager', 'home'] });
-      toast.success(n === 1 ? 'Task assigned' : `Task assigned to ${n} stores`);
-      onClose();
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim() || count === 0 || assign.isPending) return;
-    assign.mutate();
-  };
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) onClose();
-      }}
-    >
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Assign a task</DialogTitle>
-          <DialogDescription>
-            To {label}. It appears on the store manager's home and Tasks list.
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={submit} className="mt-1 space-y-3">
-          {single ? null : (
-            <div className="block">
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-xs font-medium text-graphite">
-                  Stores ({selected.size}/{candidates.length})
-                </span>
-                <div className="flex gap-3 text-xs">
-                  <button
-                    type="button"
-                    className="text-steel transition-colors hover:text-ink"
-                    onClick={() =>
-                      setSelected(new Set(candidates.map((s) => s.id)))
-                    }
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    className="text-steel transition-colors hover:text-ink"
-                    onClick={() => setSelected(new Set())}
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-              <input
-                value={storeFilter}
-                onChange={(e) => setStoreFilter(e.target.value)}
-                placeholder="Filter by name, brand, region…"
-                className={fieldCls}
-              />
-              <ul className="mt-2 max-h-48 space-y-0.5 overflow-y-auto rounded-md border border-mist/70 bg-paper p-1">
-                {filtered.map((s) => (
-                  <li key={s.id}>
-                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-mist/30">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(s.id)}
-                        onChange={() => toggle(s.id)}
-                        className="h-4 w-4 shrink-0 rounded border-mist accent-graphite"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-ink">
-                        {s.name} <span className="text-steel">· {s.brand}</span>
-                      </span>
-                      {s.region ? (
-                        <Badge variant="muted">{s.region}</Badge>
-                      ) : null}
-                    </label>
-                  </li>
-                ))}
-                {filtered.length === 0 ? (
-                  <li className="px-2 py-3 text-center text-xs text-steel">
-                    No stores match “{storeFilter}”.
-                  </li>
-                ) : null}
-              </ul>
-            </div>
-          )}
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-graphite">
-              Type
-            </span>
-            <select
-              value={kind}
-              onChange={(e) => setKind(e.target.value as TaskKind)}
-              className={fieldCls}
-            >
-              {TASK_KINDS.map((k) => (
-                <option key={k.value} value={k.value}>
-                  {k.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Field
-            label="Title"
-            value={title}
-            onChange={setTitle}
-            autoFocus
-            placeholder="e.g. Re-shoot the storefront"
-          />
-          {kind === 'UPLOAD_PHOTO' ? (
-            <Field
-              label="Fixture key (optional)"
-              value={fixtureKey}
-              onChange={setFixtureKey}
-              placeholder="storefront"
-            />
-          ) : null}
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-graphite">
-              Details (optional)
-            </span>
-            <textarea
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              rows={3}
-              className={fieldCls}
-              placeholder="What you're asking the manager to do."
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-graphite">
-              Due date (optional)
-            </span>
-            <input
-              type="date"
-              value={dueAt}
-              onChange={(e) => setDueAt(e.target.value)}
-              className={fieldCls}
-            />
-          </label>
-          {assign.isError ? (
-            <p className="text-sm text-fail">{errorMessage(assign.error)}</p>
-          ) : null}
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="ghost" type="button">
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button
-              type="submit"
-              disabled={!title.trim() || count === 0 || assign.isPending}
-            >
-              {assign.isPending
-                ? 'Assigning…'
-                : count > 1
-                  ? `Assign to ${count} stores`
-                  : 'Assign task'}
             </Button>
           </DialogFooter>
         </form>

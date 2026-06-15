@@ -2,7 +2,6 @@ import * as React from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  AlertTriangle,
   CheckCircle2,
   ChevronRight,
   CircleDashed,

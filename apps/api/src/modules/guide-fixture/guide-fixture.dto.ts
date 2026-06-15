@@ -10,6 +10,38 @@ export const SaveNotesSchema = z
 
 export type SaveNotesInput = z.infer<typeof SaveNotesSchema>;
 
+// PUT /guide-fixtures/:id/instructions — replace the ordered step list.
+export const SaveInstructionsSchema = z
+  .object({
+    steps: z.array(z.object({ text: z.string().max(2000) }).strict()).max(50),
+  })
+  .strict();
+export type SaveInstructionsInput = z.infer<typeof SaveInstructionsSchema>;
+
+// POST /guide-fixtures/:id/checklist — add a checklist item.
+export const AddChecklistSchema = z
+  .object({
+    label: z.string().min(1).max(200),
+    required: z.boolean().optional(),
+  })
+  .strict();
+export type AddChecklistInput = z.infer<typeof AddChecklistSchema>;
+
+// PATCH /guide-fixtures/:id/checklist/:itemId — edit a checklist item.
+export const UpdateChecklistSchema = z
+  .object({
+    label: z.string().min(1).max(200).optional(),
+    required: z.boolean().optional(),
+  })
+  .strict();
+export type UpdateChecklistInput = z.infer<typeof UpdateChecklistSchema>;
+
+// POST /guide-fixtures/:id/checklist/reorder — full ordered id list.
+export const ReorderChecklistSchema = z
+  .object({ ids: z.array(z.string().min(1)).min(1) })
+  .strict();
+export type ReorderChecklistInput = z.infer<typeof ReorderChecklistSchema>;
+
 // Optional POST /guide-fixtures/:id/merchandise — place a product on the sheet.
 export const AddMerchandiseSchema = z
   .object({
